@@ -110,6 +110,7 @@ After restart, go to **Settings → Integrations → Add Integration** and searc
 | is_brushing detection | Not yet confirmed for Oclean X; always reports `off` currently |
 | Brush head reset button | Sends reset command to device; no response verification yet |
 | Session history pagination | Fetches multiple pages of session history from device |
+| Offline session import | Sessions recorded while HA was unreachable are imported on the next poll, provided they are still in the device's buffer. Note: the official Oclean app likely clears the buffer on sync – for best results, avoid using the official app in parallel. |
 | HA long-term statistics | Sessions imported with their actual timestamps (historical data support) |
 | Bluetooth auto-discovery | Device is found automatically if visible to HA Bluetooth |
 | Older device protocol | Two data formats implemented; not yet tested on real non-X hardware |
