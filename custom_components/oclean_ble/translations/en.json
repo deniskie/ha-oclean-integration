@@ -1,0 +1,94 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Oclean Toothbrush (inofficial)",
+        "description": "Set up your Oclean Smart Toothbrush. Nearby devices will be listed automatically if Bluetooth is enabled."
+      },
+      "pick_device": {
+        "title": "Select Oclean Device",
+        "description": "Select the Oclean device to integrate.",
+        "data": {
+          "mac_address": "Device",
+          "poll_interval": "Poll interval (seconds)"
+        }
+      },
+      "manual": {
+        "title": "Manual Setup",
+        "description": "No Oclean devices were found nearby. Enter the MAC address of your Oclean toothbrush manually. You can find it in the official Oclean app under device settings.",
+        "data": {
+          "mac_address": "MAC Address (e.g. AA:BB:CC:DD:EE:FF)",
+          "device_name": "Device name",
+          "poll_interval": "Poll interval (seconds)"
+        },
+        "data_description": {
+          "mac_address": "The Bluetooth MAC address of your Oclean toothbrush.",
+          "poll_interval": "How often (in seconds) to poll the device. Minimum 60 s. Default: 300 s (5 min)."
+        }
+      },
+      "confirm": {
+        "title": "Confirm Oclean Device",
+        "description": "Found Oclean device **{name}** ({mac}). Confirm to add it.",
+        "data": {
+          "poll_interval": "Poll interval (seconds)"
+        }
+      }
+    },
+    "error": {
+      "invalid_mac": "Invalid MAC address format. Please use AA:BB:CC:DD:EE:FF.",
+      "cannot_connect": "Failed to connect to the device. Make sure it is charged and nearby."
+    },
+    "abort": {
+      "already_configured": "This Oclean device is already configured.",
+      "no_devices_found": "No Oclean devices found."
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "is_brushing": {
+        "name": "Brushing"
+      }
+    },
+    "button": {
+      "reset_brush_head": {
+        "name": "Reset Brush Head"
+      }
+    },
+    "sensor": {
+      "battery": {
+        "name": "Battery"
+      },
+      "last_brush_score": {
+        "name": "Last Brush Score"
+      },
+      "last_brush_duration": {
+        "name": "Last Brush Duration"
+      },
+      "last_brush_clean": {
+        "name": "Last Brush Clean"
+      },
+      "last_brush_pressure": {
+        "name": "Last Brush Pressure"
+      },
+      "last_brush_time": {
+        "name": "Last Brush Time"
+      },
+      "brush_head_usage": {
+        "name": "Brush Head Usage"
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Oclean Options",
+        "data": {
+          "poll_interval": "Poll interval (seconds)"
+        },
+        "data_description": {
+          "poll_interval": "How often to poll the toothbrush over Bluetooth. Minimum 60 s."
+        }
+      }
+    }
+  }
+}

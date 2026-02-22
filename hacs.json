@@ -1,0 +1,6 @@
+{
+    "name": "Oclean Toothbrush (inofficial)",
+    "content_in_root": false,
+    "render_readme": true,
+    "homeassistant": "2023.4.0"
+}
