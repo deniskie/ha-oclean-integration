@@ -113,6 +113,7 @@ After restart, go to **Settings → Integrations → Add Integration** and searc
 | HA long-term statistics | Sessions imported with their actual timestamps (historical data support) |
 | Bluetooth auto-discovery | Device is found automatically if visible to HA Bluetooth |
 | Older device protocol | Two data formats implemented; not yet tested on real non-X hardware |
+| Multiple brushes in one household | Each brush is a separate config entry; not yet tested with multiple devices |
 
 ### ❌ Not Yet Implemented
 
@@ -120,8 +121,6 @@ After restart, go to **Settings → Integrations → Add Integration** and searc
 |---------|---------|
 | Real-time brushing detection | is_brushing flag unreliable on Oclean X (see issue tracker) |
 | Device model/firmware sensor | Device info response parsed but no version data extracted |
-| German UI translations | Only English strings present |
-| Multiple brushes in one household | Supported via multiple config entries; not tested |
 
 ---
 
@@ -164,7 +163,7 @@ Unknown notification types are logged as hex – this helps extend the parser.
 - [ ] Confirm is_brushing detection on Oclean X
 - [ ] Validate tooth zone pressure data on real hardware
 - [ ] Validate real-time zone guidance on K3-series devices
-- [ ] Add German translations (`translations/de.json`)
+- [x] Add German translations (`translations/de.json`)
 - [ ] Publish to HACS default repository
 - [ ] Decode remaining unknown fields in Oclean X session data
 

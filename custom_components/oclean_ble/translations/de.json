@@ -1,0 +1,94 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Oclean Zahnbürste (inoffiziell)",
+        "description": "Oclean Smart Toothbrush einrichten. Wenn Bluetooth aktiviert ist, werden Geräte in der Nähe automatisch gefunden."
+      },
+      "pick_device": {
+        "title": "Oclean-Gerät auswählen",
+        "description": "Wähle das Oclean-Gerät aus, das integriert werden soll.",
+        "data": {
+          "mac_address": "Gerät",
+          "poll_interval": "Abfrageintervall (Sekunden)"
+        }
+      },
+      "manual": {
+        "title": "Manuelle Einrichtung",
+        "description": "Es wurden keine Oclean-Geräte in der Nähe gefunden. Gib die MAC-Adresse deiner Oclean-Zahnbürste manuell ein. Du findest sie in der offiziellen Oclean-App unter den Geräteeinstellungen.",
+        "data": {
+          "mac_address": "MAC-Adresse (z. B. AA:BB:CC:DD:EE:FF)",
+          "device_name": "Gerätename",
+          "poll_interval": "Abfrageintervall (Sekunden)"
+        },
+        "data_description": {
+          "mac_address": "Die Bluetooth-MAC-Adresse deiner Oclean-Zahnbürste.",
+          "poll_interval": "Wie oft (in Sekunden) das Gerät abgefragt werden soll. Minimum: 60 s. Standard: 300 s (5 min)."
+        }
+      },
+      "confirm": {
+        "title": "Oclean-Gerät bestätigen",
+        "description": "Oclean-Gerät **{name}** ({mac}) gefunden. Bestätigen, um es hinzuzufügen.",
+        "data": {
+          "poll_interval": "Abfrageintervall (Sekunden)"
+        }
+      }
+    },
+    "error": {
+      "invalid_mac": "Ungültiges MAC-Adress-Format. Bitte AA:BB:CC:DD:EE:FF verwenden.",
+      "cannot_connect": "Verbindung zum Gerät fehlgeschlagen. Bitte sicherstellen, dass es geladen und in Reichweite ist."
+    },
+    "abort": {
+      "already_configured": "Dieses Oclean-Gerät ist bereits eingerichtet.",
+      "no_devices_found": "Keine Oclean-Geräte gefunden."
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "is_brushing": {
+        "name": "Zähneputzen aktiv"
+      }
+    },
+    "button": {
+      "reset_brush_head": {
+        "name": "Bürstenkopf zurücksetzen"
+      }
+    },
+    "sensor": {
+      "battery": {
+        "name": "Akku"
+      },
+      "last_brush_score": {
+        "name": "Letzter Putzscore"
+      },
+      "last_brush_duration": {
+        "name": "Letzte Putzdauer"
+      },
+      "last_brush_clean": {
+        "name": "Letzte Reinigungsabdeckung"
+      },
+      "last_brush_pressure": {
+        "name": "Letzter Putzdruck"
+      },
+      "last_brush_time": {
+        "name": "Letzter Putzzeitpunkt"
+      },
+      "brush_head_usage": {
+        "name": "Bürstenkopfnutzung"
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Oclean-Optionen",
+        "data": {
+          "poll_interval": "Abfrageintervall (Sekunden)"
+        },
+        "data_description": {
+          "poll_interval": "Wie oft die Zahnbürste per Bluetooth abgefragt werden soll. Minimum: 60 s."
+        }
+      }
+    }
+  }
+}
