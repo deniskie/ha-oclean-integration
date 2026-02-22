@@ -23,7 +23,6 @@ from .const import (
     CHANGE_INFO_UUID,
     CMD_CALIBRATE_TIME_PREFIX,
     CMD_CLEAR_BRUSH_HEAD,
-    CMD_DEVICE_INFO,
     CMD_QUERY_RUNNING_DATA,
     CMD_QUERY_RUNNING_DATA_NEXT,
     CMD_QUERY_RUNNING_DATA_T1,
@@ -164,6 +163,11 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         # and the software counter is no longer written to the sensor.
         self._brush_head_sw_count: int = 0
         self._brush_head_hw_supported: bool = False
+
+        # Unix timestamp of the last successful DIS read.  0.0 = never read.
+        # DIS values (model, firmware, hw revision) are stable but could change
+        # after a firmware update, so we re-read them every 24 hours.
+        self._dis_last_read_ts: float = 0.0
 
     # ------------------------------------------------------------------
     # DataUpdateCoordinator interface
@@ -394,6 +398,25 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         Also updates the HA device registry so the info panel shows the
         firmware version without needing a dedicated sensor.
         """
+        # Firmware/model info rarely changes (only after a firmware update).
+        # Re-read from the device at most once every 24 h; use the cached values
+        # from _last_raw for all other polls to keep the BLE session short.
+        _DIS_REFRESH_INTERVAL = 86_400  # 24 h in seconds
+        dis_keys = (DATA_MODEL_ID, DATA_HW_REVISION, DATA_SW_VERSION)
+        age = time.time() - self._dis_last_read_ts
+        if self._dis_last_read_ts > 0 and age < _DIS_REFRESH_INTERVAL:
+            for key in dis_keys:
+                cached = self._last_raw.get(key)
+                if cached:
+                    collected[key] = cached
+            _LOGGER.debug(
+                "Oclean DIS skipped (cached, %.0f h until refresh: model=%s sw=%s)",
+                (_DIS_REFRESH_INTERVAL - age) / 3600,
+                self._last_raw.get(DATA_MODEL_ID),
+                self._last_raw.get(DATA_SW_VERSION),
+            )
+            return
+
         dis_chars = {
             DATA_MODEL_ID:    DIS_MODEL_UUID,
             DATA_HW_REVISION: DIS_HW_REV_UUID,
@@ -406,6 +429,9 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
                 _LOGGER.debug("Oclean DIS %s: %s", key, collected[key])
             except Exception as err:  # noqa: BLE001
                 _LOGGER.debug("Oclean DIS read skipped for %s: %s", uuid[-8:], err)
+
+        if any(collected.get(k) for k in dis_keys):
+            self._dis_last_read_ts = time.time()
 
         # Mirror model/firmware into the HA device registry so the device
         # info panel shows the values without requiring a dedicated sensor.
@@ -466,11 +492,9 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("Oclean status query failed: %s (%s)", err, type(err).__name__)
 
-        try:
-            await client.write_gatt_char(WRITE_CHAR_UUID, CMD_DEVICE_INFO, response=True)
-            _LOGGER.debug("Oclean CMD_DEVICE_INFO sent")
-        except Exception as err:  # noqa: BLE001
-            _LOGGER.warning("Oclean device-info query failed: %s (%s)", err, type(err).__name__)
+        # CMD_DEVICE_INFO (0202) intentionally omitted: the device responds with a plain
+        # "OK" ACK that provides no useful data.  All firmware/model info comes from the
+        # BLE Device Information Service (0x180A) read in _read_device_info_service().
 
         # Running-data first page (0308); also try Type-1 variant (device ignores unknown cmds)
         try:
@@ -526,7 +550,12 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
     async def _read_battery_and_unsubscribe(
         self, client: BleakClient, collected: dict[str, Any]
     ) -> None:
-        """Read battery level via GATT and unsubscribe from all notification characteristics."""
+        """Read battery level via GATT.
+
+        stop_notify is intentionally omitted: the BLE disconnect in _poll_device's
+        finally block tears down all subscriptions automatically, saving 4 extra
+        GATT round-trips (~0.4 s) per poll.
+        """
         _LOGGER.debug("Oclean poll collected so far: %s", collected)
         try:
             batt_raw = await client.read_gatt_char(BATTERY_CHAR_UUID)
@@ -536,12 +565,6 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
                 collected[DATA_BATTERY] = batt
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("Oclean battery read failed: %s (%s)", err, type(err).__name__)
-
-        for char_uuid in _NOTIFY_CHARS:
-            try:
-                await client.stop_notify(char_uuid)
-            except BleakError:
-                pass
 
     async def _import_new_sessions(self, sessions: list[dict[str, Any]]) -> None:
         """Import brush sessions newer than last_session_ts into HA long-term statistics.
