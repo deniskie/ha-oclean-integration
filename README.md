@@ -97,6 +97,7 @@ After restart, go to **Settings → Integrations → Add Integration** and searc
 | Stale data persistence | Sensors keep last known value when device is unreachable |
 | Config flow | Manual MAC address entry with validation |
 | Duplicate prevention | Sessions deduplicated by timestamp; no double-import |
+| Device info | Model, firmware version, and hardware revision read from standard BLE Device Information Service (0x180A); shown in HA device info panel and as diagnostic sensors |
 
 ### ⚠️ Implemented – Needs More Testing
 
@@ -121,7 +122,6 @@ After restart, go to **Settings → Integrations → Add Integration** and searc
 | Feature | Details |
 |---------|---------|
 | Real-time brushing detection | is_brushing flag unreliable on Oclean X (see issue tracker) |
-| Device model/firmware sensor | Device info response parsed but no version data extracted |
 
 ---
 

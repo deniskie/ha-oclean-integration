@@ -30,6 +30,7 @@ from .const import (
     CMD_QUERY_STATUS,
     DATA_BATTERY,
     DATA_BRUSH_HEAD_USAGE,
+    DATA_HW_REVISION,
     DATA_IS_BRUSHING,
     DATA_LAST_BRUSH_AREAS,
     DATA_LAST_BRUSH_CLEAN,
@@ -39,6 +40,11 @@ from .const import (
     DATA_LAST_BRUSH_SCORE,
     DATA_LAST_BRUSH_SCHEME_TYPE,
     DATA_LAST_BRUSH_TIME,
+    DATA_MODEL_ID,
+    DATA_SW_VERSION,
+    DIS_HW_REV_UUID,
+    DIS_MODEL_UUID,
+    DIS_SW_REV_UUID,
     DOMAIN,
     MAX_SESSION_PAGES,
     READ_NOTIFY_CHAR_UUID,
@@ -97,6 +103,9 @@ _PERSISTENT_KEYS = (
     DATA_LAST_BRUSH_AREAS,
     DATA_LAST_BRUSH_SCHEME_TYPE,
     DATA_LAST_BRUSH_PNUM,
+    DATA_MODEL_ID,
+    DATA_HW_REVISION,
+    DATA_SW_VERSION,
 )
 
 # Metrics exported to HA long-term statistics
@@ -364,6 +373,7 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
                     session_received.set()
 
         await self._calibrate_time(client)
+        await self._read_device_info_service(client, collected)
         await self._subscribe_notifications(client, notification_handler)
         await self._send_query_commands(client, session_received)
         await self._paginate_sessions(client, all_sessions, session_received)
@@ -374,6 +384,54 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
             len(all_sessions), self._last_session_ts,
         )
         return all_sessions
+
+    async def _read_device_info_service(
+        self, client: BleakClient, collected: dict[str, Any]
+    ) -> None:
+        """Read BLE Device Information Service (0x180A) characteristics.
+
+        Populates model_id, hw_revision, and sw_version in collected.
+        Also updates the HA device registry so the info panel shows the
+        firmware version without needing a dedicated sensor.
+        """
+        dis_chars = {
+            DATA_MODEL_ID:    DIS_MODEL_UUID,
+            DATA_HW_REVISION: DIS_HW_REV_UUID,
+            DATA_SW_VERSION:  DIS_SW_REV_UUID,
+        }
+        for key, uuid in dis_chars.items():
+            try:
+                raw = await client.read_gatt_char(uuid)
+                collected[key] = raw.decode("utf-8").strip("\x00").strip()
+                _LOGGER.debug("Oclean DIS %s: %s", key, collected[key])
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.debug("Oclean DIS read skipped for %s: %s", uuid[-8:], err)
+
+        # Mirror model/firmware into the HA device registry so the device
+        # info panel shows the values without requiring a dedicated sensor.
+        sw_version = collected.get(DATA_SW_VERSION)
+        hw_revision = collected.get(DATA_HW_REVISION)
+        model_id = collected.get(DATA_MODEL_ID)
+        if sw_version or model_id:
+            try:
+                from homeassistant.helpers import device_registry as dr  # noqa: PLC0415
+                device_registry = dr.async_get(self.hass)
+                device_entry = device_registry.async_get_device(
+                    identifiers={(DOMAIN, self._mac)}
+                )
+                if device_entry:
+                    device_registry.async_update_device(
+                        device_entry.id,
+                        sw_version=sw_version,
+                        hw_version=hw_revision,
+                        model=model_id,
+                    )
+                    _LOGGER.debug(
+                        "Oclean device registry updated: model=%s sw=%s hw=%s",
+                        model_id, sw_version, hw_revision,
+                    )
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.debug("Oclean device registry update skipped: %s", err)
 
     async def _calibrate_time(self, client: BleakClient) -> None:
         """Send time-calibration command (020E + BE timestamp)."""

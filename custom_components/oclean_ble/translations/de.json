@@ -75,6 +75,15 @@
       },
       "brush_head_usage": {
         "name": "Bürstenkopfnutzung"
+      },
+      "sw_version": {
+        "name": "Firmware-Version"
+      },
+      "model_id": {
+        "name": "Modell"
+      },
+      "hw_revision": {
+        "name": "Hardware-Revision"
       }
     }
   },

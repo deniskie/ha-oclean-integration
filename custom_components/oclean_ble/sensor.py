@@ -11,7 +11,7 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import PERCENTAGE, UnitOfTime
+from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfTime
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -20,6 +20,7 @@ from .const import (
     CONF_MAC_ADDRESS,
     DATA_BATTERY,
     DATA_BRUSH_HEAD_USAGE,
+    DATA_HW_REVISION,
     DATA_LAST_BRUSH_AREAS,
     DATA_LAST_BRUSH_CLEAN,
     DATA_LAST_BRUSH_DURATION,
@@ -28,6 +29,8 @@ from .const import (
     DATA_LAST_BRUSH_SCORE,
     DATA_LAST_BRUSH_SCHEME_TYPE,
     DATA_LAST_BRUSH_TIME,
+    DATA_MODEL_ID,
+    DATA_SW_VERSION,
     DOMAIN,
     SCHEME_NAMES,
 )
@@ -92,6 +95,25 @@ SENSOR_DESCRIPTIONS: tuple[SensorEntityDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:clipboard-list",
         # Integer 0-8: brush-scheme category. Names are cloud-managed; not mapped here.
+    ),
+    # Device information (diagnostic) – read from BLE Device Information Service (0x180A)
+    SensorEntityDescription(
+        key=DATA_SW_VERSION,
+        name="Firmware Version",
+        icon="mdi:chip",
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
+    SensorEntityDescription(
+        key=DATA_MODEL_ID,
+        name="Model",
+        icon="mdi:identifier",
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
+    SensorEntityDescription(
+        key=DATA_HW_REVISION,
+        name="Hardware Revision",
+        icon="mdi:wrench",
+        entity_category=EntityCategory.DIAGNOSTIC,
     ),
     # NOTE: DATA_LAST_BRUSH_PNUM is handled by OcleanSchemeSensor below (custom class).
 )

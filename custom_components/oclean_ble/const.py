@@ -9,6 +9,11 @@ MIN_POLL_INTERVAL = 60       # 1 minute
 
 # BLE UUIDs
 OCLEAN_SERVICE_UUID = "8082caa8-41a6-4021-91c6-56f9b954cc18"
+
+# BLE Device Information Service (0x180A) – standard GATT service
+DIS_MODEL_UUID   = "00002a24-0000-1000-8000-00805f9b34fb"   # Model Number String
+DIS_HW_REV_UUID  = "00002a27-0000-1000-8000-00805f9b34fb"   # Hardware Revision String
+DIS_SW_REV_UUID  = "00002a28-0000-1000-8000-00805f9b34fb"   # Software Revision String
 BATTERY_SERVICE_UUID = "0000180f-0000-1000-8000-00805f9b34fb"
 BATTERY_CHAR_UUID = "00002a19-0000-1000-8000-00805f9b34fb"       # Read, Notify
 READ_NOTIFY_CHAR_UUID = "5f78df94-798c-46f5-990a-855b673fbb86"   # Notify (all types)
@@ -70,6 +75,9 @@ CMD_CLEAR_BRUSH_HEAD = bytes.fromhex("020F")
 
 # Coordinator data keys (additional)
 DATA_BRUSH_HEAD_USAGE = "brush_head_usage"
+DATA_MODEL_ID    = "model_id"       # Model Number from BLE DIS (e.g. "OCLEANY3M")
+DATA_HW_REVISION = "hw_revision"   # Hardware Revision from BLE DIS (e.g. "Rev.D")
+DATA_SW_VERSION  = "sw_version"    # Software Revision from BLE DIS (e.g. "1.0.0.20")
 DATA_LAST_BRUSH_AREAS = "last_brush_areas"         # dict: zone_name → pressure (0-255)
 DATA_LAST_BRUSH_SCHEME_TYPE = "last_brush_scheme_type"  # int 0-8 (scheme category)
 DATA_LAST_BRUSH_PNUM = "last_brush_pnum"            # int (brush-scheme ID; see SCHEME_NAMES below)
