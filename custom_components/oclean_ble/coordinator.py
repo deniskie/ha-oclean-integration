@@ -6,6 +6,7 @@ import logging
 import struct
 import time
 import traceback
+from datetime import time as _dtime
 from datetime import timedelta
 from typing import Any
 
@@ -90,6 +91,45 @@ def _patch_aioesphomeapi_uuid_parser() -> None:
 _patch_aioesphomeapi_uuid_parser()
 
 
+# ---------------------------------------------------------------------------
+# Poll-window helpers
+# ---------------------------------------------------------------------------
+
+def _parse_poll_windows(windows_str: str) -> list[tuple[_dtime, _dtime]]:
+    """Parse 'HH:MM-HH:MM[, HH:MM-HH:MM, ...]' into (start, end) time pairs.
+
+    Accepts up to 3 windows.  Windows where start == end are skipped.
+    Invalid entries are silently ignored.
+    """
+    result: list[tuple[_dtime, _dtime]] = []
+    for part in (windows_str or "").split(","):
+        part = part.strip()
+        if "-" not in part:
+            continue
+        try:
+            s, e = part.split("-", 1)
+            sh, sm = s.strip().split(":")
+            eh, em = e.strip().split(":")
+            start = _dtime(int(sh), int(sm))
+            end = _dtime(int(eh), int(em))
+        except (ValueError, AttributeError):
+            continue
+        if start != end:
+            result.append((start, end))
+    return result[:3]  # honour the "up to 3 windows" promise
+
+
+def _in_window(start: _dtime, end: _dtime, now: _dtime) -> bool:
+    """Return True if *now* falls within [start, end].
+
+    Supports overnight windows (e.g. 23:00–01:00) where start > end.
+    """
+    if start < end:
+        return start <= now <= end
+    # overnight window
+    return now >= start or now <= end
+
+
 # Keys that persist from previous poll when the device is unreachable
 _PERSISTENT_KEYS = (
     DATA_BATTERY,
@@ -134,6 +174,8 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         mac_address: str,
         device_name: str,
         update_interval: int,
+        poll_windows: str = "",
+        post_brush_cooldown_h: int = 0,
     ) -> None:
         super().__init__(
             hass,
@@ -169,6 +211,12 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         # after a firmware update, so we re-read them every 24 hours.
         self._dis_last_read_ts: float = 0.0
 
+        # Smart polling: optional time windows + post-brush cooldown.
+        self._poll_windows: list[tuple[_dtime, _dtime]] = _parse_poll_windows(poll_windows)
+        self._post_brush_cooldown_s: int = post_brush_cooldown_h * 3600
+        # Unix timestamp until which polls are suppressed after a new session.
+        self._cooldown_until: float = 0.0
+
     # ------------------------------------------------------------------
     # DataUpdateCoordinator interface
     # ------------------------------------------------------------------
@@ -178,6 +226,15 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         # Load persisted session timestamp on first poll
         if not self._store_loaded:
             await self._load_store()
+
+        # Smart polling: skip BLE connection when outside a configured time window
+        # or while the post-brush cooldown is active.
+        skip_reason = self._poll_skip_reason()
+        if skip_reason:
+            _LOGGER.debug("Oclean poll skipped: %s", skip_reason)
+            if self._last_raw:
+                return OcleanDeviceData.from_dict(self._last_raw)
+            return OcleanDeviceData()
 
         try:
             raw = await self._poll_device()
@@ -244,6 +301,30 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    def _poll_skip_reason(self) -> str | None:
+        """Return a human-readable reason to skip this poll, or None to proceed.
+
+        Checks (in order):
+          1. Post-brush cooldown: skip for N hours after the last new session.
+          2. Time windows: skip if the current time is outside all configured windows.
+        """
+        now_ts = time.time()
+        if self._cooldown_until and now_ts < self._cooldown_until:
+            remaining_h = (self._cooldown_until - now_ts) / 3600
+            return f"post-brush cooldown active ({remaining_h:.1f} h remaining)"
+
+        if self._poll_windows:
+            import datetime as _datetime  # noqa: PLC0415
+            now_t = _datetime.datetime.now().time()
+            if not any(_in_window(s, e, now_t) for s, e in self._poll_windows):
+                windows_str = ", ".join(
+                    f"{s.strftime('%H:%M')}-{e.strftime('%H:%M')}"
+                    for s, e in self._poll_windows
+                )
+                return f"outside poll windows ({windows_str})"
+
+        return None
 
     def _resolve_ble_device(self):
         """BLEDevice from HA Bluetooth registry; raises BleakError if not found."""
@@ -321,6 +402,16 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         # Import new sessions into HA long-term statistics
         if all_sessions:
             await self._import_new_sessions(all_sessions)
+
+        # Post-brush cooldown: pause polling for N hours after a new session
+        if new_session_count > 0 and self._post_brush_cooldown_s > 0:
+            self._cooldown_until = time.time() + self._post_brush_cooldown_s
+            _LOGGER.info(
+                "Oclean post-brush cooldown: %d new session(s) detected, "
+                "pausing polls for %.1f h",
+                new_session_count,
+                self._post_brush_cooldown_s / 3600,
+            )
 
         # Software brush-head counter: increment per new session when hw not supported
         if not self._brush_head_hw_supported:

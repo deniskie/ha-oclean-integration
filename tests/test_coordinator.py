@@ -1,12 +1,17 @@
 """Tests for coordinator.py – BleakClient is fully mocked."""
 from __future__ import annotations
 
+from datetime import time as dtime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 # conftest.py stubs HA + bleak before these imports
-from custom_components.oclean_ble.coordinator import OcleanCoordinator
+from custom_components.oclean_ble.coordinator import (
+    OcleanCoordinator,
+    _in_window,
+    _parse_poll_windows,
+)
 from custom_components.oclean_ble.const import (
     DATA_BATTERY,
     DATA_LAST_BRUSH_SCORE,
@@ -279,3 +284,80 @@ class TestDataPersistence:
         # Fresh battery overrides old; old score is carried forward
         assert result[DATA_BATTERY] == 61
         assert result[DATA_LAST_BRUSH_SCORE] == 88
+
+
+# ---------------------------------------------------------------------------
+# _parse_poll_windows
+# ---------------------------------------------------------------------------
+
+class TestParsePollWindows:
+    def test_empty_string_returns_empty_list(self):
+        assert _parse_poll_windows("") == []
+
+    def test_single_valid_window(self):
+        result = _parse_poll_windows("07:00-07:45")
+        assert result == [(dtime(7, 0), dtime(7, 45))]
+
+    def test_two_valid_windows(self):
+        result = _parse_poll_windows("07:00-07:45, 21:30-22:00")
+        assert result == [
+            (dtime(7, 0), dtime(7, 45)),
+            (dtime(21, 30), dtime(22, 0)),
+        ]
+
+    def test_three_valid_windows(self):
+        result = _parse_poll_windows("06:00-06:30, 12:00-12:15, 22:00-22:30")
+        assert len(result) == 3
+
+    def test_max_three_windows_enforced(self):
+        result = _parse_poll_windows("06:00-06:30, 12:00-12:15, 22:00-22:30, 23:00-23:30")
+        assert len(result) == 3
+
+    def test_invalid_entry_skipped(self):
+        result = _parse_poll_windows("badentry, 07:00-07:45")
+        assert result == [(dtime(7, 0), dtime(7, 45))]
+
+    def test_same_start_end_skipped(self):
+        result = _parse_poll_windows("07:00-07:00")
+        assert result == []
+
+    def test_overnight_window_preserved(self):
+        result = _parse_poll_windows("23:00-01:00")
+        assert result == [(dtime(23, 0), dtime(1, 0))]
+
+    def test_whitespace_tolerance(self):
+        result = _parse_poll_windows("  07:00-07:45  ,  21:30-22:00  ")
+        assert result == [
+            (dtime(7, 0), dtime(7, 45)),
+            (dtime(21, 30), dtime(22, 0)),
+        ]
+
+
+# ---------------------------------------------------------------------------
+# _in_window
+# ---------------------------------------------------------------------------
+
+class TestInWindow:
+    def test_inside_normal_window(self):
+        assert _in_window(dtime(7, 0), dtime(8, 0), dtime(7, 30)) is True
+
+    def test_at_start_of_window(self):
+        assert _in_window(dtime(7, 0), dtime(8, 0), dtime(7, 0)) is True
+
+    def test_at_end_of_window(self):
+        assert _in_window(dtime(7, 0), dtime(8, 0), dtime(8, 0)) is True
+
+    def test_before_window(self):
+        assert _in_window(dtime(7, 0), dtime(8, 0), dtime(6, 59)) is False
+
+    def test_after_window(self):
+        assert _in_window(dtime(7, 0), dtime(8, 0), dtime(8, 1)) is False
+
+    def test_overnight_inside_after_midnight(self):
+        assert _in_window(dtime(23, 0), dtime(1, 0), dtime(0, 30)) is True
+
+    def test_overnight_inside_before_midnight(self):
+        assert _in_window(dtime(23, 0), dtime(1, 0), dtime(23, 30)) is True
+
+    def test_overnight_outside(self):
+        assert _in_window(dtime(23, 0), dtime(1, 0), dtime(12, 0)) is False

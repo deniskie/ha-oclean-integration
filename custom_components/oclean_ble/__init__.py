@@ -14,7 +14,10 @@ from .const import (
     CONF_DEVICE_NAME,
     CONF_MAC_ADDRESS,
     CONF_POLL_INTERVAL,
+    CONF_POLL_WINDOWS,
+    CONF_POST_BRUSH_COOLDOWN,
     DEFAULT_POLL_INTERVAL,
+    DEFAULT_POST_BRUSH_COOLDOWN,
     DOMAIN,
 )
 from .coordinator import OcleanCoordinator
@@ -83,7 +86,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         entry.data.get(CONF_POLL_INTERVAL, DEFAULT_POLL_INTERVAL),
     )
 
-    coordinator = OcleanCoordinator(hass, mac, device_name, poll_interval)
+    poll_windows = entry.options.get(CONF_POLL_WINDOWS, "")
+    post_brush_cooldown_h = int(
+        entry.options.get(CONF_POST_BRUSH_COOLDOWN, DEFAULT_POST_BRUSH_COOLDOWN)
+    )
+
+    coordinator = OcleanCoordinator(
+        hass, mac, device_name, poll_interval,
+        poll_windows=poll_windows,
+        post_brush_cooldown_h=post_brush_cooldown_h,
+    )
 
     # Perform the first refresh – raises ConfigEntryNotReady if device unreachable
     # and no cached data exists yet.
