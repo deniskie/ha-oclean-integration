@@ -4,6 +4,7 @@
   "version": "1.0.1",
   "requirements": [],
   "dependencies": ["bluetooth"],
+  "after_dependencies": ["recorder"],
   "bluetooth": [
     {"service_uuid": "8082caa8-41a6-4021-91c6-56f9b954cc18"},
     {"local_name": "Oclean*"}
