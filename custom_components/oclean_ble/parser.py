@@ -11,6 +11,7 @@ from typing import Any
 
 from .const import (
     RESP_DEVICE_INFO,
+    RESP_EXTENDED_T1,
     RESP_INFO,
     RESP_INFO_T1,
     RESP_K3GUIDE,
@@ -446,6 +447,24 @@ def _handle_device_info_ack(payload: bytes) -> dict[str, Any]:
     return {}
 
 
+def _parse_0314_response(payload: bytes) -> dict[str, Any]:
+    """Log a 0314 extended-data response for protocol research.
+
+    The 0314 command (CMD_QUERY_EXTENDED_DATA_T1) is sent to SEND_BRUSH_CMD_UUID
+    on Type-1 devices (Oclean X Pro / C3376s).  The full byte layout is not yet
+    known; this handler dumps every byte so we can reverse-engineer the format
+    and identify the score field.
+    """
+    _LOGGER.warning(
+        "Oclean 0314 response received – raw hex: %s  len=%d",
+        payload.hex(),
+        len(payload),
+    )
+    for i, b in enumerate(payload):
+        _LOGGER.warning("  0314[%02d] = 0x%02X  (%d)", i, b, b)
+    return {}
+
+
 # Strategy registry: 2-byte response-type prefix → handler function.
 # To add support for a new notification type, add one entry here.
 _PARSERS: dict[bytes, Callable[[bytes], dict[str, Any]]] = {
@@ -454,6 +473,7 @@ _PARSERS: dict[bytes, Callable[[bytes], dict[str, Any]]] = {
     RESP_INFO_T1:     _parse_info_t1_response,
     RESP_DEVICE_INFO: _handle_device_info_ack,
     RESP_K3GUIDE:     _parse_k3guide_response,
+    RESP_EXTENDED_T1: _parse_0314_response,
 }
 
 

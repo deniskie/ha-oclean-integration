@@ -30,6 +30,7 @@ CMD_CALIBRATE_TIME_PREFIX = bytes.fromhex("020E")  # mo5289B Type 0: + 4-byte BE
 CMD_QUERY_RUNNING_DATA = bytes.fromhex("0308")    # mo5299S0 Type 0 / C3340b1 – fetch brush records
 CMD_QUERY_RUNNING_DATA_T1 = bytes.fromhex("0307") # Type 1 (Oclean X): send to SEND_BRUSH_CMD_UUID
 CMD_QUERY_RUNNING_DATA_NEXT = bytes.fromhex("0309")  # mo5301W0 – follow-up page
+CMD_QUERY_EXTENDED_DATA_T1 = bytes.fromhex("0314")  # mo5337g1 – C3376s (Oclean X Pro); extended session data
 
 # Response type markers (first 2 bytes)
 # Observed on Oclean X: the device echoes the command prefix as the response type.
@@ -41,6 +42,7 @@ RESP_INFO = bytes.fromhex("0308")        # Response to CMD_QUERY_RUNNING_DATA �
 RESP_INFO_T1 = bytes.fromhex("0307")    # Response to CMD_QUERY_RUNNING_DATA_T1 – brush records (Type 1, Oclean X)
 RESP_DEVICE_INFO = bytes.fromhex("0202") # Response to CMD_DEVICE_INFO – "OK" acknowledge
 RESP_K3GUIDE = bytes.fromhex("0340")    # Real-time zone guidance during brushing (K3 devices)
+RESP_EXTENDED_T1 = bytes.fromhex("0314")  # Response to CMD_QUERY_EXTENDED_DATA_T1 (score candidate)
 
 # Config entry keys
 CONF_MAC_ADDRESS = "mac_address"
