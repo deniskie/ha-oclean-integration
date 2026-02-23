@@ -579,7 +579,7 @@ def _make_t1_record(
     hour: int = 16,
     minute: int = 25,
     second: int = 31,
-    brushing_metric: int = 120,  # byte 13: seconds (floor 30); score = clamp(metric-30, 1, 100)
+    brushing_metric: int = 120,  # byte 13: duration in seconds (floor 30)
     extra: bytes = b"\x02\x01",
 ) -> bytes:
     """Build a Type-1 (0307) running-data payload (14 bytes header + extra).
@@ -589,7 +589,7 @@ def _make_t1_record(
       bytes 5-10: timestamp (year-2000, month, day, hour, minute, second)
       byte 11   : unknown (0x00)
       byte 12   : unknown (0x00)
-      byte 13   : brushing_metric (seconds, floor 30; score = clamp(metric-30, 1, 100))
+      byte 13   : brushing_metric (duration in seconds, floor 30; score NOT derived here)
       extra     : bytes 14+ (byte 14 padding, byte 15 = byte 13, bytes 16-17 unknown)
     """
     header = bytearray(14)
@@ -620,63 +620,33 @@ class TestParseInfoT1Response:
 
     # --- Real observed payloads (ground truth) ---
 
-    def test_real_session_7s_score1(self):
-        """Session 2: 7s brush, score=1. byte13=30 → score=clamp(0,1,100)=1."""
+    def test_real_session_7s(self):
+        """Short brush (7 s floor): byte13=30 → duration=30, no score (from 0000)."""
         # raw: 03072a422300001a021510191fe7001e001e6400
         payload = bytes.fromhex("2a422300001a021510191fe7001e001e6400")
         result = _parse_info_t1_response(payload)
         expected_ts = _expected_t1_ts(2026, 2, 21, 16, 25, 31)
         assert result["last_brush_time"] == expected_ts
-        assert result["last_brush_score"] == 1       # clamp(30-30, 1, 100) = 1
-        assert result["last_brush_duration"] == 30   # byte13 = 30 (device floor)
+        assert result["last_brush_duration"] == 30
+        assert "last_brush_score" not in result
 
-    def test_real_session_2min_score90(self):
-        """Session 3: 2-min brush, score=90. byte13=120 → score=clamp(90,1,100)=90."""
+    def test_real_session_2min(self):
+        """2-min brush: byte13=120 → duration=120, no score (from 0000)."""
         # raw: 03072a422300001a0215102c1c00007800780201
         payload = bytes.fromhex("2a422300001a0215102c1c00007800780201")
         result = _parse_info_t1_response(payload)
         expected_ts = _expected_t1_ts(2026, 2, 21, 16, 44, 28)
         assert result["last_brush_time"] == expected_ts
-        assert result["last_brush_score"] == 90      # clamp(120-30, 1, 100) = 90
-        assert result["last_brush_duration"] == 120  # byte13 = 120 s
+        assert result["last_brush_duration"] == 120
+        assert "last_brush_score" not in result
 
-    def test_real_session1_byte13_150_score100(self):
-        """Session 1: byte13=150 → score=clamp(120,1,100)=100 (capped at 100)."""
+    def test_real_session_byte13_150(self):
+        """byte13=150 → duration=150, score NOT computed (arrives via 0000)."""
         # raw: 03072a422300001a02150f2a134d009600962704
         payload = bytes.fromhex("2a422300001a02150f2a134d009600962704")
         result = _parse_info_t1_response(payload)
-        assert result["last_brush_score"] == 100     # clamp(150-30, 1, 100) = 100
-
-    # --- Score formula ---
-
-    def test_score_minimum_at_byte13_30(self):
-        """byte13=30 → score=1 (device floor for any session ≤30 s)."""
-        rec = _make_t1_record(brushing_metric=30)
-        assert _parse_info_t1_response(rec)["last_brush_score"] == 1
-
-    def test_score_90_at_byte13_120(self):
-        """byte13=120 (2-min brush) → score=90. Confirmed empirically."""
-        rec = _make_t1_record(brushing_metric=120)
-        assert _parse_info_t1_response(rec)["last_brush_score"] == 90
-
-    def test_score_capped_at_100(self):
-        """byte13≥130 → score=100 (maximum)."""
-        rec = _make_t1_record(brushing_metric=130)
-        assert _parse_info_t1_response(rec)["last_brush_score"] == 100
-        rec2 = _make_t1_record(brushing_metric=255)
-        assert _parse_info_t1_response(rec2)["last_brush_score"] == 100
-
-    def test_score_zero_metric_ignored(self):
-        """byte13=0 → no score/duration in result."""
-        rec = _make_t1_record(brushing_metric=0)
-        result = _parse_info_t1_response(rec)
+        assert result["last_brush_duration"] == 150
         assert "last_brush_score" not in result
-        assert "last_brush_duration" not in result
-
-    def test_score_midrange(self):
-        """byte13=80 → score=clamp(50, 1, 100)=50."""
-        rec = _make_t1_record(brushing_metric=80)
-        assert _parse_info_t1_response(rec)["last_brush_score"] == 50
 
     # --- Duration ---
 
@@ -689,6 +659,18 @@ class TestParseInfoT1Response:
         """Short sessions report 30 s (device minimum)."""
         rec = _make_t1_record(brushing_metric=30)
         assert _parse_info_t1_response(rec)["last_brush_duration"] == 30
+
+    def test_zero_metric_omits_duration(self):
+        """byte13=0 → no duration in result."""
+        rec = _make_t1_record(brushing_metric=0)
+        result = _parse_info_t1_response(rec)
+        assert "last_brush_duration" not in result
+
+    def test_score_never_in_result(self):
+        """Score is NOT returned by 0307; it comes from the 0000 notification."""
+        for metric in (30, 80, 120, 150, 255):
+            rec = _make_t1_record(brushing_metric=metric)
+            assert "last_brush_score" not in _parse_info_t1_response(rec)
 
     # --- Timestamp ---
 
@@ -709,11 +691,11 @@ class TestParseInfoT1Response:
         assert len(rec) == 14
         result = _parse_info_t1_response(rec)
         assert "last_brush_time" in result
-        assert "last_brush_score" in result
         assert "last_brush_duration" in result
+        assert "last_brush_score" not in result
 
     def test_no_clean_in_result(self):
-        """last_brush_clean is not available from BLE data."""
+        """last_brush_clean is not available from 0307 data."""
         rec = _make_t1_record()
         assert "last_brush_clean" not in _parse_info_t1_response(rec)
 
@@ -732,21 +714,21 @@ class TestParseInfoT1Response:
 
 class TestParseNotificationInfoT1Routing:
 
-    def test_0307_real_session_2min_score90(self):
-        """Real 2-min session (score=90): full end-to-end through parse_notification."""
+    def test_0307_real_session_2min(self):
+        """Real 2-min session: timestamp + duration, no score (score from 0000)."""
         raw = bytes.fromhex("03072a422300001a0215102c1c00007800780201")
         result = parse_notification(raw)
-        assert result["last_brush_score"] == 90
         assert result["last_brush_duration"] == 120
         assert "last_brush_time" in result
+        assert "last_brush_score" not in result
 
-    def test_0307_real_session_7s_score1(self):
-        """Real 7s session (score=1): full end-to-end through parse_notification."""
+    def test_0307_real_session_7s(self):
+        """Real 7s session (floor 30s): timestamp + duration, no score."""
         raw = bytes.fromhex("03072a422300001a021510191fe7001e001e6400")
         result = parse_notification(raw)
-        assert result["last_brush_score"] == 1
         assert result["last_brush_duration"] == 30
         assert "last_brush_time" in result
+        assert "last_brush_score" not in result
 
     def test_0307_too_short_returns_empty(self):
         payload = RESP_INFO_T1 + bytes([0xAA, 0xBB, 0xCC])
@@ -756,8 +738,8 @@ class TestParseNotificationInfoT1Routing:
         rec = _make_t1_record(brushing_metric=120, year=2026, month=1, day=10,
                                hour=7, minute=30, second=0)
         result = parse_notification(RESP_INFO_T1 + rec)
-        assert result["last_brush_score"] == 90
         assert result["last_brush_duration"] == 120
+        assert "last_brush_score" not in result
         expected = _expected_t1_ts(2026, 1, 10, 7, 30, 0)
         assert result["last_brush_time"] == expected
 
@@ -767,7 +749,8 @@ class TestParseNotificationInfoT1Routing:
         t0_raw = RESP_INFO + _make_record(pressure_raw=300)
         r_t1 = parse_notification(t1_raw)
         r_t0 = parse_notification(t0_raw)
-        assert "last_brush_score" in r_t1
+        assert "last_brush_duration" in r_t1
+        assert "last_brush_score" not in r_t1
         assert "last_brush_pressure" in r_t0
         assert "last_brush_pressure" not in r_t1
 
@@ -1215,9 +1198,25 @@ class TestParseSessionMetaT1Response:
     # Observed payload: Feb 24 2026 00:24:19, duration 150 s
     _REAL_PAYLOAD = bytes.fromhex("ffffffffffffff1a02180018134c00960096")
 
-    def test_real_payload_returns_empty(self):
-        """5a00 handler logs only – no sensor data returned yet."""
-        assert _parse_session_meta_t1_response(self._REAL_PAYLOAD) == {}
+    def test_real_payload_returns_timestamp_and_duration(self):
+        result = _parse_session_meta_t1_response(self._REAL_PAYLOAD)
+        assert "last_brush_time" in result
+        assert result["last_brush_duration"] == 150
+        expected_ts = _expected_t1_ts(2026, 2, 24, 0, 24, 19)
+        assert result["last_brush_time"] == expected_ts
+
+    def test_duration_ff_omitted(self):
+        """0xFF duration means no data – should not appear in result."""
+        payload = bytearray(self._REAL_PAYLOAD)
+        payload[15] = 0xFF
+        result = _parse_session_meta_t1_response(bytes(payload))
+        assert "last_brush_duration" not in result
+
+    def test_duration_zero_omitted(self):
+        payload = bytearray(self._REAL_PAYLOAD)
+        payload[15] = 0
+        result = _parse_session_meta_t1_response(bytes(payload))
+        assert "last_brush_duration" not in result
 
     def test_too_short_returns_empty(self):
         assert _parse_session_meta_t1_response(b"\xff" * 17) == {}
@@ -1227,7 +1226,9 @@ class TestParseSessionMetaT1Response:
 
     def test_routed_via_parse_notification(self):
         data = RESP_SESSION_META_T1 + self._REAL_PAYLOAD
-        assert parse_notification(data) == {}
+        result = parse_notification(data)
+        assert "last_brush_time" in result
+        assert result["last_brush_duration"] == 150
 
 
 # ---------------------------------------------------------------------------

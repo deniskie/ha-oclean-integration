@@ -199,8 +199,9 @@ def _parse_info_t1_response(payload: bytes) -> dict[str, Any]:
       byte 17: session counter (empirically observed as monotonically increasing, 0-indexed;
                observed values 0, 1, 4, 5 – some sessions not captured in between)
 
-    Note: the app-displayed score (1–100) is NOT present in the BLE payload;
-    it is computed server-side by the Oclean cloud from raw sensor data.
+    Note: the device-computed score is NOT present in this payload.  It
+    arrives separately in the 0000 (RESP_SCORE_T1) notification which fires
+    after the session and overwrites whatever this handler would set.
     Timezone is not applied; device local time is used directly.
     """
     _LOGGER.debug("Oclean Type-1 INFO response raw: %s", payload.hex())
@@ -224,23 +225,11 @@ def _parse_info_t1_response(payload: bytes) -> dict[str, Any]:
             "last_brush_time": timestamp_s,
         }
 
-        # byte 13: brushing metric in seconds (Oclean X counts in 30-second zones;
-        #   minimum value = 30 even for very short sessions, maximum ~ 120–150).
-        #   Confirmed: byte13=30 → score 1 (7 s brush),
-        #              byte13=120 → score 90 (2 min brush).
-        #
-        # Score formula (empirically confirmed):
-        #   score = clamp(byte13 - 30, 1, 100)
-        #   • byte13=30  → clamp(0,  1, 100) =  1  (minimum for any short session)
-        #   • byte13=120 → clamp(90, 1, 100) = 90  (full 2-minute brush)
-        #   • byte13≥130 → clamp(≥100, 1, 100) = 100 (perfect)
-        #
-        # Duration: byte13 is returned as-is in seconds; note that 30 is the
-        #   device floor (a 7 s session still reports 30 s).
-        #
+        # byte 13: brushing duration in seconds (device floor: 30 s even for very short
+        #   sessions; observed maximum: 150 s).  Score is NOT derived from this byte –
+        #   the device-accurate score arrives in the separate 0000 notification.
         brushing_metric = payload[13]
         if brushing_metric > 0:
-            result["last_brush_score"] = max(1, min(100, brushing_metric - 30))
             result["last_brush_duration"] = brushing_metric  # seconds (floor: 30)
 
         _LOGGER.debug(
@@ -492,10 +481,10 @@ def _parse_session_meta_t1_response(payload: bytes) -> dict[str, Any]:
       byte  16:   unknown
       byte  17:   session duration in seconds (duplicate of byte 15)
 
-    NOTE: Before a new brushing session this notification shows an *older*
-    session (not the one in the concurrent 0307 response).  Returning sensor
-    data here would overwrite the 0307 timestamp with an outdated value, so
-    this handler only logs – the data is kept for future protocol research.
+    NOTE: The coordinator applies "newer timestamp wins" logic before merging
+    these values into the shared `collected` dict, so a stale 5a00 (which may
+    carry an older session than the concurrent 0307 response) never overwrites
+    a more recent timestamp + duration already seen in the same poll cycle.
     """
     if len(payload) < 18:
         _LOGGER.debug("Oclean 5a00 too short (%d bytes): %s", len(payload), payload.hex())
@@ -506,18 +495,24 @@ def _parse_session_meta_t1_response(payload: bytes) -> dict[str, Any]:
             payload[7], payload[8], payload[9],
             payload[10], payload[11], payload[12],
         )
+        timestamp_s = int(time.mktime(device_dt.timetuple()))
         duration = payload[15]
         _LOGGER.debug(
-            "Oclean 5a00 session: date=%s duration=%ds b13=0x%02x b16=0x%02x (raw: %s)",
+            "Oclean 5a00 session: date=%s ts=%d duration=%ds b13=0x%02x b16=0x%02x (raw: %s)",
             device_dt.strftime("%Y-%m-%d %H:%M:%S"),
+            timestamp_s,
             duration,
             payload[13],
             payload[16],
             payload.hex(),
         )
+        result: dict[str, Any] = {"last_brush_time": timestamp_s}
+        if duration > 0 and duration != 0xFF:
+            result["last_brush_duration"] = duration
+        return result
     except (IndexError, ValueError, OverflowError) as err:
         _LOGGER.debug("Oclean 5a00 parse error: %s (raw: %s)", err, payload.hex())
-    return {}
+        return {}
 
 
 def _parse_brush_areas_t1_response(payload: bytes) -> dict[str, Any]:
