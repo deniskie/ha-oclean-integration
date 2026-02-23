@@ -92,12 +92,43 @@
       "init": {
         "title": "Oclean-Optionen",
         "data": {
-          "poll_interval": "Abfrageintervall (Sekunden)"
+          "poll_interval": "Abfrageintervall (Sekunden)",
+          "post_brush_cooldown": "Cooldown nach dem Putzen (Stunden)",
+          "window_count": "Anzahl der Zahnputz-Zeitfenster"
         },
         "data_description": {
-          "poll_interval": "Wie oft die Zahnbürste per Bluetooth abgefragt werden soll. Minimum: 60 s."
+          "poll_interval": "Wie oft die Zahnbürste per Bluetooth abgefragt werden soll. Minimum: 60 s.",
+          "post_brush_cooldown": "Abfragen für diese Anzahl Stunden pausieren, nachdem eine neue Putzsitzung erkannt wurde. 0 = deaktiviert.",
+          "window_count": "Abfrage auf bestimmte Zeitfenster beschränken (z. B. morgens und abends beim Zähneputzen). 0 = immer abfragen."
+        }
+      },
+      "window_1": {
+        "title": "Zahnputz-Zeitfenster 1",
+        "description": "Erstes Zeitfenster definieren, in dem die Zahnbürste abgefragt wird.",
+        "data": {
+          "window_start": "Von",
+          "window_end": "Bis"
+        }
+      },
+      "window_2": {
+        "title": "Zahnputz-Zeitfenster 2",
+        "description": "Zweites Zeitfenster definieren, in dem die Zahnbürste abgefragt wird.",
+        "data": {
+          "window_start": "Von",
+          "window_end": "Bis"
+        }
+      },
+      "window_3": {
+        "title": "Zahnputz-Zeitfenster 3",
+        "description": "Drittes Zeitfenster definieren, in dem die Zahnbürste abgefragt wird.",
+        "data": {
+          "window_start": "Von",
+          "window_end": "Bis"
         }
       }
+    },
+    "error": {
+      "window_incomplete": "Von- und Bis-Zeit müssen beide gesetzt sein."
     }
   }
 }

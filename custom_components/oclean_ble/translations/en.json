@@ -92,12 +92,43 @@
       "init": {
         "title": "Oclean Options",
         "data": {
-          "poll_interval": "Poll interval (seconds)"
+          "poll_interval": "Poll interval (seconds)",
+          "post_brush_cooldown": "Post-brush cooldown (hours)",
+          "window_count": "Number of brushing time windows"
         },
         "data_description": {
-          "poll_interval": "How often to poll the toothbrush over Bluetooth. Minimum 60 s."
+          "poll_interval": "How often to poll the toothbrush over Bluetooth. Minimum 60 s.",
+          "post_brush_cooldown": "Pause polling for this many hours after a new brushing session is detected. Set to 0 to disable.",
+          "window_count": "Restrict polling to specific time windows (e.g. morning and evening brushing). Set to 0 to always poll."
+        }
+      },
+      "window_1": {
+        "title": "Brushing Window 1",
+        "description": "Define the first time window during which the toothbrush will be polled.",
+        "data": {
+          "window_start": "From",
+          "window_end": "To"
+        }
+      },
+      "window_2": {
+        "title": "Brushing Window 2",
+        "description": "Define the second time window during which the toothbrush will be polled.",
+        "data": {
+          "window_start": "From",
+          "window_end": "To"
+        }
+      },
+      "window_3": {
+        "title": "Brushing Window 3",
+        "description": "Define the third time window during which the toothbrush will be polled.",
+        "data": {
+          "window_start": "From",
+          "window_end": "To"
         }
       }
+    },
+    "error": {
+      "window_incomplete": "Both start and end time must be set."
     }
   }
 }
