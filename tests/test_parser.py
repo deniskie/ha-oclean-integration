@@ -6,6 +6,8 @@ import datetime
 import json
 
 from custom_components.oclean_ble.parser import (
+    _MIN_YEAR,
+    _device_datetime,
     _map_json_brush_data,
     _parse_extended_running_data_record,
     _parse_info_response,
@@ -68,6 +70,109 @@ def _expected_utc_ts(year, month, day, hour, minute, second, tz_quarters) -> int
     device_dt = datetime.datetime(year, month, day, hour, minute, second)
     utc_dt = device_dt - datetime.timedelta(minutes=tz_offset_minutes)
     return calendar.timegm(utc_dt.timetuple())
+
+
+# ---------------------------------------------------------------------------
+# _device_datetime helper
+# ---------------------------------------------------------------------------
+
+class TestDeviceDatetime:
+    """Tests for _device_datetime() – the shared year-2000 datetime builder."""
+
+    # --- Happy path ---
+
+    def test_returns_correct_datetime(self):
+        dt = _device_datetime(24, 3, 15, 8, 30, 0)
+        assert dt == datetime.datetime(2024, 3, 15, 8, 30, 0)
+
+    def test_year_offset_applied(self):
+        """year_byte + 2000 must equal the returned year."""
+        dt = _device_datetime(26, 1, 1, 0, 0, 0)
+        assert dt.year == 2026
+
+    def test_all_fields_preserved(self):
+        dt = _device_datetime(23, 11, 7, 22, 59, 45)
+        assert (dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second) == (
+            2023, 11, 7, 22, 59, 45
+        )
+
+    def test_leap_day_accepted(self):
+        """Feb 29 in a leap year must not raise."""
+        dt = _device_datetime(24, 2, 29, 12, 0, 0)  # 2024 is a leap year
+        assert dt.day == 29
+
+    def test_min_year_boundary_accepted(self):
+        """_MIN_YEAR itself must be accepted."""
+        dt = _device_datetime(_MIN_YEAR - 2000, 6, 1, 0, 0, 0)
+        assert dt.year == _MIN_YEAR
+
+    def test_year_99_accepted(self):
+        """year_byte=99 → year 2099 is valid."""
+        dt = _device_datetime(99, 1, 1, 0, 0, 0)
+        assert dt.year == 2099
+
+    # --- Year-validation boundary ---
+
+    def test_year_below_min_raises(self):
+        """Any year below _MIN_YEAR must raise ValueError."""
+        import pytest
+        with pytest.raises(ValueError, match="implausible year"):
+            _device_datetime(_MIN_YEAR - 2000 - 1, 1, 1, 0, 0, 0)
+
+    def test_year_zero_raises(self):
+        """year_byte=0 → year 2000 → rejected."""
+        import pytest
+        with pytest.raises(ValueError):
+            _device_datetime(0, 1, 1, 0, 0, 0)
+
+    def test_year_14_raises(self):
+        """year_byte=14 → year 2014 → rejected."""
+        import pytest
+        with pytest.raises(ValueError):
+            _device_datetime(14, 6, 15, 12, 0, 0)
+
+    # --- Invalid dates (delegated to datetime constructor) ---
+
+    def test_month_zero_raises(self):
+        import pytest
+        with pytest.raises(ValueError):
+            _device_datetime(24, 0, 1, 0, 0, 0)
+
+    def test_month_13_raises(self):
+        import pytest
+        with pytest.raises(ValueError):
+            _device_datetime(24, 13, 1, 0, 0, 0)
+
+    def test_day_zero_raises(self):
+        import pytest
+        with pytest.raises(ValueError):
+            _device_datetime(24, 1, 0, 0, 0, 0)
+
+    def test_day_32_raises(self):
+        import pytest
+        with pytest.raises(ValueError):
+            _device_datetime(24, 1, 32, 0, 0, 0)
+
+    def test_hour_24_raises(self):
+        import pytest
+        with pytest.raises(ValueError):
+            _device_datetime(24, 1, 1, 24, 0, 0)
+
+    def test_minute_60_raises(self):
+        import pytest
+        with pytest.raises(ValueError):
+            _device_datetime(24, 1, 1, 0, 60, 0)
+
+    def test_second_60_raises(self):
+        import pytest
+        with pytest.raises(ValueError):
+            _device_datetime(24, 1, 1, 0, 0, 60)
+
+    def test_leap_day_in_non_leap_year_raises(self):
+        """Feb 29 in a non-leap year must raise."""
+        import pytest
+        with pytest.raises(ValueError):
+            _device_datetime(23, 2, 29, 0, 0, 0)  # 2023 is not a leap year
 
 
 # ---------------------------------------------------------------------------
@@ -329,11 +434,17 @@ class TestParseRunningDataRecord:
 
     # --- Year / month boundary ---
 
-    def test_year_boundary_2000(self):
-        """byte 0 = 0 → year 2000."""
+    def test_year_before_2015_rejected(self):
+        """Years before 2015 are invalid (no Oclean devices existed then)."""
         record = _make_record(year=2000, month=1, day=1)
         result = _parse_running_data_record(record)
-        assert result["last_brush_time"] is not None
+        assert result == {}
+
+    def test_year_boundary_2015_accepted(self):
+        """Exactly 2015 is the minimum accepted year."""
+        record = _make_record(year=2015, month=1, day=1)
+        result = _parse_running_data_record(record)
+        assert "last_brush_time" in result
 
     def test_year_boundary_2099(self):
         """byte 0 = 99 → year 2099."""
@@ -927,15 +1038,13 @@ class TestParseInfoResponseFormatDetection:
         assert "last_brush_score" not in result
         assert "last_brush_areas" not in result
 
-    def test_year_2000_uses_simple_format(self):
-        """Edge case: byte0==0 because year=2000, but byte1=month=3 < 32 → simple format."""
+    def test_year_2000_rejected_by_simple_format(self):
+        """byte0==0 (year=2000) fails extended check AND year-validation in simple parser → {}."""
         payload = _make_record(year=2000, month=3, day=15)
         # payload[0]=0 (year-2000=0), payload[1]=3 (month) < 32 → extended check fails
+        # Simple parser: year 2000 < 2015 → rejected
         result = _parse_info_response(payload)
-        # Simple format returns time and pressure, NOT extended fields
-        assert "last_brush_time" in result
-        assert "last_brush_score" not in result
-        assert "last_brush_areas" not in result
+        assert result == {}
 
     def test_extended_requires_sufficient_payload_length(self):
         """payload[1]=32 but payload is only 20 bytes → extended check fails → simple fallback."""

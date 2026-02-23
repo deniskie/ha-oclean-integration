@@ -7,12 +7,12 @@
 > or connected to Oclean / Zhuhai Ice Bear Smart Home Technology Co., Ltd.
 > "Oclean" is a registered trademark of its respective owner.
 
-Custom integration for **Oclean Smart Toothbrushes** (Oclean X, X Pro, X Pro Elite, X Ultra).
+Custom integration for **Oclean Smart Toothbrushes** (Oclean X, X Pro, X Pro Elite, and compatible models).
 
 Connects every 5 minutes via Bluetooth, reads brushing data, then disconnects.
 No cloud, no account, fully local.
 
-> **Device tested:** Oclean X
+> **Devices tested:** Oclean X · Oclean X Pro (OCLEANY3) · Oclean X Pro Elite (OCLEANY3P)
 > **Protocol:** Reverse-engineered from the official Oclean APK
 
 ---
@@ -62,12 +62,6 @@ After restart, go to **Settings → Integrations → Add Integration** and searc
 | `sensor.oclean_last_brush_scheme_id` | Brush programme ID; programme names are managed in the Oclean cloud | – | ⚠️ Unconfirmed |
 | `sensor.oclean_last_brush_scheme_type` | Brush programme category | – | ⚠️ Unconfirmed |
 
-### Binary Sensors
-
-| Entity | Description | Status |
-|--------|-------------|--------|
-| `binary_sensor.oclean_brushing` | `on` while brushing | ⚠️ Unconfirmed |
-
 ### Buttons
 
 | Entity | Description | Status |
@@ -75,7 +69,7 @@ After restart, go to **Settings → Integrations → Add Integration** and searc
 | `button.oclean_reset_brush_head` | Resets the brush head wear counter | ⚠️ Unconfirmed |
 
 **Legend:**
-- ✅ **Tested** – confirmed working on a real Oclean X with multiple sessions
+- ✅ **Tested** – confirmed working on real hardware with multiple sessions
 - ⚠️ **Unconfirmed** – implemented based on APK reverse-engineering; needs more device testing
 - ❌ **Not implemented** – see [Roadmap](#roadmap)
 
@@ -104,11 +98,10 @@ After restart, go to **Settings → Integrations → Add Integration** and searc
 | Feature | Details |
 |---------|---------|
 | Brush head usage counter | Resets when the "Reset Brush Head" button is pressed |
-| Last brush pressure | Average brushing pressure across all tooth zones |
+| Last brush pressure | Average brushing pressure across all tooth zones (extended format only) |
 | Last brush clean | Percentage of tooth zones that were cleaned (extended format only) |
-| Last brush areas | Pressure per tooth zone; individual zones available as entity attributes |
-| Last brush scheme ID / type | Programme ID and category (names are cloud-managed) |
-| is_brushing detection | Not yet confirmed for Oclean X; always reports `off` currently |
+| Last brush areas | Pressure per tooth zone; individual zones available as entity attributes (extended format only) |
+| Last brush scheme ID / type | Programme ID and category (names are cloud-managed; extended format only) |
 | Brush head reset button | Sends reset command to device; no response verification yet |
 | Session history pagination | Fetches multiple pages of session history from device |
 | Offline session import | Sessions recorded while HA was unreachable are imported on the next poll, provided they are still in the device's buffer. Note: the official Oclean app likely clears the buffer on sync – for best results, avoid using the official app in parallel. |
@@ -121,13 +114,19 @@ After restart, go to **Settings → Integrations → Add Integration** and searc
 
 | Feature | Details |
 |---------|---------|
-| Real-time brushing detection | is_brushing flag unreliable on Oclean X (see issue tracker) |
+| Active-brushing detection | Cannot be reliably determined from the available BLE data |
 
 ---
 
 ## Configuration
 
-The poll interval and device name can be changed after setup via **Settings → Integrations → Oclean → Configure**.
+The poll interval and other options can be changed after setup via **Settings → Integrations → Oclean → Configure**.
+
+### Poll Windows
+
+You can restrict polling to specific time windows to reduce Bluetooth traffic outside brushing hours. The options flow guides you step-by-step through up to 3 time windows (e.g. morning and evening) using a native time picker.
+
+When no windows are configured, the device is polled at every interval.
 
 ### Debug Logging
 
@@ -147,26 +146,27 @@ Unknown notification types are logged as hex – this helps extend the parser.
 
 ## Compatibility
 
-| Device | Status | Notes |
-|--------|--------|-------|
-| Oclean X | ✅ Tested | Full support: battery, score, duration, timestamp |
-| Oclean X Pro | ⚠️ Unknown | Should work; same protocol family |
-| Oclean X Pro Elite | ⚠️ Unknown | May use a different data format |
-| Oclean X Ultra | ⚠️ Unknown | May use extended data format |
-| Other Oclean models | ⚠️ Unknown | Open an issue with raw log output |
+| Device | Model ID | Status | Notes |
+|--------|----------|--------|-------|
+| Oclean X | – | ✅ Tested | Full support: battery, score, duration, timestamp |
+| Oclean X Pro | OCLEANY3 | ⚠️ Partial | Battery, score, duration and timestamp confirmed; brush area / scheme / pressure fields not yet confirmed |
+| Oclean X Pro Elite | OCLEANY3P | ⚠️ Partial | Same as Oclean X Pro |
+| Oclean X Ultra | – | ⚠️ Unknown | Likely uses extended data format |
+| Other Oclean models | – | ⚠️ Unknown | Open an issue with raw log output |
 
-> If your device is unsupported, enable debug logging, brush your teeth, and open an issue with the raw hex output. This is how the Oclean X support was developed.
+> If brush session detail fields (areas, pressure, scheme) are missing or the timestamp looks wrong, enable debug logging, brush your teeth, and open an issue with the raw hex output from the HA log.
+
+> If your device is not listed, enable debug logging and open an issue with the raw hex output. This is how Oclean X support was developed.
 
 ---
 
 ## Roadmap
 
-- [ ] Confirm is_brushing detection on Oclean X
-- [ ] Validate tooth zone pressure data on real hardware
+- [ ] Confirm brush area / pressure / scheme fields on Oclean X Pro (OCLEANY3) and X Pro Elite (OCLEANY3P)
 - [ ] Validate real-time zone guidance on K3-series devices
-- [x] Add German translations (`translations/de.json`)
+- [x] Configurable poll windows with native time picker
 - [ ] Publish to HACS default repository
-- [ ] Decode remaining unknown fields in Oclean X session data
+- [ ] Decode remaining unknown fields in session data
 
 ---
 

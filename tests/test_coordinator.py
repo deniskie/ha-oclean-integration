@@ -235,7 +235,6 @@ class TestPollDeviceFailure:
             result = await coordinator._async_update_data()
 
         assert result.battery == 55
-        assert result.is_brushing is False
         assert coordinator.last_poll_successful is False
 
     @pytest.mark.asyncio
