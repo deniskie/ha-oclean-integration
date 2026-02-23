@@ -1,8 +1,11 @@
 """Parser for Oclean BLE notification data."""
 from __future__ import annotations
 
+import calendar
+import datetime
 import json
 import logging
+import time
 from collections.abc import Callable
 from typing import Any
 
@@ -16,6 +19,28 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+# Earliest plausible session year for any Oclean device.
+_MIN_YEAR = 2015
+
+
+def _device_datetime(
+    year_byte: int,
+    month: int,
+    day: int,
+    hour: int,
+    minute: int,
+    second: int,
+) -> datetime.datetime:
+    """Build a device-local datetime from a year-2000-encoded byte.
+
+    Raises ValueError if the resulting year predates the first Oclean devices,
+    which is caught by each parser's existing except block.
+    """
+    year = year_byte + 2000
+    if year < _MIN_YEAR:
+        raise ValueError(f"implausible year {year} (byte={year_byte:#04x})")
+    return datetime.datetime(year, month, day, hour, minute, second)
 
 
 def parse_notification(data: bytes) -> dict[str, Any]:
@@ -124,11 +149,16 @@ def _parse_info_response(payload: bytes) -> dict[str, Any]:
         and payload[1] >= 32
         and len(payload) >= payload[1]
     ):
+        # Extended format confirmed – do NOT fall back to simple parser on failure.
+        # Simple parser would misread the length header as year=2000, producing a
+        # plausible-but-wrong timestamp while all richer fields remain empty.
         record = _parse_extended_running_data_record(payload)
         if record:
             return record
+        _LOGGER.debug("Oclean INFO: extended format detected but parsing failed, raw: %s", payload.hex())
+        return {}
 
-    # Fall back to simple 18-byte format
+    # Simple 18-byte format
     record = _parse_running_data_record(payload)
     if record:
         return record
@@ -177,22 +207,14 @@ def _parse_info_t1_response(payload: bytes) -> dict[str, Any]:
         return {}
 
     try:
-        import datetime as _dt
-        import time as _time
-
         # bytes 5-10: device local timestamp (confirmed)
-        year = payload[5] + 2000
-        month = payload[6]
-        day = payload[7]
-        hour = payload[8]
-        minute = payload[9]
-        second = payload[10]
-
-        device_dt = _dt.datetime(year, month, day, hour, minute, second)
+        device_dt = _device_datetime(
+            payload[5], payload[6], payload[7], payload[8], payload[9], payload[10]
+        )
         # The 0307 payload carries no timezone offset – the device stores local time.
         # time.mktime() interprets the struct_time as the system local timezone
         # (= HA configured timezone on HA OS) and returns a correct UTC Unix timestamp.
-        timestamp_s = int(_time.mktime(device_dt.timetuple()))
+        timestamp_s = int(time.mktime(device_dt.timetuple()))
 
         result: dict[str, Any] = {
             "last_brush_time": timestamp_s,
@@ -260,12 +282,7 @@ def _parse_running_data_record(data: bytes) -> dict[str, Any]:
         return {}
 
     try:
-        year = data[0] + 2000
-        month = data[1]
-        day = data[2]
-        hour = data[3]
-        minute = data[4]
-        second = data[5]
+        device_dt = _device_datetime(data[0], data[1], data[2], data[3], data[4], data[5])
         # byte 6: timezone offset in quarter-hours (signed)
         tz_offset_quarters = data[6] if data[6] < 128 else data[6] - 256
         week = data[7]
@@ -279,15 +296,10 @@ def _parse_running_data_record(data: bytes) -> dict[str, Any]:
         pressure_raw = int.from_bytes(data[16:18], byteorder="little")
         pressure = round(pressure_raw / 300, 2)
 
-        # Build UTC timestamp from device-local time + tz offset
-        import calendar as _cal
-        import datetime as _dt
-
-        # tz_offset_quarters is in 15-minute steps
+        # Build UTC timestamp from device-local time + tz offset (15-minute steps)
         tz_offset_minutes = tz_offset_quarters * 15
-        device_dt = _dt.datetime(year, month, day, hour, minute, second)
-        utc_dt = device_dt - _dt.timedelta(minutes=tz_offset_minutes)
-        timestamp_ms = int(_cal.timegm(utc_dt.timetuple())) * 1000
+        utc_dt = device_dt - datetime.timedelta(minutes=tz_offset_minutes)
+        timestamp_ms = int(calendar.timegm(utc_dt.timetuple())) * 1000
 
         result: dict[str, Any] = {
             "last_brush_time": timestamp_ms // 1000,
@@ -346,15 +358,7 @@ def _parse_extended_running_data_record(data: bytes) -> dict[str, Any]:
         return {}
 
     try:
-        import calendar as _cal
-        import datetime as _dt
-
-        year = data[2] + 2000
-        month = data[3]
-        day = data[4]
-        hour = data[5]
-        minute = data[6]
-        second = data[7]
+        device_dt = _device_datetime(data[2], data[3], data[4], data[5], data[6], data[7])
         p_num = int(data[8])
         duration = int.from_bytes(data[9:11], byteorder="big")
         # data[13:18]: 5 intermediate pressure zone values (not mapped to sensors)
@@ -365,9 +369,8 @@ def _parse_extended_running_data_record(data: bytes) -> dict[str, Any]:
 
         # Build UTC timestamp from device-local time + timezone offset
         tz_offset_minutes = tz_offset_quarters * 15
-        device_dt = _dt.datetime(year, month, day, hour, minute, second)
-        utc_dt = device_dt - _dt.timedelta(minutes=tz_offset_minutes)
-        timestamp_s = int(_cal.timegm(utc_dt.timetuple()))
+        utc_dt = device_dt - datetime.timedelta(minutes=tz_offset_minutes)
+        timestamp_s = int(calendar.timegm(utc_dt.timetuple()))
 
         # Map 8 area pressures to named zones (BrushAreaType order: index 0 = value 1)
         area_dict: dict[str, int] = {

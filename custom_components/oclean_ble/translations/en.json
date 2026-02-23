@@ -44,11 +44,6 @@
     }
   },
   "entity": {
-    "binary_sensor": {
-      "is_brushing": {
-        "name": "Brushing"
-      }
-    },
     "button": {
       "reset_brush_head": {
         "name": "Reset Brush Head"

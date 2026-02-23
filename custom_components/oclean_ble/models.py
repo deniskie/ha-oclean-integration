@@ -15,7 +15,6 @@ class OcleanDeviceData:
     """
 
     battery: int | None = None
-    is_brushing: bool = False
     last_brush_score: int | None = None
     last_brush_duration: int | None = None
     last_brush_clean: int | None = None
@@ -48,7 +47,6 @@ class OcleanDeviceData:
         """Construct an instance from the raw dict produced by the coordinator."""
         return cls(
             battery=data.get("battery"),
-            is_brushing=bool(data.get("is_brushing", False)),
             last_brush_score=data.get("last_brush_score"),
             last_brush_duration=data.get("last_brush_duration"),
             last_brush_clean=data.get("last_brush_clean"),

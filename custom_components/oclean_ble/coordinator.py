@@ -31,7 +31,6 @@ from .const import (
     DATA_BATTERY,
     DATA_BRUSH_HEAD_USAGE,
     DATA_HW_REVISION,
-    DATA_IS_BRUSHING,
     DATA_LAST_BRUSH_AREAS,
     DATA_LAST_BRUSH_CLEAN,
     DATA_LAST_BRUSH_DURATION,
@@ -251,7 +250,7 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
             self.last_poll_successful = False
             if self._last_raw:
                 # Return stale data; sensors will remain available with old values
-                return OcleanDeviceData.from_dict({**self._last_raw, DATA_IS_BRUSHING: False})
+                return OcleanDeviceData.from_dict(self._last_raw)
             raise UpdateFailed(f"Oclean device not reachable: {err}") from err
 
     # ------------------------------------------------------------------
