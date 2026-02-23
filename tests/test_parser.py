@@ -9,19 +9,25 @@ from custom_components.oclean_ble.parser import (
     _MIN_YEAR,
     _device_datetime,
     _map_json_brush_data,
+    _parse_brush_areas_t1_response,
     _parse_extended_running_data_record,
     _parse_info_response,
     _parse_info_t1_response,
     _parse_k3guide_response,
     _parse_running_data_record,
+    _parse_score_t1_response,
+    _parse_session_meta_t1_response,
     _parse_state_response,
     parse_battery,
     parse_notification,
 )
 from custom_components.oclean_ble.const import (
+    RESP_BRUSH_AREAS_T1,
     RESP_INFO,
     RESP_INFO_T1,
     RESP_K3GUIDE,
+    RESP_SCORE_T1,
+    RESP_SESSION_META_T1,
     TOOTH_AREA_NAMES,
 )
 
@@ -1153,3 +1159,136 @@ class TestParseNotificationK3GuideRouting:
         for zone_id in list(range(1, 9)) + [255]:
             data = RESP_K3GUIDE + bytes([50, 50, 50, 50, zone_id, 0])
             assert parse_notification(data) == {}
+
+
+# ---------------------------------------------------------------------------
+# Type-1 score notification (0000)
+# ---------------------------------------------------------------------------
+
+class TestParseScoreT1Response:
+    # Observed payload from Oclean X log 2026-02-24: score=95, rest logged only
+    _REAL_PAYLOAD = bytes.fromhex("5f00ffffffffffffff1a0215101a23e7001e")
+
+    def test_real_payload_returns_score_95(self):
+        result = _parse_score_t1_response(self._REAL_PAYLOAD)
+        assert result == {"last_brush_score": 95}
+
+    def test_score_zero_is_valid(self):
+        payload = bytes([0]) + b"\x00" * 17
+        assert _parse_score_t1_response(payload) == {"last_brush_score": 0}
+
+    def test_score_100_is_valid(self):
+        payload = bytes([100]) + b"\x00" * 17
+        assert _parse_score_t1_response(payload) == {"last_brush_score": 100}
+
+    def test_score_clamped_above_100(self):
+        payload = bytes([200]) + b"\x00" * 17
+        assert _parse_score_t1_response(payload)["last_brush_score"] == 100
+
+    def test_score_ff_returns_empty(self):
+        """0xFF means no data."""
+        payload = bytes([0xFF]) + b"\x00" * 17
+        assert _parse_score_t1_response(payload) == {}
+
+    def test_empty_payload_returns_empty(self):
+        assert _parse_score_t1_response(b"") == {}
+
+    def test_single_byte_minimum(self):
+        assert _parse_score_t1_response(bytes([50])) == {"last_brush_score": 50}
+
+    def test_routed_via_parse_notification(self):
+        data = RESP_SCORE_T1 + self._REAL_PAYLOAD
+        result = parse_notification(data)
+        assert result == {"last_brush_score": 95}
+
+    def test_routing_independent_of_rest_bytes(self):
+        """Any 0000-prefixed notification routes to this handler."""
+        data = RESP_SCORE_T1 + bytes([70])
+        assert parse_notification(data) == {"last_brush_score": 70}
+
+
+# ---------------------------------------------------------------------------
+# Type-1 session-metadata notification (5a00) – logging only
+# ---------------------------------------------------------------------------
+
+class TestParseSessionMetaT1Response:
+    # Observed payload: Feb 24 2026 00:24:19, duration 150 s
+    _REAL_PAYLOAD = bytes.fromhex("ffffffffffffff1a02180018134c00960096")
+
+    def test_real_payload_returns_empty(self):
+        """5a00 handler logs only – no sensor data returned yet."""
+        assert _parse_session_meta_t1_response(self._REAL_PAYLOAD) == {}
+
+    def test_too_short_returns_empty(self):
+        assert _parse_session_meta_t1_response(b"\xff" * 17) == {}
+
+    def test_empty_returns_empty(self):
+        assert _parse_session_meta_t1_response(b"") == {}
+
+    def test_routed_via_parse_notification(self):
+        data = RESP_SESSION_META_T1 + self._REAL_PAYLOAD
+        assert parse_notification(data) == {}
+
+
+# ---------------------------------------------------------------------------
+# Type-1 brush-areas notification (2604)
+# ---------------------------------------------------------------------------
+
+class TestParseBrushAreasT1Response:
+    # Observed payload from Oclean X log 2026-02-24
+    _REAL_PAYLOAD = bytes.fromhex("390000000f0018181a1a0710071009101007")
+
+    def test_real_payload_returns_areas(self):
+        result = _parse_brush_areas_t1_response(self._REAL_PAYLOAD)
+        assert "last_brush_areas" in result
+        areas = result["last_brush_areas"]
+        assert len(areas) == 8
+        assert areas["upper_left_out"] == 0x18   # 24
+        assert areas["upper_left_in"] == 0x18    # 24
+        assert areas["lower_left_out"] == 0x1a   # 26
+        assert areas["lower_left_in"] == 0x1a    # 26
+        assert areas["upper_right_out"] == 0x07  # 7
+        assert areas["upper_right_in"] == 0x10   # 16
+        assert areas["lower_right_out"] == 0x07  # 7
+        assert areas["lower_right_in"] == 0x10   # 16
+
+    def test_real_payload_pressure_and_clean(self):
+        result = _parse_brush_areas_t1_response(self._REAL_PAYLOAD)
+        assert "last_brush_pressure" in result
+        assert "last_brush_clean" in result
+        assert result["last_brush_clean"] == 100  # all 8 zones non-zero
+
+    def test_all_zones_zero_no_clean_key(self):
+        payload = bytes([0x39, 0, 0, 0, 0x0F, 0]) + bytes(8) + bytes(4)
+        result = _parse_brush_areas_t1_response(payload)
+        assert "last_brush_areas" in result
+        assert "last_brush_clean" not in result
+
+    def test_partial_zones_clean_percentage(self):
+        # 4 of 8 zones non-zero → clean = 50 %
+        payload = bytes([0, 0, 0, 0, 0, 0]) + bytes([10, 0, 10, 0, 10, 0, 10, 0])
+        result = _parse_brush_areas_t1_response(payload)
+        assert result["last_brush_clean"] == 50
+
+    def test_area_names_match_tooth_area_names_order(self):
+        areas = bytes([1, 2, 3, 4, 5, 6, 7, 8])
+        payload = bytes(6) + areas
+        result = _parse_brush_areas_t1_response(payload)
+        for i, name in enumerate(TOOTH_AREA_NAMES):
+            assert result["last_brush_areas"][name] == i + 1
+
+    def test_too_short_13_bytes_returns_empty(self):
+        assert _parse_brush_areas_t1_response(bytes(13)) == {}
+
+    def test_empty_returns_empty(self):
+        assert _parse_brush_areas_t1_response(b"") == {}
+
+    def test_exactly_14_bytes_minimum_accepted(self):
+        result = _parse_brush_areas_t1_response(bytes(14))
+        assert "last_brush_areas" in result
+
+    def test_routed_via_parse_notification(self):
+        data = RESP_BRUSH_AREAS_T1 + self._REAL_PAYLOAD
+        result = parse_notification(data)
+        assert "last_brush_areas" in result
+        assert result["last_brush_areas"]["upper_left_out"] == 24
