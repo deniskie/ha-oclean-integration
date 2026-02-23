@@ -37,6 +37,20 @@ from .const import (
 from .coordinator import OcleanCoordinator
 from .entity import OcleanEntity
 
+# Session-derived keys: only populated from parsed brush session notifications.
+# After the first session is received (DATA_LAST_BRUSH_TIME is set), any of
+# these keys that remain None are structurally unsupported by the device protocol.
+_SESSION_DERIVED_KEYS: frozenset[str] = frozenset({
+    DATA_LAST_BRUSH_SCORE,
+    DATA_LAST_BRUSH_DURATION,
+    DATA_LAST_BRUSH_CLEAN,
+    DATA_LAST_BRUSH_PRESSURE,
+    DATA_LAST_BRUSH_AREAS,
+    DATA_LAST_BRUSH_SCHEME_TYPE,
+    DATA_LAST_BRUSH_PNUM,
+})
+
+
 SENSOR_DESCRIPTIONS: tuple[SensorEntityDescription, ...] = (
     SensorEntityDescription(
         key=DATA_BATTERY,
@@ -178,6 +192,15 @@ class OcleanSensor(OcleanEntity, SensorEntity):
                 self.coordinator.data is not None
                 and self.coordinator.data.get(self.entity_description.key) is not None
             )
+        # If the device has reported at least one session but this session-derived
+        # field is still None, the device protocol does not support it.
+        if (
+            self.entity_description.key in _SESSION_DERIVED_KEYS
+            and self.coordinator.data is not None
+            and self.coordinator.data.get(DATA_LAST_BRUSH_TIME) is not None
+            and self.coordinator.data.get(self.entity_description.key) is None
+        ):
+            return False
         return True
 
 
@@ -227,6 +250,12 @@ class OcleanBrushAreasSensor(OcleanEntity, SensorEntity):
         """Return True if coordinator is available or we have stale area data."""
         if not self.coordinator.last_update_success:
             return self._get_areas() is not None
+        if (
+            self.coordinator.data is not None
+            and self.coordinator.data.get(DATA_LAST_BRUSH_TIME) is not None
+            and self._get_areas() is None
+        ):
+            return False
         return True
 
 
@@ -274,4 +303,10 @@ class OcleanSchemeSensor(OcleanEntity, SensorEntity):
         """Return True if coordinator is available or we have stale pNum data."""
         if not self.coordinator.last_update_success:
             return self._get_pnum() is not None
+        if (
+            self.coordinator.data is not None
+            and self.coordinator.data.get(DATA_LAST_BRUSH_TIME) is not None
+            and self._get_pnum() is None
+        ):
+            return False
         return True
