@@ -459,6 +459,18 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
             parsed = parse_notification(data)
             _LOGGER.debug("Oclean notification parsed: %s", parsed)
             if parsed:
+                # "Newer timestamp wins": if this notification carries a
+                # last_brush_time that is older than what we already have,
+                # drop the time-dependent fields so a stale 5a00 push never
+                # overwrites a more recent timestamp + duration from 0307.
+                incoming_ts = parsed.get("last_brush_time")
+                if incoming_ts is not None:
+                    current_ts = collected.get("last_brush_time", 0)
+                    if incoming_ts < current_ts:
+                        parsed = {
+                            k: v for k, v in parsed.items()
+                            if k not in ("last_brush_time", "last_brush_duration")
+                        }
                 collected.update(parsed)
                 # If this notification contains a brush session, accumulate it
                 ts = parsed.get("last_brush_time")
