@@ -27,7 +27,23 @@ PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.BINARY_SENSOR, Platform.B
 _FILE_HANDLER_KEY = "_file_handler"
 
 
-def _attach_file_handler(hass: HomeAssistant) -> None:
+def _build_file_handler(log_path: pathlib.Path) -> logging.handlers.RotatingFileHandler:
+    """Create the RotatingFileHandler (blocking I/O – must run in executor)."""
+    handler = logging.handlers.RotatingFileHandler(
+        log_path,
+        maxBytes=1 * 1024 * 1024,  # 1 MB per file
+        backupCount=2,              # keep oclean_ble.log + .1 + .2
+        encoding="utf-8",
+    )
+    handler.setLevel(logging.DEBUG)
+    handler.setFormatter(logging.Formatter(
+        fmt="%(asctime)s  %(levelname)-8s  [%(name)s]  %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    ))
+    return handler
+
+
+async def _attach_file_handler(hass: HomeAssistant) -> None:
     """Attach a rotating file handler to the oclean_ble logger (once per HA session).
 
     Log file: <config_dir>/oclean_ble.log
@@ -42,17 +58,8 @@ def _attach_file_handler(hass: HomeAssistant) -> None:
         return  # already attached
 
     log_path = pathlib.Path(hass.config.config_dir) / "oclean_ble.log"
-    handler = logging.handlers.RotatingFileHandler(
-        log_path,
-        maxBytes=1 * 1024 * 1024,  # 1 MB per file
-        backupCount=2,              # keep oclean_ble.log + .1 + .2
-        encoding="utf-8",
-    )
-    handler.setLevel(logging.DEBUG)
-    handler.setFormatter(logging.Formatter(
-        fmt="%(asctime)s  %(levelname)-8s  [%(name)s]  %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    ))
+    # open() is blocking – run in the default executor to avoid loop warnings
+    handler = await hass.async_add_executor_job(_build_file_handler, log_path)
 
     oclean_logger = logging.getLogger("custom_components.oclean_ble")
     oclean_logger.addHandler(handler)
@@ -60,7 +67,7 @@ def _attach_file_handler(hass: HomeAssistant) -> None:
     _LOGGER.debug("Oclean file log handler attached → %s", log_path)
 
 
-def _detach_file_handler(hass: HomeAssistant) -> None:
+async def _detach_file_handler(hass: HomeAssistant) -> None:
     """Remove the file handler when the last entry is unloaded."""
     domain_data = hass.data.get(DOMAIN, {})
     handler = domain_data.pop(_FILE_HANDLER_KEY, None)
@@ -68,13 +75,14 @@ def _detach_file_handler(hass: HomeAssistant) -> None:
         return
     oclean_logger = logging.getLogger("custom_components.oclean_ble")
     oclean_logger.removeHandler(handler)
-    handler.close()
+    # handler.close() flushes and closes the underlying file – run in executor
+    await hass.async_add_executor_job(handler.close)
     _LOGGER.debug("Oclean file log handler detached")
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Oclean from a config entry."""
-    _attach_file_handler(hass)
+    await _attach_file_handler(hass)
 
     mac = entry.data[CONF_MAC_ADDRESS]
     device_name = entry.data.get(CONF_DEVICE_NAME, "Oclean")
@@ -117,7 +125,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             if not k.startswith("_")
         ]
         if not remaining:
-            _detach_file_handler(hass)
+            await _detach_file_handler(hass)
     return unload_ok
 
 
