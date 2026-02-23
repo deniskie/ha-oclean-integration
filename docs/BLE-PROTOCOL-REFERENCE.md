@@ -296,13 +296,13 @@ public final void I1111llI1(OnOcleanCommandListener listener) {
 Response to `CMD_QUERY_STATUS`. After removing the 2-byte marker:
 
 ```
-Byte 0  : Status flags
+Byte 0  : Status flags (integer value read by app)
            Bit 0 = is_brushing (0 = idle, 1 = brushing)
            Further bits: undocumented
-Byte 1  : Unknown (observed: 0x0E = 14)
-Byte 2  : Unknown (observed: 0x4B = 75)
-Byte 3  : capacity (observed: 0x1D = 29 ≈ battery %)
-Bytes 4+: Unknown / device-specific
+Byte 1  : NOT PARSED by the official app (reserved / device-internal use)
+Byte 2  : NOT PARSED by the official app (observed: varies 0x0f–0x1d, likely a counter)
+Byte 3  : capacity = battery level (0–100 %)
+Bytes 4+: NOT PARSED / device-specific
 ```
 
 **JSON representation (AbstractC0002b.m15c):**
@@ -310,9 +310,19 @@ Bytes 4+: Unknown / device-specific
 {"status": <byte0>, "capacity": <byte3>}
 ```
 
-**Status Byte 1 (byte index 1):** Possibly a secondary status code or extended error flag. Observed value `0x0E` = 14 suggests an operating mode or device state.
+**APK source (C3367n0.java, lines 749–757):**
+```java
+} else if (str.equals("0303")) {
+    if (bArr2.length >= 4) {
+        iBytesToIntLe2 = converterUtils.bytesToIntLe(bArr2, 0, 1);  // byte0: status
+        iBytesToIntLe  = converterUtils.bytesToIntLe(bArr2, 3, 4);  // byte3: capacity
+    }
+    AbstractC3347e.m5356u(this, true, ReceivedType.INFO,
+        AbstractC0002b.m15c(iBytesToIntLe2, iBytesToIntLe));
+}
+```
 
-**Status Byte 2 (byte index 2):** Observed value `0x4B` = 75. Possibly correlated with the last brush score (typical score range: 0–100). Requires verification via parallel BLE logs and app display.
+Bytes 1 and 2 are read from the BLE packet but not extracted into any named field. Their purpose is unknown and they can be safely ignored.
 
 ---
 
@@ -683,8 +693,8 @@ Device → App: 0308 response (final session data)   ← Complete record
 
 | Field / Command | Status | Description |
 |----------------|--------|-------------|
-| `0303` Byte 1 | ❓ Unknown | Observed: `0x0E` = 14. Possibly device status code or extended status flag. |
-| `0303` Byte 2 | ❓ Likely last score | Observed: `0x4B` = 75. Possibly correlated with last brush score. **Verification needed:** Compare parallel BLE log + app display. |
+| `0303` Byte 1 | ✅ Resolved | **Not parsed by app.** Present in BLE packet but not extracted. Purpose unknown, can be ignored. |
+| `0303` Byte 2 | ✅ Resolved | **Not parsed by app.** Observed to vary continuously (0x0f–0x1d), likely an internal counter. Confirmed unused by APK source. |
 | `0307` Bytes 11–12, 16–17 | ❓ Unknown | Byte 11 changes per session; bytes 16–17 observed (39/100, 4/0). May encode pressure or coverage. |
 | `blunt_teeth` unit | ⚠️ Partial | Increases per session, reset via `020F`. Whether linear +1 or ADC wear value: unknown. |
 | `020F` ACK content | ❓ Unknown | Response bytes after ACK not analyzed. Does the device include the new (=0) counter value in the ACK? |

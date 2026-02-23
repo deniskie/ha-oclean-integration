@@ -24,6 +24,7 @@ from .const import (
     CHANGE_INFO_UUID,
     CMD_CALIBRATE_TIME_PREFIX,
     CMD_CLEAR_BRUSH_HEAD,
+    CMD_QUERY_EXTENDED_DATA_T1,
     CMD_QUERY_RUNNING_DATA,
     CMD_QUERY_RUNNING_DATA_NEXT,
     CMD_QUERY_RUNNING_DATA_T1,
@@ -597,6 +598,11 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
             _LOGGER.debug("Oclean CMD_QUERY_RUNNING_DATA_T1 (0307) sent")
         except Exception as err:  # noqa: BLE001
             _LOGGER.debug("Oclean Type-1 running-data skipped: %s (%s)", err, type(err).__name__)
+        try:
+            await client.write_gatt_char(SEND_BRUSH_CMD_UUID, CMD_QUERY_EXTENDED_DATA_T1, response=True)
+            _LOGGER.debug("Oclean CMD_QUERY_EXTENDED_DATA_T1 (0314) sent")
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.debug("Oclean 0314 extended-data skipped: %s (%s)", err, type(err).__name__)
 
         # Wait for first session notification (or timeout if device has no records)
         try:
