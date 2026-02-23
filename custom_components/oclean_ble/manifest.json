@@ -1,7 +1,7 @@
 {
   "domain": "oclean_ble",
   "name": "Oclean Toothbrush (inofficial)",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "requirements": [],
   "dependencies": ["bluetooth"],
   "bluetooth": [
