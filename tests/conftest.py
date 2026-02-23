@@ -93,6 +93,35 @@ def _install_ha_stubs() -> None:
     # ---- homeassistant.helpers (parent) ----
     _stub("homeassistant.helpers")
 
+    # ---- homeassistant.helpers.selector ----
+    sel = _stub("homeassistant.helpers.selector")
+
+    class NumberSelectorMode:
+        BOX = "box"
+        SLIDER = "slider"
+
+    class NumberSelectorConfig:
+        def __init__(self, **kwargs):
+            pass
+
+    class NumberSelector:
+        def __init__(self, config=None):
+            pass
+
+    class TextSelectorConfig:
+        def __init__(self, **kwargs):
+            pass
+
+    class TextSelector:
+        def __init__(self, config=None):
+            pass
+
+    sel.NumberSelectorMode = NumberSelectorMode
+    sel.NumberSelectorConfig = NumberSelectorConfig
+    sel.NumberSelector = NumberSelector
+    sel.TextSelectorConfig = TextSelectorConfig
+    sel.TextSelector = TextSelector
+
     # ---- homeassistant.helpers.update_coordinator ----
     uc = _stub("homeassistant.helpers.update_coordinator")
 
