@@ -10,11 +10,14 @@ from collections.abc import Callable
 from typing import Any
 
 from .const import (
+    RESP_BRUSH_AREAS_T1,
     RESP_DEVICE_INFO,
     RESP_EXTENDED_T1,
     RESP_INFO,
     RESP_INFO_T1,
     RESP_K3GUIDE,
+    RESP_SCORE_T1,
+    RESP_SESSION_META_T1,
     RESP_STATE,
     TOOTH_AREA_NAMES,
 )
@@ -447,33 +450,144 @@ def _handle_device_info_ack(payload: bytes) -> dict[str, Any]:
     return {}
 
 
+def _parse_score_t1_response(payload: bytes) -> dict[str, Any]:
+    """Parse 0000 score-push notification (Type-1 devices: Oclean X series).
+
+    Observed byte layout (reverse-engineered from BLE log analysis 2026-02-24):
+      byte  0: brushing score (0-100); 0xFF = no data
+      byte  1: unknown (observed: 0x00)
+      bytes 2-8: 7 × 0xFF = empty previous-session slots
+      bytes 9+: older session reference data (timestamp-like)
+
+    This notification is pushed by the device after a brushing session completes
+    and carries the device-computed score.  It arrives *after* the 0307 response
+    in the same poll cycle, so it correctly overwrites the 0307 formula estimate.
+    """
+    if len(payload) < 1:
+        _LOGGER.debug("Oclean 0000 score: payload empty")
+        return {}
+    score = payload[0]
+    if score == 0xFF:
+        _LOGGER.debug("Oclean 0000 score: no data (0xFF)")
+        return {}
+    score_clamped = max(0, min(100, score))
+    _LOGGER.debug("Oclean 0000 score=%d (raw: %s)", score_clamped, payload.hex())
+    return {"last_brush_score": score_clamped}
+
+
+def _parse_session_meta_t1_response(payload: bytes) -> dict[str, Any]:
+    """Parse 5a00 session-metadata push (Type-1 devices: Oclean X series).
+
+    Observed byte layout (reverse-engineered from BLE log analysis 2026-02-24):
+      bytes 0-6:  7 × 0xFF = empty slots (no previous sessions stored)
+      byte  7:    year - 2000  (e.g. 0x1A = 26 → 2026)
+      byte  8:    month (1-12)
+      byte  9:    day   (1-31)
+      byte  10:   hour  (0-23)
+      byte  11:   minute (0-59)
+      byte  12:   second (0-59)
+      byte  13:   unknown
+      byte  14:   unknown
+      byte  15:   session duration in seconds (same value duplicated at byte 17)
+      byte  16:   unknown
+      byte  17:   session duration in seconds (duplicate of byte 15)
+
+    NOTE: Before a new brushing session this notification shows an *older*
+    session (not the one in the concurrent 0307 response).  Returning sensor
+    data here would overwrite the 0307 timestamp with an outdated value, so
+    this handler only logs – the data is kept for future protocol research.
+    """
+    if len(payload) < 18:
+        _LOGGER.debug("Oclean 5a00 too short (%d bytes): %s", len(payload), payload.hex())
+        return {}
+
+    try:
+        device_dt = _device_datetime(
+            payload[7], payload[8], payload[9],
+            payload[10], payload[11], payload[12],
+        )
+        duration = payload[15]
+        _LOGGER.debug(
+            "Oclean 5a00 session: date=%s duration=%ds b13=0x%02x b16=0x%02x (raw: %s)",
+            device_dt.strftime("%Y-%m-%d %H:%M:%S"),
+            duration,
+            payload[13],
+            payload[16],
+            payload.hex(),
+        )
+    except (IndexError, ValueError, OverflowError) as err:
+        _LOGGER.debug("Oclean 5a00 parse error: %s (raw: %s)", err, payload.hex())
+    return {}
+
+
+def _parse_brush_areas_t1_response(payload: bytes) -> dict[str, Any]:
+    """Parse 2604 per-tooth-area data (Type-1 devices: Oclean X series).
+
+    Observed byte layout (reverse-engineered from BLE log analysis 2026-02-24):
+      byte  0:   unknown (observed: 0x39 = 57; possibly secondary score or session counter)
+      bytes 1-3: unknown (observed: 0x000000)
+      byte  4:   unknown (observed: 0x0F = 15)
+      byte  5:   unknown (observed: 0x00)
+      bytes 6-13: 8 tooth-area pressure values, BrushAreaType order
+                  (AREA_LIFT_UP_OUT … AREA_RIGHT_DOWN_IN; same as extended 0308 format)
+      bytes 14+:  additional zone data (purpose unknown)
+    """
+    if len(payload) < 14:
+        _LOGGER.debug("Oclean 2604 too short (%d bytes): %s", len(payload), payload.hex())
+        return {}
+
+    area_pressures = payload[6:14]
+    area_dict: dict[str, int] = {
+        name: int(area_pressures[i]) for i, name in enumerate(TOOTH_AREA_NAMES)
+    }
+    zones_cleaned = sum(1 for v in area_pressures if v > 0)
+    avg_pressure = round(sum(area_pressures) / len(area_pressures))
+
+    result: dict[str, Any] = {
+        "last_brush_areas": area_dict,
+        "last_brush_pressure": avg_pressure,
+    }
+    if zones_cleaned > 0:
+        result["last_brush_clean"] = round(zones_cleaned / 8 * 100)
+
+    _LOGGER.debug(
+        "Oclean 2604 areas: %s zones_cleaned=%d/8 avg_pressure=%d"
+        " b0=0x%02x b4=0x%02x (raw: %s)",
+        area_dict, zones_cleaned, avg_pressure,
+        payload[0], payload[4], payload.hex(),
+    )
+    return result
+
+
 def _parse_0314_response(payload: bytes) -> dict[str, Any]:
     """Log a 0314 extended-data response for protocol research.
 
     The 0314 command (CMD_QUERY_EXTENDED_DATA_T1) is sent to SEND_BRUSH_CMD_UUID
-    on Type-1 devices (Oclean X Pro / C3376s).  The full byte layout is not yet
-    known; this handler dumps every byte so we can reverse-engineer the format
-    and identify the score field.
+    on Type-1 devices (Oclean X Pro / C3376s).  The device has not been observed
+    to respond to this command; this handler logs if a response is ever received.
     """
-    _LOGGER.warning(
+    _LOGGER.debug(
         "Oclean 0314 response received – raw hex: %s  len=%d",
         payload.hex(),
         len(payload),
     )
     for i, b in enumerate(payload):
-        _LOGGER.warning("  0314[%02d] = 0x%02X  (%d)", i, b, b)
+        _LOGGER.debug("  0314[%02d] = 0x%02X  (%d)", i, b, b)
     return {}
 
 
 # Strategy registry: 2-byte response-type prefix → handler function.
 # To add support for a new notification type, add one entry here.
 _PARSERS: dict[bytes, Callable[[bytes], dict[str, Any]]] = {
-    RESP_STATE:       _parse_state_response,
-    RESP_INFO:        _parse_info_response,
-    RESP_INFO_T1:     _parse_info_t1_response,
-    RESP_DEVICE_INFO: _handle_device_info_ack,
-    RESP_K3GUIDE:     _parse_k3guide_response,
-    RESP_EXTENDED_T1: _parse_0314_response,
+    RESP_STATE:           _parse_state_response,
+    RESP_INFO:            _parse_info_response,
+    RESP_INFO_T1:         _parse_info_t1_response,
+    RESP_DEVICE_INFO:     _handle_device_info_ack,
+    RESP_K3GUIDE:         _parse_k3guide_response,
+    RESP_EXTENDED_T1:     _parse_0314_response,
+    RESP_SCORE_T1:        _parse_score_t1_response,
+    RESP_SESSION_META_T1: _parse_session_meta_t1_response,
+    RESP_BRUSH_AREAS_T1:  _parse_brush_areas_t1_response,
 }
 
 
