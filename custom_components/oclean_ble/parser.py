@@ -19,6 +19,7 @@ from .const import (
     RESP_SCORE_T1,
     RESP_SESSION_META_T1,
     RESP_STATE,
+    RESP_UNKNOWN_5400,
     TOOTH_AREA_NAMES,
 )
 
@@ -572,6 +573,55 @@ def _parse_0314_response(payload: bytes) -> dict[str, Any]:
     return {}
 
 
+def _log_5400_response(payload: bytes) -> dict[str, Any]:
+    """Log all bytes of an 0x5400 push notification for empirical protocol analysis.
+
+    This notification type is not present in the Oclean APK dispatch table –
+    it appears to be emitted by newer Oclean X firmware after a brushing session.
+    The byte layout is unknown; this handler captures the full payload so that
+    field positions can be confirmed by comparing with known session values
+    (score, area pressures) visible in the Oclean app.
+
+    Once the layout is confirmed, replace this handler with a real parser.
+
+    Observed raw (2026-02-24, Oclean X / OCLEANY3M, single data point):
+      54 00  00 00 0f 00 08 23 17 22 08 00 11 11 07 0f 0f 11 00 00
+             ^--- payload starts here (18 bytes)
+
+    Candidate hypotheses (to be verified against app data):
+      - bytes  0- 1: header / flags
+      - byte   2:    unknown (0x0f = 15; count? duration LSB?)
+      - byte   3:    unknown (0x00)
+      - bytes  4-11: 8 tooth-area pressure values (8, 35, 23, 34, 8, 0, 17, 17)?
+      - bytes 12-17: additional data (7, 15, 15, 17, 0, 0)
+
+    Alternative: same offset as 2604 (bytes 6-13 for areas):
+      - bytes  6-13: 23, 34, 8, 0, 17, 17, 7, 15
+    """
+    _LOGGER.debug("Oclean 5400 raw: %s  len=%d", payload.hex(), len(payload))
+    for i, b in enumerate(payload):
+        _LOGGER.debug("  5400[%02d] = 0x%02X  (%3d)", i, b, b)
+
+    # Log the two most likely area-byte windows so they appear side-by-side in
+    # the log and can be matched against the Oclean app's per-area values.
+    if len(payload) >= 12:
+        window_a = payload[4:12]   # hypothesis A: bytes 4-11
+        _LOGGER.debug(
+            "  5400 area-candidate A (bytes 4-11): %s → %s",
+            window_a.hex(),
+            list(window_a),
+        )
+    if len(payload) >= 14:
+        window_b = payload[6:14]   # hypothesis B: bytes 6-13 (same offset as 2604)
+        _LOGGER.debug(
+            "  5400 area-candidate B (bytes 6-13): %s → %s",
+            window_b.hex(),
+            list(window_b),
+        )
+
+    return {}
+
+
 # Strategy registry: 2-byte response-type prefix → handler function.
 # To add support for a new notification type, add one entry here.
 _PARSERS: dict[bytes, Callable[[bytes], dict[str, Any]]] = {
@@ -584,6 +634,7 @@ _PARSERS: dict[bytes, Callable[[bytes], dict[str, Any]]] = {
     RESP_SCORE_T1:        _parse_score_t1_response,
     RESP_SESSION_META_T1: _parse_session_meta_t1_response,
     RESP_BRUSH_AREAS_T1:  _parse_brush_areas_t1_response,
+    RESP_UNKNOWN_5400:    _log_5400_response,
 }
 
 

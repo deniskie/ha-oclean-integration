@@ -46,6 +46,7 @@ RESP_EXTENDED_T1 = bytes.fromhex("0314")  # Response to CMD_QUERY_EXTENDED_DATA_
 RESP_SCORE_T1 = bytes.fromhex("0000")       # Score push (Type-1, Oclean X series): payload[0] = score 0-100
 RESP_SESSION_META_T1 = bytes.fromhex("5a00")  # Session metadata push (Type-1): date/time + duration
 RESP_BRUSH_AREAS_T1 = bytes.fromhex("2604")   # Per-tooth-area pressure data (Type-1)
+RESP_UNKNOWN_5400 = bytes.fromhex("5400")     # Unknown push (Type-1, Oclean X); not in APK – empirical analysis in progress
 
 # Config entry keys
 CONF_MAC_ADDRESS = "mac_address"
