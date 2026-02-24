@@ -190,7 +190,8 @@ def _parse_info_t1_response(payload: bytes) -> dict[str, Any]:
                highly variable; purpose unknown)
 
       byte 12: 0x00 (consistent – padding)
-      byte 13: brushing metric in seconds (CONFIRMED – see score/duration computation below)
+      byte 13: unknown (variable; observed: 0x4d, 0x00, 0xe7, 0x4c, 0x1c, 0x27 – NOT
+               parsed by the official APK; purpose unconfirmed)
       byte 14: 0x00 (consistent – padding)
       byte 15: unknown (observed: 0x96, 0x1e, 0x78, 0x0b – NOT always equal to byte 13;
                initial "redundant copy" hypothesis disproved by session 2026-02-22 where
@@ -206,7 +207,7 @@ def _parse_info_t1_response(payload: bytes) -> dict[str, Any]:
     """
     _LOGGER.debug("Oclean Type-1 INFO response raw: %s", payload.hex())
 
-    _T1_MIN_SIZE = 14  # need at least through byte 13 (brushing metric)
+    _T1_MIN_SIZE = 11  # need at least through byte 10 (timestamp second field)
     if len(payload) < _T1_MIN_SIZE:
         _LOGGER.debug("Oclean Type-1 INFO: payload too short (%d bytes)", len(payload))
         return {}
@@ -225,17 +226,7 @@ def _parse_info_t1_response(payload: bytes) -> dict[str, Any]:
             "last_brush_time": timestamp_s,
         }
 
-        # byte 13: brushing duration in seconds (device floor: 30 s even for very short
-        #   sessions; observed maximum: 150 s).  Score is NOT derived from this byte –
-        #   the device-accurate score arrives in the separate 0000 notification.
-        brushing_metric = payload[13]
-        if brushing_metric > 0:
-            result["last_brush_duration"] = brushing_metric  # seconds (floor: 30)
-
-        _LOGGER.debug(
-            "Oclean 0307 parsed: %s (raw: %s, byte13=%d)",
-            result, payload.hex(), brushing_metric,
-        )
+        _LOGGER.debug("Oclean 0307 parsed: %s (raw: %s)", result, payload.hex())
 
         # Log unknown bytes to help identify their purpose over time.
         # Enable via:  logger: logs: custom_components.oclean_ble: debug
@@ -243,13 +234,12 @@ def _parse_info_t1_response(payload: bytes) -> dict[str, Any]:
             "Oclean 0307 unknown bytes –"
             " const=%s (device model constant? bytes0-4)"
             " b11=0x%02x (unknown, highly variable)"
-            " b15=0x%02x (unknown; NOT always equal to byte13=0x%02x)"
+            " b15=0x%02x (NOT a copy of b13; purpose unknown)"
             " b16=0x%02x (unknown)"
             " b17=0x%02x (session counter?)",
             payload[0:5].hex(),
-            payload[11],
+            payload[11] if len(payload) > 11 else -1,
             payload[15] if len(payload) > 15 else -1,
-            brushing_metric,
             payload[16] if len(payload) > 16 else -1,
             payload[17] if len(payload) > 17 else -1,
         )
