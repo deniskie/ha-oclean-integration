@@ -117,21 +117,20 @@ class TestReal0202DeviceInfoAck:
 # All three sessions were captured on 2026-02-21 from the Oclean X.
 # The device sends 0307 on RECEIVE_BRUSH_UUID after CMD_QUERY_RUNNING_DATA_T1.
 #
-# Payload layout (bytes after the 0307 prefix):
-#   0-4:  device constant  2a 42 23 00 00  (same in every session)
+# Payload layout (bytes after the 0307 prefix) – confirmed via APK (AbstractC0002b.m18f):
+#   0-2:  magic "*B#"      2a 42 23  (Oclean 0307 push header)
+#   3-4:  session count    00 00     (0 = inline-push, no queued sessions)
 #   5:    year-2000        (confirmed)
 #   6:    month            (confirmed)
 #   7:    day              (confirmed)
 #   8:    hour             (confirmed)
 #   9:    minute           (confirmed)
 #   10:   second           (confirmed)
-#   11:   unknown          (variable: 4d, e7, 00, ...)
-#   12:   0x00             (padding)
-#   13:   unknown          (variable; observed: 0x4d, 0x00, 0xe7, 0x4c – NOT confirmed as duration)
-#   14:   0x00             (padding)
-#   15:   unknown          (NOT always equal to byte 13; purpose unknown)
-#   16:   unknown          (observed: 27, 64, 02)
-#   17:   session counter  (monotonically increasing; observed 0, 1, 4, 5)
+#   11:   pNum             (brush-scheme ID; m18f record offset +6)
+#   12-13: duration        (2-byte BE, total session seconds; m18f offset +7)
+#   14-15: validDuration   (2-byte BE, seconds with valid pressure)
+#   16:   pressureArea[0]  (first of 5 pressure-zone bytes)
+#   17:   pressureArea[1]  (second of 5 pressure-zone bytes)
 # ===========================================================================
 
 class TestReal0307Session1_Score100:
@@ -140,9 +139,10 @@ class TestReal0307Session1_Score100:
 
     Full notification (20 bytes):
       03 07 2a 42 23 00 00 1a 02 15 0f 2a 13 4d 00 96 00 96 27 04
-                                                ^^ byte13 = 0x96 = 150
+      payload[11]=0x4d=77 (pNum), payload[12:14]=0x0096=150 s (duration)
     Timestamp:  2026-02-21 15:42:19 (device local time)
     Duration:   150 s
+    pNum:       77 (Super Whitening, OCLEANY3M family)
     Score:      NOT in 0307 payload – arrives via 0000 notification
     """
 
@@ -153,22 +153,19 @@ class TestReal0307Session1_Score100:
         expected = _local_ts(2026, 2, 21, 15, 42, 19)
         assert result["last_brush_time"] == expected
 
+    def test_pnum(self):
+        """byte 11 = pNum (brush-scheme ID, m18f record offset +6)."""
+        assert parse_notification(self.RAW)["last_brush_pnum"] == 77
+
+    def test_duration(self):
+        """bytes 12-13 = duration in seconds (2-byte BE)."""
+        assert parse_notification(self.RAW)["last_brush_duration"] == 150
+
     def test_no_pressure_or_areas(self):
-        """0307 format does not carry zone pressures."""
+        """0307 push format does not carry zone pressures."""
         result = parse_notification(self.RAW)
         assert "last_brush_pressure" not in result
         assert "last_brush_areas" not in result
-
-    def test_pnum_candidate_from_byte0(self):
-        """0307 byte 0 is extracted as a provisional pNum candidate (UNCONFIRMED).
-
-        Byte 0 = 0x2a = 42 observed consistently; needs multi-session data with
-        different scheme selections to confirm it is actually the brush-scheme ID.
-        scheme_type is not available in the 0307 format.
-        """
-        result = parse_notification(self.RAW)
-        assert result["last_brush_pnum"] == 42  # byte 0 = 0x2a
-        assert "last_brush_scheme_type" not in result
 
     def test_no_score_in_result(self):
         """Score is NOT in 0307; it arrives via the 0000 notification."""
@@ -176,7 +173,7 @@ class TestReal0307Session1_Score100:
 
     def test_expected_keys_only(self):
         result = parse_notification(self.RAW)
-        assert set(result.keys()) == {"last_brush_time", "last_brush_pnum"}
+        assert set(result.keys()) == {"last_brush_time", "last_brush_pnum", "last_brush_duration"}
 
 
 class TestReal0307Session2_Score1:
@@ -185,9 +182,10 @@ class TestReal0307Session2_Score1:
 
     Full notification (20 bytes):
       03 07 2a 42 23 00 00 1a 02 15 10 19 1f e7 00 1e 00 1e 64 00
-                                                ^^ byte13 = 0x1e = 30 (device floor)
+      payload[11]=0xe7=231 (pNum, not in SCHEME_NAMES), payload[12:14]=0x001e=30 s (duration)
     Timestamp:  2026-02-21 16:25:31 (device local time)
     Duration:   30 s  (device reports minimum floor even for 7 s sessions)
+    pNum:       231 (not in SCHEME_NAMES – unmapped scheme)
     Score:      NOT in 0307 payload – arrives via 0000 notification
     """
 
@@ -198,6 +196,12 @@ class TestReal0307Session2_Score1:
         expected = _local_ts(2026, 2, 21, 16, 25, 31)
         assert result["last_brush_time"] == expected
 
+    def test_pnum(self):
+        assert parse_notification(self.RAW)["last_brush_pnum"] == 231
+
+    def test_duration(self):
+        assert parse_notification(self.RAW)["last_brush_duration"] == 30
+
     def test_no_extended_fields(self):
         result = parse_notification(self.RAW)
         assert "last_brush_pressure" not in result
@@ -208,7 +212,7 @@ class TestReal0307Session2_Score1:
 
     def test_expected_keys_only(self):
         result = parse_notification(self.RAW)
-        assert set(result.keys()) == {"last_brush_time", "last_brush_pnum"}
+        assert set(result.keys()) == {"last_brush_time", "last_brush_pnum", "last_brush_duration"}
 
 
 class TestReal0307Session3_Score90:
@@ -217,9 +221,10 @@ class TestReal0307Session3_Score90:
 
     Full notification (20 bytes):
       03 07 2a 42 23 00 00 1a 02 15 10 2c 1c 00 00 78 00 78 02 01
-                                                ^^ byte13 = 0x78 = 120 s
+      payload[11]=0x00=0 (pNum), payload[12:14]=0x0078=120 s (duration)
     Timestamp:  2026-02-21 16:44:28 (device local time)
     Duration:   120 s (= 2 minutes)
+    pNum:       0 (no scheme / unknown)
     Score:      NOT in 0307 payload – arrives via 0000 notification
     """
 
@@ -230,6 +235,12 @@ class TestReal0307Session3_Score90:
         expected = _local_ts(2026, 2, 21, 16, 44, 28)
         assert result["last_brush_time"] == expected
 
+    def test_pnum(self):
+        assert parse_notification(self.RAW)["last_brush_pnum"] == 0
+
+    def test_duration(self):
+        assert parse_notification(self.RAW)["last_brush_duration"] == 120
+
     def test_no_extended_fields(self):
         result = parse_notification(self.RAW)
         assert "last_brush_pressure" not in result
@@ -240,24 +251,22 @@ class TestReal0307Session3_Score90:
 
     def test_expected_keys_only(self):
         result = parse_notification(self.RAW)
-        assert set(result.keys()) == {"last_brush_time", "last_brush_pnum"}
+        assert set(result.keys()) == {"last_brush_time", "last_brush_pnum", "last_brush_duration"}
 
 
-class TestReal0307Session4_Score100_Byte15Disproof:
+class TestReal0307Session4_ValidDurationDiffersFromDuration:
     """
     Session 4 – captured 2026-02-22 01:45:39 via oclean_capture.py.
 
     Full notification (20 bytes):
       03 07 2a 42 23 00 00 1a 02 16 01 2d 27 4c 00 96 00 0b 00 00
-                                                ^^ byte13 = 0x96 = 150
-                                                            ^^ byte15 = 0x0b = 11  ≠ byte13!
-    Timestamp:  2026-02-22 01:45:39 (device local time)
-    Duration:   150 s
-    Score:      NOT in 0307 payload – arrives via 0000 notification
-
-    Key finding: byte 15 is 0x0b = 11, NOT equal to byte 13 = 0x96 = 150.
-    This disproves the earlier hypothesis that byte 15 is a redundant copy of byte 13.
-    Both bytes have unknown purpose; neither is parsed.
+      payload[11]=0x4c=76 (pNum="Strong Whitening"), payload[12:14]=0x0096=150 s (duration)
+      payload[14:16]=0x000b=11 s (validDuration – only 11 s of valid pressure in 150 s session)
+    Timestamp:    2026-02-22 01:45:39 (device local time)
+    Duration:     150 s
+    ValidDur:     11 s  (much less than total – confirms duration ≠ validDuration)
+    pNum:         76 ("Strong Whitening", OCLEANY3M family)
+    Score:        NOT in 0307 payload – arrives via 0000 notification
     """
 
     RAW = bytes.fromhex("03072a422300001a0216012d274c0096000b0000")
@@ -267,20 +276,27 @@ class TestReal0307Session4_Score100_Byte15Disproof:
         expected = _local_ts(2026, 2, 22, 1, 45, 39)
         assert result["last_brush_time"] == expected
 
-    def test_byte15_not_equal_byte13(self):
-        """Confirm byte15=0x0b ≠ byte13=0x96; neither is parsed as duration."""
+    def test_pnum(self):
+        assert parse_notification(self.RAW)["last_brush_pnum"] == 76
+
+    def test_duration(self):
+        assert parse_notification(self.RAW)["last_brush_duration"] == 150
+
+    def test_valid_duration_differs_from_duration(self):
+        """validDuration (bytes 14-15 = 0x000b = 11 s) differs from duration (150 s)."""
         raw_bytes = bytearray(self.RAW)
-        assert raw_bytes[2 + 13] == 0x96  # byte13 (after 0307 prefix)
-        assert raw_bytes[2 + 15] == 0x0b  # byte15 ≠ byte13
-        result = parse_notification(self.RAW)
-        assert "last_brush_duration" not in result
+        duration_lsb = raw_bytes[2 + 13]   # payload[13] = LSB of duration = 0x96 = 150
+        valid_dur_lsb = raw_bytes[2 + 15]  # payload[15] = LSB of validDuration = 0x0b = 11
+        assert duration_lsb == 0x96
+        assert valid_dur_lsb == 0x0b
+        assert duration_lsb != valid_dur_lsb
 
     def test_no_score_in_result(self):
         assert "last_brush_score" not in parse_notification(self.RAW)
 
     def test_expected_keys_only(self):
         result = parse_notification(self.RAW)
-        assert set(result.keys()) == {"last_brush_time", "last_brush_pnum"}
+        assert set(result.keys()) == {"last_brush_time", "last_brush_pnum", "last_brush_duration"}
 
 
 # ===========================================================================
@@ -291,12 +307,12 @@ class TestReal0307CrossSession:
     """Consistency checks across all four captured sessions."""
 
     SESSIONS = [
-        # (raw_hex, year, month, day, hour, minute, second)
-        ("03072a422300001a02150f2a134d009600962704", 2026, 2, 21, 15, 42, 19),
-        ("03072a422300001a021510191fe7001e001e6400", 2026, 2, 21, 16, 25, 31),
-        ("03072a422300001a0215102c1c00007800780201", 2026, 2, 21, 16, 44, 28),
-        # Session 4 captured 2026-02-22: byte15=0x0b ≠ byte13=0x96 (disproves "redundant copy" hypothesis)
-        ("03072a422300001a0216012d274c0096000b0000", 2026, 2, 22,  1, 45, 39),
+        # (raw_hex, year, month, day, hour, minute, second, pnum, duration_s)
+        ("03072a422300001a02150f2a134d009600962704", 2026, 2, 21, 15, 42, 19, 77, 150),
+        ("03072a422300001a021510191fe7001e001e6400", 2026, 2, 21, 16, 25, 31, 231, 30),
+        ("03072a422300001a0215102c1c00007800780201", 2026, 2, 21, 16, 44, 28, 0, 120),
+        # Session 4: validDuration (0x000b=11 s) differs from duration (0x0096=150 s)
+        ("03072a422300001a0216012d274c0096000b0000", 2026, 2, 22,  1, 45, 39, 76, 150),
     ]
 
     def test_all_sessions_produce_no_score(self):
@@ -305,14 +321,15 @@ class TestReal0307CrossSession:
             result = parse_notification(bytes.fromhex(raw_hex))
             assert "last_brush_score" not in result, f"Unexpected score in {raw_hex[:20]}…"
 
-    def test_all_sessions_produce_no_duration(self):
-        """byte13 purpose is unconfirmed; no duration is extracted from 0307."""
-        for raw_hex, *_ in self.SESSIONS:
+    def test_all_sessions_produce_pnum_and_duration(self):
+        """pNum (byte 11) and duration (bytes 12-13) are extracted from every 0307."""
+        for raw_hex, *_, pnum, duration_s in self.SESSIONS:
             result = parse_notification(bytes.fromhex(raw_hex))
-            assert "last_brush_duration" not in result, f"Unexpected duration in {raw_hex[:20]}…"
+            assert result.get("last_brush_pnum") == pnum, f"pNum mismatch for {raw_hex[:20]}…"
+            assert result.get("last_brush_duration") == duration_s, f"Duration mismatch for {raw_hex[:20]}…"
 
     def test_all_sessions_produce_timestamp(self):
-        for raw_hex, year, month, day, hour, minute, second in self.SESSIONS:
+        for raw_hex, year, month, day, hour, minute, second, *_ in self.SESSIONS:
             result = parse_notification(bytes.fromhex(raw_hex))
             expected = _local_ts(year, month, day, hour, minute, second)
             assert result.get("last_brush_time") == expected, f"Timestamp mismatch for {raw_hex[:20]}…"

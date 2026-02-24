@@ -204,44 +204,43 @@ def _parse_info_response(payload: bytes) -> dict[str, Any]:
 
 
 def _parse_info_t1_response(payload: bytes) -> dict[str, Any]:
-    """Parse a 0307 Type-1 running-data response payload (Oclean X).
+    """Parse a 0307 Type-1 running-data push payload (Oclean X / OCLEANY3M).
 
-    Byte layout confirmed empirically (Oclean X, 5 sessions, 2026-02-21 to 2026-02-22):
+    The 0307 response on RECEIVE_BRUSH_UUID is a single-BLE-packet push that
+    carries the beginning of an m18f-format record (AbstractC0002b.m18f in the
+    Oclean APK).  The full 42-byte m18f record is only sent for multi-packet
+    historical queries (via C5733b.m8524e); the push truncates at byte 17,
+    fitting one 20-byte BLE ATT notification with the 5-byte header.
 
-      byte  0:   pNum candidate – UNCONFIRMED (observed: 0x2a=42 consistently across
-                 polls; could be the brush-scheme ID if only one session is present;
-                 needs multi-session data with different scheme selections to confirm)
-      bytes 1-4: unknown constant (observed: 0x42 0x23 0x00 XX; byte 4 varies 0/1/2)
+    APK source: AbstractC0002b.m18f / C3385w0 / C5733b.m8524e (OCLEANY3M,
+    protocol 14, i12=1).
 
-      byte 5:  year - 2000  (confirmed)
-      byte 6:  month        (confirmed)
-      byte 7:  day          (confirmed)
-      byte 8:  hour         (confirmed)
-      byte 9:  minute       (confirmed)
-      byte 10: second       (confirmed)
+    Full payload layout (18 bytes after stripping the 2-byte 0307 prefix):
 
-      byte 11: unknown (observed values: 0x00, 0x4c, 0xe7, 0x13, 0x1f, 0x1c, 0x4d –
-               highly variable; purpose unknown)
+      bytes  0-2:  magic "*B#"      (0x2a 0x42 0x23 – Oclean 0307 push header)
+      bytes  3-4:  session count    (0x0000 – inline-push mode, 0 queued sessions)
 
-      byte 12: 0x00 (consistent – padding)
-      byte 13: unknown (variable; observed: 0x4d, 0x00, 0xe7, 0x4c, 0x1c, 0x27 – NOT
-               parsed by the official APK; purpose unconfirmed)
-      byte 14: 0x00 (consistent – padding)
-      byte 15: unknown (observed: 0x96, 0x1e, 0x78, 0x0b – NOT always equal to byte 13;
-               initial "redundant copy" hypothesis disproved by session 2026-02-22 where
-               byte13=0x96=150 but byte15=0x0b=11; purpose unknown – ignored)
-      byte 16: unknown (observed: 0x00, 0x02, 0x07, 0x01, 0x64) – purpose unclear
-      byte 17: session counter (empirically observed as monotonically increasing, 0-indexed;
-               observed values 0, 1, 4, 5 – some sessions not captured in between)
+      m18f record data (starts at byte 5, immediately after the 5-byte header):
+        byte  5:  year - 2000       (confirmed)
+        byte  6:  month             (confirmed)
+        byte  7:  day               (confirmed)
+        byte  8:  hour              (confirmed)
+        byte  9:  minute            (confirmed)
+        byte 10:  second            (confirmed)
+        byte 11:  pNum              (brush-scheme ID; m18f record offset +6;
+                                     confirmed by cross-referencing SCHEME_NAMES)
+        bytes 12-13: duration       (2-byte BE, total session seconds; m18f offset +7)
+        bytes 14-15: validDuration  (2-byte BE, seconds with valid pressure; logged only)
+        byte 16:  pressureArea[0]   (first of 5 pressure-zone bytes; logged only)
+        byte 17:  pressureArea[1]   (second of 5 pressure-zone bytes; logged only)
 
-    Note: the device-computed score is NOT present in this payload.  It
-    arrives separately in the 0000 (RESP_SCORE_T1) notification which fires
-    after the session and overwrites whatever this handler would set.
-    Timezone is not applied; device local time is used directly.
+    Note: score is NOT in this payload – it arrives via 0000 (RESP_SCORE_T1).
+    Timezone is not encoded; the device stores local time and time.mktime()
+    interprets it in the HA system timezone.
     """
     _LOGGER.debug("Oclean Type-1 INFO response raw: %s", payload.hex())
 
-    _T1_MIN_SIZE = 11  # need at least through byte 10 (timestamp second field)
+    _T1_MIN_SIZE = 12  # need at least through byte 11 (pNum)
     if len(payload) < _T1_MIN_SIZE:
         _LOGGER.debug("Oclean Type-1 INFO: payload too short (%d bytes)", len(payload))
         return {}
@@ -251,43 +250,37 @@ def _parse_info_t1_response(payload: bytes) -> dict[str, Any]:
         device_dt = _device_datetime(
             payload[5], payload[6], payload[7], payload[8], payload[9], payload[10]
         )
-        # The 0307 payload carries no timezone offset – the device stores local time.
-        # time.mktime() interprets the struct_time as the system local timezone
+        # time.mktime() interprets the naive datetime in the system local timezone
         # (= HA configured timezone on HA OS) and returns a correct UTC Unix timestamp.
         timestamp_s = int(time.mktime(device_dt.timetuple()))
 
         result: dict[str, Any] = {
             "last_brush_time": timestamp_s,
+            "last_brush_pnum": int(payload[11]),
         }
 
-        # byte 0: pNum candidate (UNCONFIRMED).
-        # Observed as 0x2a=42 consistently, but only one session has been captured so far.
-        # If this byte changes when the user selects a different brush scheme, it IS the pNum.
-        # Store it provisionally so the "Last Brush Scheme" sensor can show a value.
-        p_num_candidate = int(payload[0])
-        result["last_brush_pnum"] = p_num_candidate
+        # byte 12-13: duration (2-byte big-endian, total session seconds)
+        if len(payload) >= 14:
+            duration_s = (payload[12] << 8) | payload[13]
+            result["last_brush_duration"] = duration_s
 
         _LOGGER.debug(
-            "Oclean 0307 parsed: ts=%d pNum_candidate=%d (byte0=0x%02x, UNCONFIRMED)"
-            " – verify by switching schemes and checking if byte0 changes (raw: %s)",
-            timestamp_s, p_num_candidate, p_num_candidate, payload.hex(),
+            "Oclean 0307 parsed: ts=%d pNum=%d duration=%s s (raw: %s)",
+            timestamp_s,
+            result["last_brush_pnum"],
+            result.get("last_brush_duration", "n/a"),
+            payload.hex(),
         )
 
-        # Log remaining unknown bytes for ongoing protocol analysis.
-        # Enable via:  logger: logs: custom_components.oclean_ble: debug
-        _LOGGER.debug(
-            "Oclean 0307 unknown bytes –"
-            " b1-4=%s (unknown constant)"
-            " b11=0x%02x (unknown, highly variable)"
-            " b15=0x%02x (NOT a copy of b13; purpose unknown)"
-            " b16=0x%02x (unknown)"
-            " b17=0x%02x (session counter?)",
-            payload[1:5].hex(),
-            payload[11] if len(payload) > 11 else -1,
-            payload[15] if len(payload) > 15 else -1,
-            payload[16] if len(payload) > 16 else -1,
-            payload[17] if len(payload) > 17 else -1,
-        )
+        # Log remaining bytes for ongoing protocol analysis.
+        if len(payload) >= 18:
+            _LOGGER.debug(
+                "Oclean 0307 extra bytes –"
+                " validDuration=0x%02x%02x=%d s"
+                " pressureArea[0]=0x%02x pressureArea[1]=0x%02x",
+                payload[14], payload[15], (payload[14] << 8) | payload[15],
+                payload[16], payload[17],
+            )
 
         return result
 
@@ -390,8 +383,6 @@ def _parse_extended_running_data_record(data: bytes) -> dict[str, Any]:
         tz_offset_quarters = _parse_signed_byte(data[19])
         area_pressures = data[20:28]   # 8 tooth area pressure bytes
         score = int(data[28])
-        scheme_type = int(data[29])
-
         timestamp_s = _build_utc_timestamp(device_dt, tz_offset_quarters)
         area_dict, zones_cleaned, avg_pressure = _build_area_stats(area_pressures)
 
@@ -401,14 +392,13 @@ def _parse_extended_running_data_record(data: bytes) -> dict[str, Any]:
             "last_brush_score": max(0, min(100, score)),
             "last_brush_pressure": avg_pressure,
             "last_brush_areas": area_dict,
-            "last_brush_scheme_type": scheme_type,
             "last_brush_pnum": p_num,
         }
 
         _LOGGER.debug(
             "Oclean extended running-data: ts=%d score=%d duration=%ds pNum=%d "
-            "schemeType=%d zones_cleaned=%d/8 avg_pressure=%d",
-            timestamp_s, score, duration, p_num, scheme_type, zones_cleaned, avg_pressure,
+            "zones_cleaned=%d/8 avg_pressure=%d",
+            timestamp_s, score, duration, p_num, zones_cleaned, avg_pressure,
         )
         return result
 

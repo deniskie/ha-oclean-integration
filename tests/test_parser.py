@@ -577,28 +577,31 @@ def _make_t1_record(
     hour: int = 16,
     minute: int = 25,
     second: int = 31,
+    pnum: int = 0,
+    duration: int = 0,
     extra: bytes = b"\x02\x01",
 ) -> bytes:
     """Build a Type-1 (0307) running-data payload (14 bytes header + extra).
 
-    Byte layout:
-      bytes 0-4 : device constant (0x2a 0x42 0x23 0x00 0x00)
+    Byte layout (confirmed via APK AbstractC0002b.m18f):
+      bytes 0-2 : magic "*B#"  (0x2a 0x42 0x23)
+      bytes 3-4 : session count 0x0000
       bytes 5-10: timestamp (year-2000, month, day, hour, minute, second)
-      byte 11   : unknown (0x00)
-      byte 12   : unknown (0x00)
-      byte 13   : unknown; purpose unconfirmed – NOT parsed by the official APK
-      extra     : bytes 14+ (byte 14 padding, byte 15 unknown, bytes 16-17 unknown)
+      byte  11  : pNum (brush-scheme ID)
+      bytes 12-13: duration in seconds (2-byte BE)
+      extra     : bytes 14+ (validDuration, pressureArea, etc.)
     """
     header = bytearray(14)
-    header[0:5] = b"\x2a\x42\x23\x00\x00"   # device constant
+    header[0:5] = b"\x2a\x42\x23\x00\x00"   # magic "*B#" + session count
     header[5] = year - 2000
     header[6] = month
     header[7] = day
     header[8] = hour
     header[9] = minute
     header[10] = second
-    header[11] = 0
-    header[12] = 0
+    header[11] = pnum
+    header[12] = (duration >> 8) & 0xFF
+    header[13] = duration & 0xFF
     return bytes(header) + extra
 
 
@@ -617,31 +620,37 @@ class TestParseInfoT1Response:
     # --- Real observed payloads (ground truth) ---
 
     def test_real_session_7s(self):
-        """Short brush: timestamp extracted; no duration (byte13 purpose unconfirmed)."""
+        """Short brush: timestamp, pNum=231, duration=30 s extracted."""
         # raw: 03072a422300001a021510191fe7001e001e6400
+        # payload[11]=0xe7=231 (pNum), payload[12:14]=0x001e=30 s (duration)
         payload = bytes.fromhex("2a422300001a021510191fe7001e001e6400")
         result = _parse_info_t1_response(payload)
         expected_ts = _expected_t1_ts(2026, 2, 21, 16, 25, 31)
         assert result["last_brush_time"] == expected_ts
-        assert "last_brush_duration" not in result
+        assert result["last_brush_pnum"] == 231
+        assert result["last_brush_duration"] == 30
         assert "last_brush_score" not in result
 
     def test_real_session_2min(self):
-        """2-min brush: timestamp extracted; no duration (byte13 purpose unconfirmed)."""
+        """2-min brush: timestamp, pNum=0, duration=120 s extracted."""
         # raw: 03072a422300001a0215102c1c00007800780201
+        # payload[11]=0x00=0 (pNum), payload[12:14]=0x0078=120 s (duration)
         payload = bytes.fromhex("2a422300001a0215102c1c00007800780201")
         result = _parse_info_t1_response(payload)
         expected_ts = _expected_t1_ts(2026, 2, 21, 16, 44, 28)
         assert result["last_brush_time"] == expected_ts
-        assert "last_brush_duration" not in result
+        assert result["last_brush_pnum"] == 0
+        assert result["last_brush_duration"] == 120
         assert "last_brush_score" not in result
 
-    def test_real_session_byte13_150(self):
-        """byte13=150 observed; no duration set (byte13 purpose unconfirmed)."""
+    def test_real_session_150s(self):
+        """150 s brush: timestamp, pNum=77, duration=150 s extracted."""
         # raw: 03072a422300001a02150f2a134d009600962704
+        # payload[11]=0x4d=77 (pNum), payload[12:14]=0x0096=150 s (duration)
         payload = bytes.fromhex("2a422300001a02150f2a134d009600962704")
         result = _parse_info_t1_response(payload)
-        assert "last_brush_duration" not in result
+        assert result["last_brush_pnum"] == 77
+        assert result["last_brush_duration"] == 150
         assert "last_brush_score" not in result
 
     def test_score_never_in_result(self):
@@ -661,11 +670,12 @@ class TestParseInfoT1Response:
 
     def test_too_short_returns_empty(self):
         assert _parse_info_t1_response(b"") == {}
-        assert _parse_info_t1_response(bytes(10)) == {}   # need 11 bytes
+        assert _parse_info_t1_response(bytes(10)) == {}  # need 12 bytes (through pNum)
+        assert _parse_info_t1_response(bytes(11)) == {}  # 11 bytes still too short
 
-    def test_exactly_11_bytes_accepted(self):
-        """Minimum valid payload: 11 bytes (timestamp complete at byte 10)."""
-        payload = bytearray(11)
+    def test_exactly_12_bytes_accepted(self):
+        """Minimum valid payload: 12 bytes (through pNum at byte 11)."""
+        payload = bytearray(12)
         payload[0:5] = b"\x2a\x42\x23\x00\x00"
         payload[5] = 26   # year - 2000
         payload[6] = 2    # month
@@ -673,9 +683,11 @@ class TestParseInfoT1Response:
         payload[8] = 16   # hour
         payload[9] = 25   # minute
         payload[10] = 31  # second
+        payload[11] = 42  # pNum
         result = _parse_info_t1_response(bytes(payload))
         assert "last_brush_time" in result
-        assert "last_brush_duration" not in result
+        assert result["last_brush_pnum"] == 42
+        assert "last_brush_duration" not in result  # need 14 bytes for duration
         assert "last_brush_score" not in result
 
     def test_invalid_date_returns_empty(self):
@@ -694,19 +706,21 @@ class TestParseInfoT1Response:
 class TestParseNotificationInfoT1Routing:
 
     def test_0307_real_session_2min(self):
-        """Real 2-min session: timestamp extracted, no duration, no score."""
+        """Real 2-min session: timestamp, pNum=0, duration=120 s extracted."""
         raw = bytes.fromhex("03072a422300001a0215102c1c00007800780201")
         result = parse_notification(raw)
         assert "last_brush_time" in result
-        assert "last_brush_duration" not in result
+        assert result["last_brush_pnum"] == 0
+        assert result["last_brush_duration"] == 120
         assert "last_brush_score" not in result
 
     def test_0307_real_session_7s(self):
-        """Real 7s session: timestamp extracted, no duration, no score."""
+        """Real 7s session: timestamp, pNum=231, duration=30 s extracted."""
         raw = bytes.fromhex("03072a422300001a021510191fe7001e001e6400")
         result = parse_notification(raw)
         assert "last_brush_time" in result
-        assert "last_brush_duration" not in result
+        assert result["last_brush_pnum"] == 231
+        assert result["last_brush_duration"] == 30
         assert "last_brush_score" not in result
 
     def test_0307_too_short_returns_empty(self):
@@ -715,9 +729,10 @@ class TestParseNotificationInfoT1Routing:
 
     def test_0307_valid_constructed_record(self):
         rec = _make_t1_record(year=2026, month=1, day=10,
-                               hour=7, minute=30, second=0)
+                               hour=7, minute=30, second=0, pnum=76, duration=120)
         result = parse_notification(RESP_INFO_T1 + rec)
-        assert "last_brush_duration" not in result
+        assert result["last_brush_pnum"] == 76
+        assert result["last_brush_duration"] == 120
         assert "last_brush_score" not in result
         expected = _expected_t1_ts(2026, 1, 10, 7, 30, 0)
         assert result["last_brush_time"] == expected
@@ -728,10 +743,12 @@ class TestParseNotificationInfoT1Routing:
         t0_raw = RESP_INFO + _make_record(pressure_raw=300)
         r_t1 = parse_notification(t1_raw)
         r_t0 = parse_notification(t0_raw)
-        assert "last_brush_duration" not in r_t1
         assert "last_brush_score" not in r_t1
         assert "last_brush_pressure" in r_t0
         assert "last_brush_pressure" not in r_t1
+        # 0307 carries pNum and duration; 0308-simple carries pressure
+        assert "last_brush_pnum" in r_t1
+        assert "last_brush_duration" in r_t1
 
 
 # ---------------------------------------------------------------------------
@@ -819,10 +836,6 @@ class TestParseExtendedRunningDataRecord:
     def test_p_num_extracted(self):
         rec = _make_extended_record(p_num=42)
         assert _parse_extended_running_data_record(rec)["last_brush_pnum"] == 42
-
-    def test_scheme_type_extracted(self):
-        rec = _make_extended_record(scheme_type=5)
-        assert _parse_extended_running_data_record(rec)["last_brush_scheme_type"] == 5
 
     # --- Timestamp & timezone ---
 
@@ -953,7 +966,6 @@ class TestParseExtendedRunningDataRecord:
             "last_brush_score",
             "last_brush_pressure",
             "last_brush_areas",
-            "last_brush_scheme_type",
             "last_brush_pnum",
         ):
             assert key in result, f"Expected key missing: {key}"

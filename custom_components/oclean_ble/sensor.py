@@ -26,7 +26,6 @@ from .const import (
     DATA_LAST_BRUSH_PRESSURE,
     DATA_LAST_BRUSH_PNUM,
     DATA_LAST_BRUSH_SCORE,
-    DATA_LAST_BRUSH_SCHEME_TYPE,
     DATA_LAST_BRUSH_TIME,
     DATA_MODEL_ID,
     DATA_SW_VERSION,
@@ -45,7 +44,6 @@ _SESSION_DERIVED_KEYS: frozenset[str] = frozenset({
     DATA_LAST_BRUSH_DURATION,
     DATA_LAST_BRUSH_PRESSURE,
     DATA_LAST_BRUSH_AREAS,
-    DATA_LAST_BRUSH_SCHEME_TYPE,
     DATA_LAST_BRUSH_PNUM,
 })
 
@@ -94,13 +92,6 @@ SENSOR_DESCRIPTIONS: tuple[SensorEntityDescription, ...] = (
         icon="mdi:toothbrush",
         # Raw wear indicator (blunt_teeth); resets to 0 after brush head replacement.
         # Higher values = more wear. Unit unknown (possibly cumulative ADC value).
-    ),
-    SensorEntityDescription(
-        key=DATA_LAST_BRUSH_SCHEME_TYPE,
-        name="Last Brush Scheme Type",
-        state_class=SensorStateClass.MEASUREMENT,
-        icon="mdi:clipboard-list",
-        # Integer 0-8: brush-scheme category. Names are cloud-managed; not mapped here.
     ),
     # Device information (diagnostic) – read from BLE Device Information Service (0x180A)
     SensorEntityDescription(
@@ -248,14 +239,12 @@ class OcleanBrushAreasSensor(OcleanEntity, SensorEntity):
 class OcleanSchemeSensor(OcleanEntity, SensorEntity):
     """Sensor showing the brush scheme (programme) used in the last session.
 
-    State: pNum integer (for use in automations / templates).
-    Attribute: scheme_name → human-readable English name from SCHEME_NAMES lookup,
-      or None if the pNum is unknown (device-family-specific; cloud-managed names).
+    State: human-readable scheme name from SCHEME_NAMES, or the pNum as string
+    if the programme ID is not in the lookup table.
     """
 
-    _attr_name = "Last Brush Scheme"
+    _attr_name = "Last Brush Scheme Type"
     _attr_icon = "mdi:clipboard-list"
-    _attr_state_class = SensorStateClass.MEASUREMENT
 
     def __init__(
         self,
@@ -272,17 +261,12 @@ class OcleanSchemeSensor(OcleanEntity, SensorEntity):
         return int(value) if value is not None else None
 
     @property
-    def native_value(self) -> int | None:
-        """Return the pNum as numeric state."""
-        return self._get_pnum()
-
-    @property
-    def extra_state_attributes(self) -> dict[str, Any] | None:
-        """Return the human-readable scheme name as an attribute."""
+    def native_value(self) -> str | None:
+        """Return scheme name, or pNum as string if not in lookup table."""
         pnum = self._get_pnum()
         if pnum is None:
             return None
-        return {"scheme_name": SCHEME_NAMES.get(pnum)}
+        return SCHEME_NAMES.get(pnum, str(pnum))
 
     @property
     def available(self) -> bool:

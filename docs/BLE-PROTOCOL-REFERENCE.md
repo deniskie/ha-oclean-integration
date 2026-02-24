@@ -515,25 +515,27 @@ APK handler: AbstractC3347e.m5374d0() → bytesToAscii()
 **Format B – 20-byte binary session record** (observed on Oclean X / OCLEANY3M):
 ```
 Byte layout (payload after stripping the 0307 prefix):
-  Bytes 0-4 : device/model constant (0x2a 0x42 0x23 0x00 0x00 on Oclean X)
+  Bytes 0-2 : magic "*B#"  (0x2a 0x42 0x23 – Oclean 0307 push header)
+  Bytes 3-4 : session count (0x0000 = inline-push, no queued sessions)
   Byte 5    : year - 2000  (confirmed)
   Byte 6    : month        (confirmed)
   Byte 7    : day          (confirmed)
   Byte 8    : hour         (confirmed)
   Byte 9    : minute       (confirmed)
   Byte 10   : second       (confirmed)
-  Byte 11   : unknown (highly variable; 0x00, 0x4c, 0xe7, 0x13, 0x1f, 0x1c, 0x4d)
-  Byte 12   : 0x00 (consistent; padding)
-  Byte 13   : unknown (NOT parsed by official APK; purpose unconfirmed)
-  Byte 14   : 0x00 (consistent; padding)
-  Byte 15   : unknown (NOT always equal to byte 13; purpose unknown)
-  Byte 16   : unknown (observed: 0x00, 0x02, 0x07, 0x01, 0x64)
-  Byte 17   : session counter? (empirically increasing; observed 0, 1, 4, 5)
+  Byte 11   : pNum         (brush-scheme ID; confirmed via AbstractC0002b.m18f record[6])
+  Bytes 12-13: duration    (2-byte BE, total session seconds; confirmed via m18f record[7:9])
+  Bytes 14-15: validDuration (2-byte BE, seconds with valid pressure; m18f record[9:11])
+  Byte 16   : pressureArea[0]  (first of 5 pressure-zone bytes; m18f record[11])
+  Byte 17   : pressureArea[1]  (second of 5 pressure-zone bytes; m18f record[12])
 
-NOTE: The official APK does NOT parse this binary format – it treats all 0307
-responses as ASCII strings. The byte 5-10 timestamp mapping was confirmed
-empirically from 5 Oclean X sessions (2026-02-21 to 2026-02-22). All other
-byte interpretations are unconfirmed hypotheses.
+NOTE: The 18-byte push packet is the beginning of a 42-byte session record defined
+in AbstractC0002b.m18f (OCLEANY3M protocol, class C3385w0). The official APK does
+NOT parse this binary format directly over BLE – it treats all 0307 responses as
+ASCII strings. The byte layout was confirmed via APK source analysis and cross-
+validated against 4 captured Oclean X sessions (2026-02-21 to 2026-02-22).
+pNum and duration confirmed across all sessions; validDuration and pressureArea
+parsed but not yet exposed as HA sensors.
 ```
 
 ---
@@ -715,7 +717,7 @@ Device → App: 0308 response (final session data)   ← Complete record
 | 0308 Record size | ✅ Resolved | **Two formats**: simple = 20 bytes (`C3340b1.m5348m1`); extended = 32+ bytes (`AbstractC0002b.m37y`). Format identified by first byte (0 = extended, year-2000 ≥ 1 = simple). |
 | 0308 Bytes 18–19 (simple) | ✅ Resolved | In the **extended** format these positions are RESERVED (byte 18) and tz_offset (byte 19); only present in extended records (not in simple 20-byte format). |
 | 0340 K3GUIDE | ✅ Resolved | Real-time zone guidance notification. 6 bytes: liftUp, liftDown, rightUp, rightDown, currentPosition (BrushAreaType 1–8 / 255=stop), workingState. Source: `C3367n0.java:737–745`, `ChangeType.K3GUIDE=8`. |
-| Type-1 RECEIVE_BRUSH_UUID | ✅ Partial | Receives session data in the same 20-byte format as 0308. |
+| Type-1 RECEIVE_BRUSH_UUID | ✅ Resolved | 20-byte binary push packet. Format confirmed via `AbstractC0002b.m18f` (OCLEANY3M): `*B#` magic header (bytes 0–2), session count (bytes 3–4), timestamp (bytes 5–10), pNum (byte 11), duration/validDuration/pressureArea[0–1] (bytes 12–17). Not the same format as 0308. |
 
 ### 11.2 Remaining Unknowns
 
@@ -723,7 +725,7 @@ Device → App: 0308 response (final session data)   ← Complete record
 |----------------|--------|-------------|
 | `0303` Byte 1 | ✅ Resolved | **Not parsed by app.** Present in BLE packet but not extracted. Purpose unknown, can be ignored. |
 | `0303` Byte 2 | ✅ Resolved | **Not parsed by app.** Observed to vary continuously (0x0f–0x1d), likely an internal counter. Confirmed unused by APK source. |
-| `0307` Bytes 11–17 | ❓ Unknown | Byte 11 highly variable (likely internal counter); byte 13 variable but NOT confirmed as duration (official APK does not parse it); byte 15 NOT always equal to byte 13; byte 17 may be a session counter. |
+| `0307` Bytes 11–17 | ✅ Resolved | **Confirmed via `AbstractC0002b.m18f` (OCLEANY3M).** Byte 11 = pNum (scheme ID); bytes 12–13 = duration (2-byte BE); bytes 14–15 = validDuration; bytes 16–17 = pressureArea[0–1]. The 18-byte push is the start of a 42-byte m18f session record. |
 | `blunt_teeth` unit | ⚠️ Partial | Increases per session, reset via `020F`. Whether linear +1 or ADC wear value: unknown. |
 | `020F` ACK content | ❓ Unknown | Response bytes after ACK not analyzed. Does the device include the new (=0) counter value in the ACK? |
 | Pagination `0309` | ⚠️ Partial | Format identical to 0308. When does the device send additional pages? No page header in the record. |
