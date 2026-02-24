@@ -33,6 +33,7 @@ from .const import (
     DATA_SW_VERSION,
     DOMAIN,
     SCHEME_NAMES,
+    TOOTH_AREA_NAMES,
 )
 from .coordinator import OcleanCoordinator
 from .entity import OcleanEntity
@@ -149,6 +150,8 @@ async def async_setup_entry(
     ]
     entities.append(OcleanBrushAreasSensor(coordinator, mac, device_name))
     entities.append(OcleanSchemeSensor(coordinator, mac, device_name))
+    for zone_name in TOOTH_AREA_NAMES:
+        entities.append(OcleanToothAreaSensor(coordinator, mac, device_name, zone_name))
     async_add_entities(entities)
 
 
@@ -307,6 +310,56 @@ class OcleanSchemeSensor(OcleanEntity, SensorEntity):
             self.coordinator.data is not None
             and self.coordinator.data.get(DATA_LAST_BRUSH_TIME) is not None
             and self._get_pnum() is None
+        ):
+            return False
+        return True
+
+
+class OcleanToothAreaSensor(OcleanEntity, SensorEntity):
+    """Individual sensor for one tooth-zone pressure value from the last session.
+
+    One instance is created per entry in TOOTH_AREA_NAMES (8 total).
+    State: raw pressure value 0-255 for that zone (0 = not cleaned / no data).
+    Source: last_brush_areas dict populated from 2604 BLE notifications.
+    """
+
+    _attr_icon = "mdi:tooth"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(
+        self,
+        coordinator: OcleanCoordinator,
+        mac: str,
+        device_name: str,
+        zone_name: str,
+    ) -> None:
+        super().__init__(coordinator, mac, device_name, f"tooth_area_{zone_name}")
+        self._zone_name = zone_name
+        self._attr_name = "Tooth Area " + zone_name.replace("_", " ").title()
+
+    def _get_areas(self) -> dict[str, int] | None:
+        if self.coordinator.data is None:
+            return None
+        areas = self.coordinator.data.get(DATA_LAST_BRUSH_AREAS)
+        return areas if isinstance(areas, dict) else None
+
+    @property
+    def native_value(self) -> int | None:
+        """Return the pressure value for this zone, or None if unavailable."""
+        areas = self._get_areas()
+        if areas is None:
+            return None
+        return areas.get(self._zone_name)
+
+    @property
+    def available(self) -> bool:
+        """Return True if coordinator is available or we have stale area data."""
+        if not self.coordinator.last_update_success:
+            return self._get_areas() is not None
+        if (
+            self.coordinator.data is not None
+            and self.coordinator.data.get(DATA_LAST_BRUSH_TIME) is not None
+            and self._get_areas() is None
         ):
             return False
         return True
