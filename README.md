@@ -130,9 +130,11 @@ When no windows are configured, the device is polled at every interval.
 
 ### Debug Logging
 
-The integration always writes a dedicated log file `oclean_ble.log` to the same directory as your `configuration.yaml` (e.g. `/config/oclean_ble.log`). It captures all debug output automatically – no extra configuration needed. The file rotates at 1 MB and keeps up to 3 files.
+The integration writes a dedicated log file `oclean_ble.log` to the same directory as your `configuration.yaml` (e.g. `/config/oclean_ble.log`). The file rotates at 1 MB and keeps up to 3 files.
 
-To also see debug output in the **main HA log** (Settings → Logs), add the following to `configuration.yaml`:
+**Debug entries (raw BLE payloads, parse results, etc.) are only written when the log level is set to `debug`.** Without this, only warnings and errors appear in both `oclean_ble.log` and the main HA log.
+
+Add the following to `configuration.yaml`:
 
 ```yaml
 logger:
@@ -140,6 +142,8 @@ logger:
   logs:
     custom_components.oclean_ble: debug
 ```
+
+This enables debug output in both `oclean_ble.log` and the **main HA log** (Settings → Logs).
 
 After brushing, filter the log for `Oclean` to see raw Bluetooth payloads.
 Unknown notification types are logged as hex – this helps extend the parser.
