@@ -79,7 +79,6 @@ class TestReal0303StateResponse:
             "last_brush_duration",
             "last_brush_time",
             "last_brush_pressure",
-            "last_brush_clean",
             "last_brush_areas",
         ):
             assert key not in result, f"Unexpected key in STATE response: {key}"
@@ -159,7 +158,6 @@ class TestReal0307Session1_Score100:
         result = parse_notification(self.RAW)
         assert "last_brush_pressure" not in result
         assert "last_brush_areas" not in result
-        assert "last_brush_clean" not in result
 
     def test_pnum_candidate_from_byte0(self):
         """0307 byte 0 is extracted as a provisional pNum candidate (UNCONFIRMED).
@@ -204,7 +202,6 @@ class TestReal0307Session2_Score1:
         result = parse_notification(self.RAW)
         assert "last_brush_pressure" not in result
         assert "last_brush_areas" not in result
-        assert "last_brush_clean" not in result
 
     def test_no_score_in_result(self):
         assert "last_brush_score" not in parse_notification(self.RAW)

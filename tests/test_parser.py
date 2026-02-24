@@ -312,7 +312,6 @@ class TestMapJsonBrushData:
         result = _map_json_brush_data(data)
         assert result["last_brush_score"] == 75
         assert result["last_brush_duration"] == 120
-        assert result["last_brush_clean"] == 90
         assert result["last_brush_pressure"] == 42
         assert result["last_brush_time"] == 1700000000
 
@@ -327,7 +326,6 @@ class TestMapJsonBrushData:
         result = _map_json_brush_data(data)
         assert result["last_brush_score"] == 60
         assert result["last_brush_duration"] == 90
-        assert result["last_brush_clean"] == 80
         assert result["last_brush_pressure"] == 100
         assert result["last_brush_time"] == 1700000001
 
@@ -680,11 +678,6 @@ class TestParseInfoT1Response:
         assert "last_brush_duration" not in result
         assert "last_brush_score" not in result
 
-    def test_no_clean_in_result(self):
-        """last_brush_clean is not available from 0307 data."""
-        rec = _make_t1_record()
-        assert "last_brush_clean" not in _parse_info_t1_response(rec)
-
     def test_invalid_date_returns_empty(self):
         rec = _make_t1_record(month=13)
         assert _parse_info_t1_response(rec) == {}
@@ -920,29 +913,6 @@ class TestParseExtendedRunningDataRecord:
         rec = _make_extended_record(area_pressures=(255, 255, 255, 255, 255, 255, 255, 255))
         assert _parse_extended_running_data_record(rec)["last_brush_pressure"] == 255
 
-    # --- last_brush_clean (coverage proxy) ---
-
-    def test_clean_all_zones_brushed(self):
-        """8 of 8 zones → 100%."""
-        rec = _make_extended_record(area_pressures=(1, 1, 1, 1, 1, 1, 1, 1))
-        assert _parse_extended_running_data_record(rec)["last_brush_clean"] == 100
-
-    def test_clean_half_zones_brushed(self):
-        """4 of 8 zones → 50%."""
-        rec = _make_extended_record(area_pressures=(50, 0, 50, 0, 50, 0, 50, 0))
-        assert _parse_extended_running_data_record(rec)["last_brush_clean"] == 50
-
-    def test_clean_one_zone_brushed(self):
-        """1 of 8 zones → round(12.5) = 12%."""
-        rec = _make_extended_record(area_pressures=(255, 0, 0, 0, 0, 0, 0, 0))
-        assert _parse_extended_running_data_record(rec)["last_brush_clean"] == 12
-
-    def test_clean_absent_when_all_zones_zero(self):
-        """No zones brushed → last_brush_clean not in result (avoid false 0%)."""
-        rec = _make_extended_record(area_pressures=(0, 0, 0, 0, 0, 0, 0, 0))
-        result = _parse_extended_running_data_record(rec)
-        assert "last_brush_clean" not in result
-
     # --- Size and edge cases ---
 
     def test_exactly_32_bytes_accepted(self):
@@ -985,7 +955,6 @@ class TestParseExtendedRunningDataRecord:
             "last_brush_areas",
             "last_brush_scheme_type",
             "last_brush_pnum",
-            "last_brush_clean",
         ):
             assert key in result, f"Expected key missing: {key}"
 
@@ -1031,13 +1000,12 @@ class TestParseInfoResponseFormatDetection:
         # Falls through to simple format; bytes(20) has year=0→2000, month=0 → invalid → {}
         assert result == {}
 
-    def test_extended_format_all_zones_zero_parses_without_clean(self):
-        """Extended record with all areas=0 → last_brush_clean absent, rest present."""
+    def test_extended_format_all_zones_zero_parses_correctly(self):
+        """Extended record with all areas=0 still produces score and areas."""
         payload = _make_extended_record(area_pressures=(0, 0, 0, 0, 0, 0, 0, 0))
         result = _parse_info_response(payload)
         assert "last_brush_score" in result
         assert "last_brush_areas" in result
-        assert "last_brush_clean" not in result
 
     def test_end_to_end_via_parse_notification_extended(self):
         """Full round-trip: parse_notification(0308 + extended_record) → extended fields."""
@@ -1239,23 +1207,16 @@ class TestParseBrushAreasT1Response:
         assert areas["lower_right_out"] == 0x07  # 7
         assert areas["lower_right_in"] == 0x10   # 16
 
-    def test_real_payload_pressure_and_clean(self):
+    def test_real_payload_pressure(self):
         result = _parse_brush_areas_t1_response(self._REAL_PAYLOAD)
         assert "last_brush_pressure" in result
-        assert "last_brush_clean" in result
-        assert result["last_brush_clean"] == 100  # all 8 zones non-zero
+        assert "last_brush_clean" not in result
 
-    def test_all_zones_zero_no_clean_key(self):
+    def test_all_zones_zero_areas_present(self):
         payload = bytes([0x39, 0, 0, 0, 0x0F, 0]) + bytes(8) + bytes(4)
         result = _parse_brush_areas_t1_response(payload)
         assert "last_brush_areas" in result
         assert "last_brush_clean" not in result
-
-    def test_partial_zones_clean_percentage(self):
-        # 4 of 8 zones non-zero → clean = 50 %
-        payload = bytes([0, 0, 0, 0, 0, 0]) + bytes([10, 0, 10, 0, 10, 0, 10, 0])
-        result = _parse_brush_areas_t1_response(payload)
-        assert result["last_brush_clean"] == 50
 
     def test_area_names_match_tooth_area_names_order(self):
         areas = bytes([1, 2, 3, 4, 5, 6, 7, 8])

@@ -123,9 +123,9 @@ def _parse_state_response(payload: bytes) -> dict[str, Any]:
       byte 3: battery % (confirmed: matches GATT Battery Characteristic read)
       bytes 4-5: unknown (observed: 0x00 0x00)
 
-    Note: last_brush_score, last_brush_duration, and last_brush_clean are NOT
-    available from the STATE (0303) notification. They arrive via the INFO
-    response (0308) path when the device has completed brush sessions.
+    Note: last_brush_score and last_brush_duration are NOT available from the
+    STATE (0303) notification. They arrive via the INFO response (0308) path
+    when the device has completed brush sessions.
     """
     result: dict[str, Any] = {}
 
@@ -405,10 +405,6 @@ def _parse_extended_running_data_record(data: bytes) -> dict[str, Any]:
             "last_brush_pnum": p_num,
         }
 
-        # Coverage proxy for last_brush_clean: percentage of zones with non-zero pressure
-        if zones_cleaned > 0:
-            result["last_brush_clean"] = round(zones_cleaned / 8 * 100)
-
         _LOGGER.debug(
             "Oclean extended running-data: ts=%d score=%d duration=%ds pNum=%d "
             "schemeType=%d zones_cleaned=%d/8 avg_pressure=%d",
@@ -559,8 +555,6 @@ def _parse_brush_areas_t1_response(payload: bytes) -> dict[str, Any]:
         "last_brush_areas": area_dict,
         "last_brush_pressure": avg_pressure,
     }
-    if zones_cleaned > 0:
-        result["last_brush_clean"] = round(zones_cleaned / 8 * 100)
 
     _LOGGER.debug(
         "Oclean 2604 areas: %s zones_cleaned=%d/8 avg_pressure=%d"
@@ -607,7 +601,6 @@ _JSON_KEY_MAP: tuple[tuple[str, tuple[str, ...], bool], ...] = (
     # (result_key, candidate_keys, cast_to_int)
     ("last_brush_score",    ("score", "brushScore", "brush_score", "totalScore"),        True),
     ("last_brush_duration", ("duration", "brushDuration", "brush_duration", "time"),     True),
-    ("last_brush_clean",    ("clean", "cleanScore", "clean_score", "cleanPercent"),      True),
     ("last_brush_pressure", ("pressure", "avgPressure", "avg_pressure"),                 True),
     ("last_brush_time",     ("timestamp", "endTime", "end_time", "brushTime"),           False),
 )
