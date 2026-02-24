@@ -28,6 +28,38 @@ _LOGGER = logging.getLogger(__name__)
 _MIN_YEAR = 2015
 
 
+def _parse_signed_byte(value: int) -> int:
+    """Interpret a single byte as a signed int8 (-128..127)."""
+    return value if value < 128 else value - 256
+
+
+def _build_utc_timestamp(device_dt: datetime.datetime, tz_offset_quarters: int) -> int:
+    """Convert a device-local datetime and timezone offset to a UTC Unix timestamp.
+
+    Args:
+        device_dt: Device-local datetime (no tzinfo).
+        tz_offset_quarters: Signed offset from UTC in 15-minute steps.
+    """
+    utc_dt = device_dt - datetime.timedelta(minutes=tz_offset_quarters * 15)
+    return int(calendar.timegm(utc_dt.timetuple()))
+
+
+def _build_area_stats(
+    area_pressures: bytes,
+) -> tuple[dict[str, int], int, int]:
+    """Build area-pressure dict, cleaned-zone count, and average pressure.
+
+    Returns:
+        (area_dict, zones_cleaned, avg_pressure)
+    """
+    area_dict: dict[str, int] = {
+        name: int(area_pressures[i]) for i, name in enumerate(TOOTH_AREA_NAMES)
+    }
+    zones_cleaned = sum(1 for v in area_pressures if v > 0)
+    avg_pressure = round(sum(area_pressures) / len(area_pressures))
+    return area_dict, zones_cleaned, avg_pressure
+
+
 def _device_datetime(
     year_byte: int,
     month: int,
@@ -280,7 +312,7 @@ def _parse_running_data_record(data: bytes) -> dict[str, Any]:
     try:
         device_dt = _device_datetime(data[0], data[1], data[2], data[3], data[4], data[5])
         # byte 6: timezone offset in quarter-hours (signed)
-        tz_offset_quarters = data[6] if data[6] < 128 else data[6] - 256
+        tz_offset_quarters = _parse_signed_byte(data[6])
         week = data[7]
         p_num = data[8]
         # bytes 9–13: unknown
@@ -292,13 +324,10 @@ def _parse_running_data_record(data: bytes) -> dict[str, Any]:
         pressure_raw = int.from_bytes(data[16:18], byteorder="little")
         pressure = round(pressure_raw / 300, 2)
 
-        # Build UTC timestamp from device-local time + tz offset (15-minute steps)
-        tz_offset_minutes = tz_offset_quarters * 15
-        utc_dt = device_dt - datetime.timedelta(minutes=tz_offset_minutes)
-        timestamp_ms = int(calendar.timegm(utc_dt.timetuple())) * 1000
+        timestamp_s = _build_utc_timestamp(device_dt, tz_offset_quarters)
 
         result: dict[str, Any] = {
-            "last_brush_time": timestamp_ms // 1000,
+            "last_brush_time": timestamp_s,
             "last_brush_pressure": pressure,
             "brush_head_usage": blunt_teeth,
         }
@@ -358,24 +387,13 @@ def _parse_extended_running_data_record(data: bytes) -> dict[str, Any]:
         p_num = int(data[8])
         duration = int.from_bytes(data[9:11], byteorder="big")
         # data[13:18]: 5 intermediate pressure zone values (not mapped to sensors)
-        tz_offset_quarters = int(data[19]) if data[19] < 128 else int(data[19]) - 256
+        tz_offset_quarters = _parse_signed_byte(data[19])
         area_pressures = data[20:28]   # 8 tooth area pressure bytes
         score = int(data[28])
         scheme_type = int(data[29])
 
-        # Build UTC timestamp from device-local time + timezone offset
-        tz_offset_minutes = tz_offset_quarters * 15
-        utc_dt = device_dt - datetime.timedelta(minutes=tz_offset_minutes)
-        timestamp_s = int(calendar.timegm(utc_dt.timetuple()))
-
-        # Map 8 area pressures to named zones (BrushAreaType order: index 0 = value 1)
-        area_dict: dict[str, int] = {
-            name: int(area_pressures[i]) for i, name in enumerate(TOOTH_AREA_NAMES)
-        }
-        zones_cleaned = sum(1 for v in area_pressures if v > 0)
-
-        # Average pressure across all 8 tooth zones (raw 0-255)
-        avg_pressure = round(sum(area_pressures) / len(area_pressures))
+        timestamp_s = _build_utc_timestamp(device_dt, tz_offset_quarters)
+        area_dict, zones_cleaned, avg_pressure = _build_area_stats(area_pressures)
 
         result: dict[str, Any] = {
             "last_brush_time": timestamp_s,
@@ -535,11 +553,7 @@ def _parse_brush_areas_t1_response(payload: bytes) -> dict[str, Any]:
         return {}
 
     area_pressures = payload[6:14]
-    area_dict: dict[str, int] = {
-        name: int(area_pressures[i]) for i, name in enumerate(TOOTH_AREA_NAMES)
-    }
-    zones_cleaned = sum(1 for v in area_pressures if v > 0)
-    avg_pressure = round(sum(area_pressures) / len(area_pressures))
+    area_dict, zones_cleaned, avg_pressure = _build_area_stats(area_pressures)
 
     result: dict[str, Any] = {
         "last_brush_areas": area_dict,
