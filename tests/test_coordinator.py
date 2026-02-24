@@ -14,6 +14,8 @@ from custom_components.oclean_ble.coordinator import (
 )
 from custom_components.oclean_ble.const import (
     DATA_BATTERY,
+    DATA_LAST_BRUSH_AREAS,
+    DATA_LAST_BRUSH_PRESSURE,
     DATA_LAST_BRUSH_SCORE,
 )
 
@@ -262,6 +264,114 @@ class TestPollDeviceFailure:
 # ---------------------------------------------------------------------------
 # Data persistence across polls
 # ---------------------------------------------------------------------------
+
+class TestSessionEnrichment:
+    """Enrichment notifications (0000/2604) must be merged into the session snapshot."""
+
+    # Real notification bytes captured from Oclean X logs (2026-02-24):
+    #   5a00 → session ts=1771889059 (2026-02-24 00:24:19 local), duration=150 s
+    #   2604 → 8 zone pressures, avg_pressure=18, clean=100 %
+    #   0000 → score=95
+    _NOTIF_5A00 = bytes.fromhex("5a00ffffffffffffff1a02180018134c00960096")
+    _NOTIF_2604 = bytes.fromhex("2604390000000f0018181a1a0710071009101007")
+    _NOTIF_0000 = bytes.fromhex("00005f00ffffffffffffff1a0215101a23e7001e")
+
+    def _make_client_firing_notifications(self, *notification_payloads):
+        """BleakClient whose first start_notify call fires the given raw bytes."""
+        client = _make_bleak_client(battery_value=93)
+        call_count = [0]
+
+        async def fake_start_notify(uuid, handler):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                for payload in notification_payloads:
+                    handler(None, bytearray(payload))
+
+        client.start_notify = AsyncMock(side_effect=fake_start_notify)
+        return client
+
+    @pytest.mark.asyncio
+    async def test_score_areas_pressure_clean_merged_into_session(self):
+        """Score (0000) and areas/pressure/clean (2604) must end up in all_sessions."""
+        coordinator = _make_coordinator()
+        coordinator._store_loaded = True
+
+        client = self._make_client_firing_notifications(
+            self._NOTIF_5A00,
+            self._NOTIF_2604,
+            self._NOTIF_0000,
+        )
+
+        captured: list = []
+
+        async def fake_import(sessions):
+            captured.extend(sessions)
+
+        with patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock, \
+             patch("custom_components.oclean_ble.coordinator.establish_connection",
+                   new_callable=AsyncMock, return_value=client), \
+             patch("custom_components.oclean_ble.coordinator.asyncio.sleep", new_callable=AsyncMock), \
+             patch.object(coordinator, "_import_new_sessions", side_effect=fake_import):
+            bt_mock.async_last_service_info.return_value = _make_service_info()
+            await coordinator._poll_device()
+
+        assert captured, "At least one session must have been captured"
+        newest = max(captured, key=lambda s: s.get("last_brush_time", 0))
+        assert newest.get(DATA_LAST_BRUSH_SCORE) == 95, "Score from 0000 must be in session"
+        assert isinstance(newest.get(DATA_LAST_BRUSH_AREAS), dict), "Areas from 2604 must be in session"
+        assert newest.get(DATA_LAST_BRUSH_PRESSURE) == 18, "Pressure from 2604 must be in session"
+
+    @pytest.mark.asyncio
+    async def test_enrichment_does_not_overwrite_existing_session_fields(self):
+        """Fields already in the session snapshot (e.g. from 0308 extended) must not be overwritten."""
+        import struct
+
+        coordinator = _make_coordinator()
+        coordinator._store_loaded = True
+
+        # Build a minimal valid 0308 extended payload (32 bytes) with score=42
+        payload = bytearray(34)
+        payload[0] = 0x00   # high byte of length
+        payload[1] = 0x20   # length = 32
+        payload[2] = 26     # year-2000 = 2026
+        payload[3] = 2      # month
+        payload[4] = 24     # day
+        payload[5] = 1      # hour
+        payload[6] = 0      # minute
+        payload[7] = 0      # second
+        payload[8] = 42     # pNum
+        struct.pack_into(">H", payload, 9, 120)   # duration = 120 s
+        struct.pack_into(">H", payload, 11, 100)  # validDuration
+        payload[19] = 0     # tz offset
+        for i in range(8):
+            payload[20 + i] = 10  # area pressures
+        payload[28] = 42    # score = 42 (must NOT be overwritten by 0000 score=95)
+        payload[29] = 1     # schemeType
+        raw_0308 = bytes([0x03, 0x08]) + bytes(payload)
+
+        client = self._make_client_firing_notifications(
+            raw_0308,
+            self._NOTIF_0000,  # score=95 – must NOT overwrite score=42 from 0308
+        )
+
+        captured: list = []
+
+        async def fake_import(sessions):
+            captured.extend(sessions)
+
+        with patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock, \
+             patch("custom_components.oclean_ble.coordinator.establish_connection",
+                   new_callable=AsyncMock, return_value=client), \
+             patch("custom_components.oclean_ble.coordinator.asyncio.sleep", new_callable=AsyncMock), \
+             patch.object(coordinator, "_import_new_sessions", side_effect=fake_import):
+            bt_mock.async_last_service_info.return_value = _make_service_info()
+            await coordinator._poll_device()
+
+        assert captured, "At least one session must have been captured"
+        newest = max(captured, key=lambda s: s.get("last_brush_time", 0))
+        assert newest.get(DATA_LAST_BRUSH_SCORE) == 42, \
+            "Score from 0308 must not be overwritten by 0000 enrichment"
+
 
 class TestDataPersistence:
     @pytest.mark.asyncio
