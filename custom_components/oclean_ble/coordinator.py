@@ -153,6 +153,15 @@ _STAT_METRICS: tuple[tuple[str, str, str | None], ...] = (
     (DATA_LAST_BRUSH_PRESSURE, "brush_pressure", None),
 )
 
+# Fields delivered by enrichment notifications (0000/2604) that carry no timestamp.
+# These arrive AFTER the session-creating notification (5a00/0307) and must be
+# merged back into the session snapshot for correct statistics import.
+_ENRICHMENT_KEYS: tuple[str, ...] = (
+    DATA_LAST_BRUSH_SCORE,
+    DATA_LAST_BRUSH_AREAS,
+    DATA_LAST_BRUSH_PRESSURE,
+)
+
 # BLE notification characteristics to subscribe/unsubscribe in each poll
 _NOTIFY_CHARS: tuple[str, ...] = (
     READ_NOTIFY_CHAR_UUID,   # all device types
@@ -482,6 +491,22 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         await self._send_query_commands(client, session_received)
         await self._paginate_sessions(client, all_sessions, session_received)
         await self._read_battery_and_unsubscribe(client, collected)
+
+        # Enrich the latest session snapshot with fields from enrichment notifications
+        # (0000 → score, 2604 → areas/pressure/clean).  These notifications carry no
+        # timestamp so they update `collected` but are not captured in all_sessions.
+        # We merge them into the snapshot of the newest session so that stats import
+        # receives complete session data.
+        if all_sessions:
+            latest = max(all_sessions, key=lambda s: s.get("last_brush_time", 0))
+            enriched = {
+                k: collected[k]
+                for k in _ENRICHMENT_KEYS
+                if k in collected and k not in latest
+            }
+            if enriched:
+                latest.update(enriched)
+                _LOGGER.debug("Oclean session snapshot enriched: %s", list(enriched.keys()))
 
         _LOGGER.debug(
             "Oclean fetched %d session(s) total (last_session_ts=%d)",
