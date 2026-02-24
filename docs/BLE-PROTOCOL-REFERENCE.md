@@ -499,13 +499,41 @@ Source: `C3367n0.java:761–824` (fully analyzed).
 
 ---
 
-### 6.4 `0307` INFO Response – Firmware / Device Version
+### 6.4 `0307` INFO Response – Firmware / Session Data
 
 Response to CMD `0307`, arrives as INFO type notification.
 
+**Two observed formats:**
+
+**Format A – ASCII version string** (used by most device types per APK source):
 ```
 Format: Version string as ASCII or JSON
 Example: {"firmware": "1.2.3", "hardware": "2.0"}
+APK handler: AbstractC3347e.m5374d0() → bytesToAscii()
+```
+
+**Format B – 20-byte binary session record** (observed on Oclean X / OCLEANY3M):
+```
+Byte layout (payload after stripping the 0307 prefix):
+  Bytes 0-4 : device/model constant (0x2a 0x42 0x23 0x00 0x00 on Oclean X)
+  Byte 5    : year - 2000  (confirmed)
+  Byte 6    : month        (confirmed)
+  Byte 7    : day          (confirmed)
+  Byte 8    : hour         (confirmed)
+  Byte 9    : minute       (confirmed)
+  Byte 10   : second       (confirmed)
+  Byte 11   : unknown (highly variable; 0x00, 0x4c, 0xe7, 0x13, 0x1f, 0x1c, 0x4d)
+  Byte 12   : 0x00 (consistent; padding)
+  Byte 13   : unknown (NOT parsed by official APK; purpose unconfirmed)
+  Byte 14   : 0x00 (consistent; padding)
+  Byte 15   : unknown (NOT always equal to byte 13; purpose unknown)
+  Byte 16   : unknown (observed: 0x00, 0x02, 0x07, 0x01, 0x64)
+  Byte 17   : session counter? (empirically increasing; observed 0, 1, 4, 5)
+
+NOTE: The official APK does NOT parse this binary format – it treats all 0307
+responses as ASCII strings. The byte 5-10 timestamp mapping was confirmed
+empirically from 5 Oclean X sessions (2026-02-21 to 2026-02-22). All other
+byte interpretations are unconfirmed hypotheses.
 ```
 
 ---
@@ -695,7 +723,7 @@ Device → App: 0308 response (final session data)   ← Complete record
 |----------------|--------|-------------|
 | `0303` Byte 1 | ✅ Resolved | **Not parsed by app.** Present in BLE packet but not extracted. Purpose unknown, can be ignored. |
 | `0303` Byte 2 | ✅ Resolved | **Not parsed by app.** Observed to vary continuously (0x0f–0x1d), likely an internal counter. Confirmed unused by APK source. |
-| `0307` Bytes 11–12, 16–17 | ❓ Unknown | Byte 11 changes per session; bytes 16–17 observed (39/100, 4/0). May encode pressure or coverage. |
+| `0307` Bytes 11–17 | ❓ Unknown | Byte 11 highly variable (likely internal counter); byte 13 variable but NOT confirmed as duration (official APK does not parse it); byte 15 NOT always equal to byte 13; byte 17 may be a session counter. |
 | `blunt_teeth` unit | ⚠️ Partial | Increases per session, reset via `020F`. Whether linear +1 or ADC wear value: unknown. |
 | `020F` ACK content | ❓ Unknown | Response bytes after ACK not analyzed. Does the device include the new (=0) counter value in the ACK? |
 | Pagination `0309` | ⚠️ Partial | Format identical to 0308. When does the device send additional pages? No page header in the record. |

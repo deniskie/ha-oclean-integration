@@ -108,7 +108,7 @@ def _describe(data: bytes) -> str:
             return (
                 f"0307 session  ts={year}-{month:02d}-{day:02d} "
                 f"{hour:02d}:{minute:02d}:{second:02d}  "
-                f"byte13={metric}  score={score}  duration={metric}s"
+                f"byte13={metric}  score={score}  (byte13 purpose unconfirmed)"
             )
         return "0307 (short payload)"
 
