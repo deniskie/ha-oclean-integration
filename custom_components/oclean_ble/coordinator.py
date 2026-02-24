@@ -748,6 +748,50 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
                 len(stat_rows), DOMAIN, mac_slug, stat_suffix,
             )
 
+        # Import per-zone area pressures as individual statistics
+        area_stats_by_zone: dict[str, list[Any]] = {}
+        for session in new_sessions:
+            areas = session.get(DATA_LAST_BRUSH_AREAS)
+            if not isinstance(areas, dict):
+                continue
+            ts = session["last_brush_time"]
+            start_dt = datetime.datetime.fromtimestamp(ts, tz=dt_util.UTC).replace(
+                minute=0, second=0, microsecond=0
+            )
+            for zone_name, pressure in areas.items():
+                area_stats_by_zone.setdefault(zone_name, []).append(
+                    StatisticData(
+                        start=start_dt,
+                        mean=float(pressure),
+                        state=float(pressure),
+                    )
+                )
+
+        for zone_name, stat_rows in area_stats_by_zone.items():
+            metadata = StatisticMetaData(
+                has_mean=True,
+                has_sum=False,
+                name=(
+                    f"Oclean {self._device_name} Area"
+                    f" {zone_name.replace('_', ' ').title()}"
+                ),
+                source=DOMAIN,
+                statistic_id=f"{DOMAIN}:{mac_slug}_area_{zone_name}",
+                unit_of_measurement=None,
+            )
+            try:
+                async_add_external_statistics(self.hass, metadata, stat_rows)
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.warning(
+                    "Oclean statistics import failed for area '%s': %s – skipping",
+                    zone_name, err,
+                )
+                continue
+            _LOGGER.debug(
+                "Oclean imported %d row(s) for area statistic '%s:%s_area_%s'",
+                len(stat_rows), DOMAIN, mac_slug, zone_name,
+            )
+
         # Persist the newest session timestamp so next poll knows what's already imported
         max_ts = max(s.get("last_brush_time", 0) for s in new_sessions)
         if max_ts > self._last_session_ts:
