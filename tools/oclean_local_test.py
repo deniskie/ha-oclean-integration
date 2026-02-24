@@ -324,7 +324,6 @@ def print_sensor_state(data: dict[str, Any]) -> None:
     show("battery",                "battery",              "%")
     show("last_brush_score",       "last_brush_score",     " / 100")
     show("last_brush_duration",    "last_brush_duration",  "s")
-    show("last_brush_clean",       "last_brush_clean",     "%")
     show("last_brush_pressure",    "last_brush_pressure",  "")
     show("last_brush_pnum",        "last_brush_pnum",      "  (scheme ID)")
     show("last_brush_scheme_type", "last_brush_scheme_type","  (scheme category)")

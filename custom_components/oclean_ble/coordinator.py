@@ -33,7 +33,6 @@ from .const import (
     DATA_BRUSH_HEAD_USAGE,
     DATA_HW_REVISION,
     DATA_LAST_BRUSH_AREAS,
-    DATA_LAST_BRUSH_CLEAN,
     DATA_LAST_BRUSH_DURATION,
     DATA_LAST_BRUSH_PRESSURE,
     DATA_LAST_BRUSH_PNUM,
@@ -136,7 +135,6 @@ _PERSISTENT_KEYS = (
     DATA_BRUSH_HEAD_USAGE,
     DATA_LAST_BRUSH_SCORE,
     DATA_LAST_BRUSH_DURATION,
-    DATA_LAST_BRUSH_CLEAN,
     DATA_LAST_BRUSH_PRESSURE,
     DATA_LAST_BRUSH_TIME,
     DATA_LAST_BRUSH_AREAS,
@@ -152,7 +150,6 @@ _PERSISTENT_KEYS = (
 _STAT_METRICS: tuple[tuple[str, str, str | None], ...] = (
     (DATA_LAST_BRUSH_SCORE,    "brush_score",    "%"),
     (DATA_LAST_BRUSH_DURATION, "brush_duration", "s"),
-    (DATA_LAST_BRUSH_CLEAN,    "brush_clean",    "%"),
     (DATA_LAST_BRUSH_PRESSURE, "brush_pressure", None),
 )
 

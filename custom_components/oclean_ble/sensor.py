@@ -22,7 +22,6 @@ from .const import (
     DATA_BRUSH_HEAD_USAGE,
     DATA_HW_REVISION,
     DATA_LAST_BRUSH_AREAS,
-    DATA_LAST_BRUSH_CLEAN,
     DATA_LAST_BRUSH_DURATION,
     DATA_LAST_BRUSH_PRESSURE,
     DATA_LAST_BRUSH_PNUM,
@@ -44,7 +43,6 @@ from .entity import OcleanEntity
 _SESSION_DERIVED_KEYS: frozenset[str] = frozenset({
     DATA_LAST_BRUSH_SCORE,
     DATA_LAST_BRUSH_DURATION,
-    DATA_LAST_BRUSH_CLEAN,
     DATA_LAST_BRUSH_PRESSURE,
     DATA_LAST_BRUSH_AREAS,
     DATA_LAST_BRUSH_SCHEME_TYPE,
@@ -75,13 +73,6 @@ SENSOR_DESCRIPTIONS: tuple[SensorEntityDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfTime.SECONDS,
         icon="mdi:timer",
-    ),
-    SensorEntityDescription(
-        key=DATA_LAST_BRUSH_CLEAN,
-        name="Last Brush Clean",
-        state_class=SensorStateClass.MEASUREMENT,
-        icon="mdi:tooth",
-        # 0–100 dimensionless
     ),
     SensorEntityDescription(
         key=DATA_LAST_BRUSH_PRESSURE,

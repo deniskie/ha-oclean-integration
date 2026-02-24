@@ -64,7 +64,6 @@ DEFAULT_POST_BRUSH_COOLDOWN = 0
 DATA_BATTERY = "battery"
 DATA_LAST_BRUSH_SCORE = "last_brush_score"
 DATA_LAST_BRUSH_DURATION = "last_brush_duration"
-DATA_LAST_BRUSH_CLEAN = "last_brush_clean"
 DATA_LAST_BRUSH_PRESSURE = "last_brush_pressure"
 DATA_LAST_BRUSH_TIME = "last_brush_time"
 
@@ -72,7 +71,6 @@ DATA_LAST_BRUSH_TIME = "last_brush_time"
 SENSOR_BATTERY = "battery"
 SENSOR_LAST_BRUSH_SCORE = "last_brush_score"
 SENSOR_LAST_BRUSH_DURATION = "last_brush_duration"
-SENSOR_LAST_BRUSH_CLEAN = "last_brush_clean"
 SENSOR_LAST_BRUSH_PRESSURE = "last_brush_pressure"
 SENSOR_LAST_BRUSH_TIME = "last_brush_time"
 

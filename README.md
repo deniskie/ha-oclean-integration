@@ -57,7 +57,6 @@ After restart, go to **Settings → Integrations → Add Integration** and searc
 | `sensor.oclean_last_brush_duration` | Duration of last session (extended 0308 format only; not available on Oclean X) | s | ⚠️ Unconfirmed |
 | `sensor.oclean_brush_head_usage` | Brush head wear indicator | – | ⚠️ Unconfirmed |
 | `sensor.oclean_last_brush_pressure` | Average brushing pressure across all tooth zones | – | ⚠️ Unconfirmed |
-| `sensor.oclean_last_brush_clean` | Percentage of tooth zones that were cleaned | % | ⚠️ Unconfirmed |
 | `sensor.oclean_last_brush_areas` | Number of cleaned tooth zones (0–8); individual zone values as attributes | – | ⚠️ Unconfirmed |
 | `sensor.oclean_tooth_area_<zone>` | Pressure for one tooth zone (8 sensors: `upper_left_out`, `upper_left_in`, `lower_left_out`, `lower_left_in`, `upper_right_out`, `upper_right_in`, `lower_right_out`, `lower_right_in`). Raw value 0–255; 0 = not cleaned | – | ⚠️ Unconfirmed |
 | `sensor.oclean_last_brush_scheme_id` | Brush programme ID; programme names are managed in the Oclean cloud | – | ⚠️ Unconfirmed |
