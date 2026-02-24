@@ -88,13 +88,11 @@ DATA_MODEL_ID    = "model_id"       # Model Number from BLE DIS (e.g. "OCLEANY3M
 DATA_HW_REVISION = "hw_revision"   # Hardware Revision from BLE DIS (e.g. "Rev.D")
 DATA_SW_VERSION  = "sw_version"    # Software Revision from BLE DIS (e.g. "1.0.0.20")
 DATA_LAST_BRUSH_AREAS = "last_brush_areas"         # dict: zone_name → pressure (0-255)
-DATA_LAST_BRUSH_SCHEME_TYPE = "last_brush_scheme_type"  # int 0-8 (scheme category)
 DATA_LAST_BRUSH_PNUM = "last_brush_pnum"            # int (brush-scheme ID; see SCHEME_NAMES below)
 
 # Sensor / button entity key suffixes
 SENSOR_BRUSH_HEAD_USAGE = "brush_head_usage"
 SENSOR_LAST_BRUSH_AREAS = "last_brush_areas"
-SENSOR_LAST_BRUSH_SCHEME_TYPE = "last_brush_scheme_type"
 SENSOR_LAST_BRUSH_PNUM = "last_brush_pnum"
 BUTTON_RESET_BRUSH_HEAD = "reset_brush_head"
 

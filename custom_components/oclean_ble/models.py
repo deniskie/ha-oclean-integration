@@ -21,7 +21,6 @@ class OcleanDeviceData:
     last_brush_time: int | None = None
     brush_head_usage: int | None = None
     last_brush_areas: dict[str, int] | None = None
-    last_brush_scheme_type: int | None = None
     last_brush_pnum: int | None = None
     model_id: str | None = None
     hw_revision: str | None = None
@@ -52,7 +51,6 @@ class OcleanDeviceData:
             last_brush_time=data.get("last_brush_time"),
             brush_head_usage=data.get("brush_head_usage"),
             last_brush_areas=data.get("last_brush_areas"),
-            last_brush_scheme_type=data.get("last_brush_scheme_type"),
             last_brush_pnum=data.get("last_brush_pnum"),
             model_id=data.get("model_id"),
             hw_revision=data.get("hw_revision"),
