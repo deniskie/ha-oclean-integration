@@ -176,8 +176,10 @@ def _parse_info_t1_response(payload: bytes) -> dict[str, Any]:
 
     Byte layout confirmed empirically (Oclean X, 5 sessions, 2026-02-21 to 2026-02-22):
 
-      bytes 0-4: device/model constant (same across all sessions – not session data)
-        0x2a 0x42 0x23 0x00 0x00 observed; purpose unknown (model ID? pNum?)
+      byte  0:   pNum candidate – UNCONFIRMED (observed: 0x2a=42 consistently across
+                 polls; could be the brush-scheme ID if only one session is present;
+                 needs multi-session data with different scheme selections to confirm)
+      bytes 1-4: unknown constant (observed: 0x42 0x23 0x00 XX; byte 4 varies 0/1/2)
 
       byte 5:  year - 2000  (confirmed)
       byte 6:  month        (confirmed)
@@ -226,18 +228,29 @@ def _parse_info_t1_response(payload: bytes) -> dict[str, Any]:
             "last_brush_time": timestamp_s,
         }
 
-        _LOGGER.debug("Oclean 0307 parsed: %s (raw: %s)", result, payload.hex())
+        # byte 0: pNum candidate (UNCONFIRMED).
+        # Observed as 0x2a=42 consistently, but only one session has been captured so far.
+        # If this byte changes when the user selects a different brush scheme, it IS the pNum.
+        # Store it provisionally so the "Last Brush Scheme" sensor can show a value.
+        p_num_candidate = int(payload[0])
+        result["last_brush_pnum"] = p_num_candidate
 
-        # Log unknown bytes to help identify their purpose over time.
+        _LOGGER.debug(
+            "Oclean 0307 parsed: ts=%d pNum_candidate=%d (byte0=0x%02x, UNCONFIRMED)"
+            " – verify by switching schemes and checking if byte0 changes (raw: %s)",
+            timestamp_s, p_num_candidate, p_num_candidate, payload.hex(),
+        )
+
+        # Log remaining unknown bytes for ongoing protocol analysis.
         # Enable via:  logger: logs: custom_components.oclean_ble: debug
         _LOGGER.debug(
             "Oclean 0307 unknown bytes –"
-            " const=%s (device model constant? bytes0-4)"
+            " b1-4=%s (unknown constant)"
             " b11=0x%02x (unknown, highly variable)"
             " b15=0x%02x (NOT a copy of b13; purpose unknown)"
             " b16=0x%02x (unknown)"
             " b17=0x%02x (session counter?)",
-            payload[0:5].hex(),
+            payload[1:5].hex(),
             payload[11] if len(payload) > 11 else -1,
             payload[15] if len(payload) > 15 else -1,
             payload[16] if len(payload) > 16 else -1,
