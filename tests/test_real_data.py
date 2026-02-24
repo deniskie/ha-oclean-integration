@@ -161,10 +161,15 @@ class TestReal0307Session1_Score100:
         assert "last_brush_areas" not in result
         assert "last_brush_clean" not in result
 
-    def test_no_pnum_or_scheme_type(self):
-        """0307 format does not carry pNum or schemeType."""
+    def test_pnum_candidate_from_byte0(self):
+        """0307 byte 0 is extracted as a provisional pNum candidate (UNCONFIRMED).
+
+        Byte 0 = 0x2a = 42 observed consistently; needs multi-session data with
+        different scheme selections to confirm it is actually the brush-scheme ID.
+        scheme_type is not available in the 0307 format.
+        """
         result = parse_notification(self.RAW)
-        assert "last_brush_pnum" not in result
+        assert result["last_brush_pnum"] == 42  # byte 0 = 0x2a
         assert "last_brush_scheme_type" not in result
 
     def test_no_score_in_result(self):
@@ -173,7 +178,7 @@ class TestReal0307Session1_Score100:
 
     def test_expected_keys_only(self):
         result = parse_notification(self.RAW)
-        assert set(result.keys()) == {"last_brush_time"}
+        assert set(result.keys()) == {"last_brush_time", "last_brush_pnum"}
 
 
 class TestReal0307Session2_Score1:
@@ -206,7 +211,7 @@ class TestReal0307Session2_Score1:
 
     def test_expected_keys_only(self):
         result = parse_notification(self.RAW)
-        assert set(result.keys()) == {"last_brush_time"}
+        assert set(result.keys()) == {"last_brush_time", "last_brush_pnum"}
 
 
 class TestReal0307Session3_Score90:
@@ -238,7 +243,7 @@ class TestReal0307Session3_Score90:
 
     def test_expected_keys_only(self):
         result = parse_notification(self.RAW)
-        assert set(result.keys()) == {"last_brush_time"}
+        assert set(result.keys()) == {"last_brush_time", "last_brush_pnum"}
 
 
 class TestReal0307Session4_Score100_Byte15Disproof:
@@ -278,7 +283,7 @@ class TestReal0307Session4_Score100_Byte15Disproof:
 
     def test_expected_keys_only(self):
         result = parse_notification(self.RAW)
-        assert set(result.keys()) == {"last_brush_time"}
+        assert set(result.keys()) == {"last_brush_time", "last_brush_pnum"}
 
 
 # ===========================================================================
