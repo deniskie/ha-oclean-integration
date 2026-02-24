@@ -251,15 +251,7 @@ class OcleanBrushAreasSensor(OcleanEntity, SensorEntity):
     @property
     def available(self) -> bool:
         """Return True if coordinator is available or we have stale area data."""
-        if not self.coordinator.last_update_success:
-            return self._get_areas() is not None
-        if (
-            self.coordinator.data is not None
-            and self.coordinator.data.get(DATA_LAST_BRUSH_TIME) is not None
-            and self._get_areas() is None
-        ):
-            return False
-        return True
+        return self._session_field_available(self._get_areas())
 
 
 class OcleanSchemeSensor(OcleanEntity, SensorEntity):
@@ -304,15 +296,7 @@ class OcleanSchemeSensor(OcleanEntity, SensorEntity):
     @property
     def available(self) -> bool:
         """Return True if coordinator is available or we have stale pNum data."""
-        if not self.coordinator.last_update_success:
-            return self._get_pnum() is not None
-        if (
-            self.coordinator.data is not None
-            and self.coordinator.data.get(DATA_LAST_BRUSH_TIME) is not None
-            and self._get_pnum() is None
-        ):
-            return False
-        return True
+        return self._session_field_available(self._get_pnum())
 
 
 class OcleanToothAreaSensor(OcleanEntity, SensorEntity):
@@ -354,12 +338,4 @@ class OcleanToothAreaSensor(OcleanEntity, SensorEntity):
     @property
     def available(self) -> bool:
         """Return True if coordinator is available or we have stale area data."""
-        if not self.coordinator.last_update_success:
-            return self._get_areas() is not None
-        if (
-            self.coordinator.data is not None
-            and self.coordinator.data.get(DATA_LAST_BRUSH_TIME) is not None
-            and self._get_areas() is None
-        ):
-            return False
-        return True
+        return self._session_field_available(self._get_areas())
