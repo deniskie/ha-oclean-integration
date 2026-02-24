@@ -53,12 +53,13 @@ After restart, go to **Settings → Integrations → Add Integration** and searc
 |--------|-------------|------|--------|
 | `sensor.oclean_battery` | Battery level | % | ✅ Tested |
 | `sensor.oclean_last_brush_score` | Quality score of last session (0–100) | – | ✅ Tested |
-| `sensor.oclean_last_brush_duration` | Duration of last session | s | ✅ Tested |
 | `sensor.oclean_last_brush_time` | Timestamp of last session | timestamp | ✅ Tested |
+| `sensor.oclean_last_brush_duration` | Duration of last session (extended 0308 format only; not available on Oclean X) | s | ⚠️ Unconfirmed |
 | `sensor.oclean_brush_head_usage` | Brush head wear indicator | – | ⚠️ Unconfirmed |
 | `sensor.oclean_last_brush_pressure` | Average brushing pressure across all tooth zones | – | ⚠️ Unconfirmed |
 | `sensor.oclean_last_brush_clean` | Percentage of tooth zones that were cleaned | % | ⚠️ Unconfirmed |
 | `sensor.oclean_last_brush_areas` | Number of cleaned tooth zones (0–8); individual zone values as attributes | – | ⚠️ Unconfirmed |
+| `sensor.oclean_tooth_area_<zone>` | Pressure for one tooth zone (8 sensors: `upper_left_out`, `upper_left_in`, `lower_left_out`, `lower_left_in`, `upper_right_out`, `upper_right_in`, `lower_right_out`, `lower_right_in`). Raw value 0–255; 0 = not cleaned | – | ⚠️ Unconfirmed |
 | `sensor.oclean_last_brush_scheme_id` | Brush programme ID; programme names are managed in the Oclean cloud | – | ⚠️ Unconfirmed |
 | `sensor.oclean_last_brush_scheme_type` | Brush programme category | – | ⚠️ Unconfirmed |
 
@@ -83,9 +84,8 @@ After restart, go to **Settings → Integrations → Add Integration** and searc
 |---------|---------|
 | Bluetooth connection | Automatic reconnect at each poll interval |
 | Battery level | Read directly from device |
-| Last brush score | Confirmed with multiple real sessions (Oclean X) |
-| Last brush duration | In seconds (minimum reported: 30 s) |
-| Last brush timestamp | Device local time |
+| Last brush score | Confirmed with multiple real sessions (Oclean X); delivered via separate BLE notification after session end |
+| Last brush timestamp | Device local time, confirmed across multiple sessions |
 | Time calibration | Device clock synced on every poll |
 | Poll interval | Configurable 60–N seconds (default: 300 s) |
 | Stale data persistence | Sensors keep last known value when device is unreachable |
@@ -98,9 +98,10 @@ After restart, go to **Settings → Integrations → Add Integration** and searc
 | Feature | Details |
 |---------|---------|
 | Brush head usage counter | Resets when the "Reset Brush Head" button is pressed |
+| Last brush duration | Session length in seconds; available only in extended 0308 format (Oclean X Pro / X Pro Elite) – not provided by Oclean X |
 | Last brush pressure | Average brushing pressure across all tooth zones (extended format only) |
 | Last brush clean | Percentage of tooth zones that were cleaned (extended format only) |
-| Last brush areas | Pressure per tooth zone; individual zones available as entity attributes (extended format only) |
+| Last brush areas | Pressure per tooth zone; individual zones as entity attributes and as 8 dedicated sensors (extended format only) |
 | Last brush scheme ID / type | Programme ID and category (names are cloud-managed; extended format only) |
 | Brush head reset button | Sends reset command to device; no response verification yet |
 | Session history pagination | Fetches multiple pages of session history from device |
@@ -150,8 +151,8 @@ Unknown notification types are logged as hex – this helps extend the parser.
 
 | Device | Model ID | Status | Notes |
 |--------|----------|--------|-------|
-| Oclean X | – | ✅ Tested | Full support: battery, score, duration, timestamp |
-| Oclean X Pro | OCLEANY3 | ⚠️ Partial | Battery, score, duration and timestamp confirmed; brush area / scheme / pressure fields not yet confirmed |
+| Oclean X | OCLEANY3M | ✅ Tested | Battery, score, timestamp confirmed. Duration not available (device does not provide it in a parseable format). Extended fields (areas, pressure, scheme) not supported by this device. |
+| Oclean X Pro | OCLEANY3 | ⚠️ Partial | Extended 0308 format expected; duration, area, pressure, scheme fields available if confirmed. Needs real-device testing. |
 | Oclean X Pro Elite | OCLEANY3P | ⚠️ Partial | Same as Oclean X Pro |
 | Oclean X Ultra | – | ⚠️ Unknown | Likely uses extended data format |
 | Other Oclean models | – | ⚠️ Unknown | Open an issue with raw log output |
