@@ -6,6 +6,7 @@ import logging
 import struct
 import time
 import traceback
+import datetime
 from datetime import time as _dtime
 from datetime import timedelta
 from typing import Any
@@ -507,9 +508,21 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
                 _LOGGER.debug("Oclean session snapshot enriched: %s", list(enriched.keys()))
 
         _LOGGER.debug(
-            "Oclean fetched %d session(s) total (last_session_ts=%d)",
+            "Oclean fetched %d session(s) total from device (last_known_ts=%d)",
             len(all_sessions), self._last_session_ts,
         )
+        # Log each session timestamp so we can check across polls whether the
+        # device deletes sessions after retrieval or keeps them.
+        for i, s in enumerate(all_sessions):
+            ts = s.get("last_brush_time", 0)
+            status = "NEW" if ts > self._last_session_ts else "known"
+            _LOGGER.debug(
+                "Oclean  session[%d]: ts=%d (%s)  %s",
+                i,
+                ts,
+                datetime.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S") if ts else "n/a",
+                status,
+            )
         return all_sessions
 
     async def _read_device_info_service(
@@ -710,8 +723,15 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
             return
 
         _LOGGER.debug(
-            "Oclean importing %d new session(s) into HA statistics", len(new_sessions)
+            "Oclean importing %d new session(s) into HA statistics:", len(new_sessions)
         )
+        for s in new_sessions:
+            ts = s.get("last_brush_time", 0)
+            _LOGGER.debug(
+                "Oclean  → import ts=%d (%s)",
+                ts,
+                datetime.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S") if ts else "n/a",
+            )
 
         # Import recorder API lazily to handle setups where recorder is unavailable
         recorder_api = self._load_recorder_api()
