@@ -17,5 +17,7 @@ jobs:
           python-version: "3.12"
       - name: Install dependencies
         run: pip install -r requirements-test.txt
+      - name: Lint (ruff)
+        run: ruff check custom_components/
       - name: Run tests
         run: pytest --tb=short
