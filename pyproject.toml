@@ -53,6 +53,10 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 # Tests import freely and may redefine names for readability
 "tests/*" = ["F401", "F811", "PLC0415"]
+# Lazy imports are intentional: aioesphomeapi is optional (proxy-only),
+# device_registry and recorder API must be loaded at runtime
+"custom_components/oclean_ble/coordinator.py" = ["PLC0415"]
+"custom_components/oclean_ble/statistics.py" = ["PLC0415"]
 
 [tool.mypy]
 python_version = "3.12"

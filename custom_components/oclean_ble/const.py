@@ -5,30 +5,30 @@ MANUFACTURER = "Oclean"
 
 # Default polling interval in seconds
 DEFAULT_POLL_INTERVAL = 300  # 5 minutes
-MIN_POLL_INTERVAL = 60       # 1 minute
+MIN_POLL_INTERVAL = 60  # 1 minute
 
 # BLE UUIDs
 OCLEAN_SERVICE_UUID = "8082caa8-41a6-4021-91c6-56f9b954cc18"
 
 # BLE Device Information Service (0x180A) – standard GATT service
-DIS_MODEL_UUID   = "00002a24-0000-1000-8000-00805f9b34fb"   # Model Number String
-DIS_HW_REV_UUID  = "00002a27-0000-1000-8000-00805f9b34fb"   # Hardware Revision String
-DIS_SW_REV_UUID  = "00002a28-0000-1000-8000-00805f9b34fb"   # Software Revision String
+DIS_MODEL_UUID = "00002a24-0000-1000-8000-00805f9b34fb"  # Model Number String
+DIS_HW_REV_UUID = "00002a27-0000-1000-8000-00805f9b34fb"  # Hardware Revision String
+DIS_SW_REV_UUID = "00002a28-0000-1000-8000-00805f9b34fb"  # Software Revision String
 BATTERY_SERVICE_UUID = "0000180f-0000-1000-8000-00805f9b34fb"
-BATTERY_CHAR_UUID = "00002a19-0000-1000-8000-00805f9b34fb"       # Read, Notify
-READ_NOTIFY_CHAR_UUID = "5f78df94-798c-46f5-990a-855b673fbb86"   # Notify (all types)
-WRITE_CHAR_UUID = "9d84b9a3-000c-49d8-9183-855b673fbb85"         # Write (all types)
-SEND_BRUSH_CMD_UUID = "5f78df94-798c-46f5-990a-855b673fbb89"     # Write (Type 1 running-data cmd)
-RECEIVE_BRUSH_UUID = "5f78df94-798c-46f5-990a-855b673fbb90"      # Notify (Type 1 brush records)
-CHANGE_INFO_UUID = "6c290d2e-1c03-aca1-ab48-a9b908bae79e"        # Notify (Type 0 only)
+BATTERY_CHAR_UUID = "00002a19-0000-1000-8000-00805f9b34fb"  # Read, Notify
+READ_NOTIFY_CHAR_UUID = "5f78df94-798c-46f5-990a-855b673fbb86"  # Notify (all types)
+WRITE_CHAR_UUID = "9d84b9a3-000c-49d8-9183-855b673fbb85"  # Write (all types)
+SEND_BRUSH_CMD_UUID = "5f78df94-798c-46f5-990a-855b673fbb89"  # Write (Type 1 running-data cmd)
+RECEIVE_BRUSH_UUID = "5f78df94-798c-46f5-990a-855b673fbb90"  # Notify (Type 1 brush records)
+CHANGE_INFO_UUID = "6c290d2e-1c03-aca1-ab48-a9b908bae79e"  # Notify (Type 0 only)
 
 # BLE Commands (hex bytes)
 # Source: C3335a.java / C3340b1.java
-CMD_QUERY_STATUS = bytes.fromhex("0303")       # mo5295Q0 – all types
-CMD_DEVICE_INFO = bytes.fromhex("0202")        # mo5310r0 – all types
+CMD_QUERY_STATUS = bytes.fromhex("0303")  # mo5295Q0 – all types
+CMD_DEVICE_INFO = bytes.fromhex("0202")  # mo5310r0 – all types
 CMD_CALIBRATE_TIME_PREFIX = bytes.fromhex("020E")  # mo5289B Type 0: + 4-byte BE unix timestamp
-CMD_QUERY_RUNNING_DATA = bytes.fromhex("0308")    # mo5299S0 Type 0 / C3340b1 – fetch brush records
-CMD_QUERY_RUNNING_DATA_T1 = bytes.fromhex("0307") # Type 1 (Oclean X): send to SEND_BRUSH_CMD_UUID
+CMD_QUERY_RUNNING_DATA = bytes.fromhex("0308")  # mo5299S0 Type 0 / C3340b1 – fetch brush records
+CMD_QUERY_RUNNING_DATA_T1 = bytes.fromhex("0307")  # Type 1 (Oclean X): send to SEND_BRUSH_CMD_UUID
 CMD_QUERY_RUNNING_DATA_NEXT = bytes.fromhex("0309")  # mo5301W0 – follow-up page
 CMD_QUERY_EXTENDED_DATA_T1 = bytes.fromhex("0314")  # mo5337g1 – C3376s (Oclean X Pro); extended session data
 
@@ -37,28 +37,30 @@ CMD_QUERY_EXTENDED_DATA_T1 = bytes.fromhex("0314")  # mo5337g1 – C3376s (Oclea
 # CMD_QUERY_STATUS (0303) → response starts with 0303
 # CMD_QUERY_RUNNING_DATA (0308) → response starts with 0308
 # CMD_DEVICE_INFO (0202) → response is "0202 4F 4B" (= "OK", just an ACK)
-RESP_STATE = bytes.fromhex("0303")       # Response to CMD_QUERY_STATUS – device status
-RESP_INFO = bytes.fromhex("0308")        # Response to CMD_QUERY_RUNNING_DATA – brush records (Type 0)
-RESP_INFO_T1 = bytes.fromhex("0307")    # Response to CMD_QUERY_RUNNING_DATA_T1 – brush records (Type 1, Oclean X)
-RESP_DEVICE_INFO = bytes.fromhex("0202") # Response to CMD_DEVICE_INFO – "OK" acknowledge
-RESP_K3GUIDE = bytes.fromhex("0340")    # Real-time zone guidance during brushing (K3 devices)
+RESP_STATE = bytes.fromhex("0303")  # Response to CMD_QUERY_STATUS – device status
+RESP_INFO = bytes.fromhex("0308")  # Response to CMD_QUERY_RUNNING_DATA – brush records (Type 0)
+RESP_INFO_T1 = bytes.fromhex("0307")  # Response to CMD_QUERY_RUNNING_DATA_T1 – brush records (Type 1, Oclean X)
+RESP_DEVICE_INFO = bytes.fromhex("0202")  # Response to CMD_DEVICE_INFO – "OK" acknowledge
+RESP_K3GUIDE = bytes.fromhex("0340")  # Real-time zone guidance during brushing (K3 devices)
 RESP_EXTENDED_T1 = bytes.fromhex("0314")  # Response to CMD_QUERY_EXTENDED_DATA_T1 (score candidate)
-RESP_SCORE_T1 = bytes.fromhex("0000")       # Score push (Type-1, Oclean X series): payload[0] = score 0-100
+RESP_SCORE_T1 = bytes.fromhex("0000")  # Score push (Type-1, Oclean X series): payload[0] = score 0-100
 RESP_SESSION_META_T1 = bytes.fromhex("5a00")  # Session metadata push (Type-1): date/time + duration
-RESP_BRUSH_AREAS_T1 = bytes.fromhex("2604")   # Per-tooth-area pressure data (Type-1)
-RESP_UNKNOWN_5400 = bytes.fromhex("5400")     # Unknown push (Type-1, Oclean X); not in APK – empirical analysis in progress
+RESP_BRUSH_AREAS_T1 = bytes.fromhex("2604")  # Per-tooth-area pressure data (Type-1)
+RESP_UNKNOWN_5400 = bytes.fromhex(
+    "5400"
+)  # Unknown push (Type-1, Oclean X); not in APK – empirical analysis in progress
 
 # Config entry keys
 CONF_MAC_ADDRESS = "mac_address"
 CONF_POLL_INTERVAL = "poll_interval"
 CONF_DEVICE_NAME = "device_name"
-CONF_POLL_WINDOWS = "poll_windows"           # str: "HH:MM-HH:MM[, HH:MM-HH:MM, ...]", "" = disabled
+CONF_POLL_WINDOWS = "poll_windows"  # str: "HH:MM-HH:MM[, HH:MM-HH:MM, ...]", "" = disabled
 CONF_POST_BRUSH_COOLDOWN = "post_brush_cooldown"  # int hours, 0 = disabled
 
 # Options-flow fields for the multi-step window setup (not persisted; combined into CONF_POLL_WINDOWS).
-CONF_WINDOW_COUNT = "window_count"   # int 0-3: how many poll windows the user wants
-CONF_WINDOW_START = "window_start"   # str "HH:MM:SS": start time in a per-window step
-CONF_WINDOW_END   = "window_end"     # str "HH:MM:SS": end time in a per-window step
+CONF_WINDOW_COUNT = "window_count"  # int 0-3: how many poll windows the user wants
+CONF_WINDOW_START = "window_start"  # str "HH:MM:SS": start time in a per-window step
+CONF_WINDOW_END = "window_end"  # str "HH:MM:SS": end time in a per-window step
 DEFAULT_POST_BRUSH_COOLDOWN = 0
 
 # Coordinator data keys
@@ -67,13 +69,6 @@ DATA_LAST_BRUSH_SCORE = "last_brush_score"
 DATA_LAST_BRUSH_DURATION = "last_brush_duration"
 DATA_LAST_BRUSH_PRESSURE = "last_brush_pressure"
 DATA_LAST_BRUSH_TIME = "last_brush_time"
-
-# Sensor / entity key suffixes
-SENSOR_BATTERY = "battery"
-SENSOR_LAST_BRUSH_SCORE = "last_brush_score"
-SENSOR_LAST_BRUSH_DURATION = "last_brush_duration"
-SENSOR_LAST_BRUSH_PRESSURE = "last_brush_pressure"
-SENSOR_LAST_BRUSH_TIME = "last_brush_time"
 
 # BLE connection timeout in seconds
 BLE_CONNECT_TIMEOUT = 10
@@ -85,29 +80,23 @@ CMD_CLEAR_BRUSH_HEAD = bytes.fromhex("020F")
 
 # Coordinator data keys (additional)
 DATA_BRUSH_HEAD_USAGE = "brush_head_usage"
-DATA_MODEL_ID    = "model_id"       # Model Number from BLE DIS (e.g. "OCLEANY3M")
-DATA_HW_REVISION = "hw_revision"   # Hardware Revision from BLE DIS (e.g. "Rev.D")
-DATA_SW_VERSION  = "sw_version"    # Software Revision from BLE DIS (e.g. "1.0.0.20")
-DATA_LAST_BRUSH_AREAS = "last_brush_areas"         # dict: zone_name → pressure (0-255)
-DATA_LAST_BRUSH_PNUM = "last_brush_pnum"            # int (brush-scheme ID; see SCHEME_NAMES below)
-
-# Sensor / button entity key suffixes
-SENSOR_BRUSH_HEAD_USAGE = "brush_head_usage"
-SENSOR_LAST_BRUSH_AREAS = "last_brush_areas"
-SENSOR_LAST_BRUSH_PNUM = "last_brush_pnum"
-BUTTON_RESET_BRUSH_HEAD = "reset_brush_head"
+DATA_MODEL_ID = "model_id"  # Model Number from BLE DIS (e.g. "OCLEANY3M")
+DATA_HW_REVISION = "hw_revision"  # Hardware Revision from BLE DIS (e.g. "Rev.D")
+DATA_SW_VERSION = "sw_version"  # Software Revision from BLE DIS (e.g. "1.0.0.20")
+DATA_LAST_BRUSH_AREAS = "last_brush_areas"  # dict: zone_name → pressure (0-255)
+DATA_LAST_BRUSH_PNUM = "last_brush_pnum"  # int (brush-scheme ID; see SCHEME_NAMES below)
 
 # Tooth area zone names in BrushAreaType enum order (value 1 → index 0 … value 8 → index 7)
 # Source: com/ocleanble/lib/device/BrushAreaType.java
 TOOTH_AREA_NAMES: tuple[str, ...] = (
-    "upper_left_out",   # AREA_LIFT_UP_OUT    (value 1)
-    "upper_left_in",    # AREA_LIFT_UP_IN     (value 2)
-    "lower_left_out",   # AREA_LIFT_DOWN_OUT  (value 3)
-    "lower_left_in",    # AREA_LIFT_DOWN_IN   (value 4)
+    "upper_left_out",  # AREA_LIFT_UP_OUT    (value 1)
+    "upper_left_in",  # AREA_LIFT_UP_IN     (value 2)
+    "lower_left_out",  # AREA_LIFT_DOWN_OUT  (value 3)
+    "lower_left_in",  # AREA_LIFT_DOWN_IN   (value 4)
     "upper_right_out",  # AREA_RIGHT_UP_OUT   (value 5)
-    "upper_right_in",   # AREA_RIGHT_UP_IN    (value 6)
+    "upper_right_in",  # AREA_RIGHT_UP_IN    (value 6)
     "lower_right_out",  # AREA_RIGHT_DOWN_OUT (value 7)
-    "lower_right_in",   # AREA_RIGHT_DOWN_IN  (value 8)
+    "lower_right_in",  # AREA_RIGHT_DOWN_IN  (value 8)
 )
 
 # Brush scheme name lookup: pNum → English display name.

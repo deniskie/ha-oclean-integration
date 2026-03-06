@@ -984,3 +984,280 @@ class TestImportNewSessionsWithRecorder:
 
         # add_fn called at least once per area zone
         assert add_fn.call_count >= len(areas)
+
+    @pytest.mark.asyncio
+    async def test_metric_add_raises_continues_to_next_metric(self):
+        """Exception in async_add_external_statistics must log and continue (lines 116-123)."""
+        from custom_components.oclean_ble.statistics import import_new_sessions
+
+        self._install_dt_util_stub()
+        _SD, _SM = self._make_stat_classes()
+        add_fn = MagicMock(side_effect=Exception("stat write failed"))
+        hass = _make_hass()
+
+        with patch("custom_components.oclean_ble.statistics._load_recorder_api", return_value=(_SD, _SM, add_fn)):
+            sessions = [{"last_brush_time": 1_700_000_003, DATA_LAST_BRUSH_SCORE: 90}]
+            # Must not raise despite add_fn failing
+            new_ts = await import_new_sessions(hass, "aa_bb_cc_dd_ee_ff", "Oclean", sessions, 0)
+
+        assert new_ts == 1_700_000_003
+
+    @pytest.mark.asyncio
+    async def test_area_stat_add_raises_continues(self):
+        """Exception in async_add_external_statistics for area stats must continue (lines 156-162)."""
+        from custom_components.oclean_ble.statistics import import_new_sessions
+
+        self._install_dt_util_stub()
+        _SD, _SM = self._make_stat_classes()
+        add_fn = MagicMock(side_effect=Exception("area stat write failed"))
+        hass = _make_hass()
+        areas = {"upper_left_out": 30}
+
+        with patch("custom_components.oclean_ble.statistics._load_recorder_api", return_value=(_SD, _SM, add_fn)):
+            sessions = [{"last_brush_time": 1_700_000_004, DATA_LAST_BRUSH_AREAS: areas}]
+            new_ts = await import_new_sessions(hass, "aa_bb_cc_dd_ee_ff", "Oclean", sessions, 0)
+
+        assert new_ts == 1_700_000_004
+
+
+# ---------------------------------------------------------------------------
+# _load_recorder_api – fallback import path (lines 37-53)
+# ---------------------------------------------------------------------------
+
+
+class TestLoadRecorderAPIFallback:
+    def test_fallback_path_when_statistic_data_not_in_recorder_statistics(self):
+        """When StatisticData is absent from recorder.statistics, fall back to recorder.models."""
+        import sys
+        import types
+
+        from custom_components.oclean_ble.statistics import _load_recorder_api
+
+        class FakeSD:
+            pass
+
+        class FakeSM:
+            pass
+
+        def fake_add(*_a, **_kw):
+            pass
+
+        # Build a recorder.statistics stub WITHOUT StatisticData (simulates old HA split)
+        rec_stats = types.ModuleType("homeassistant.components.recorder.statistics")
+        rec_stats.async_add_external_statistics = fake_add
+        # StatisticData / StatisticMetaData intentionally absent
+
+        rec_models = types.ModuleType("homeassistant.components.recorder.models")
+        rec_models.StatisticData = FakeSD
+        rec_models.StatisticMetaData = FakeSM
+
+        # Save and patch sys.modules
+        old = {
+            k: sys.modules.pop(k, None)
+            for k in (
+                "homeassistant.components.recorder.statistics",
+                "homeassistant.components.recorder.models",
+            )
+        }
+        sys.modules["homeassistant.components.recorder.statistics"] = rec_stats
+        sys.modules["homeassistant.components.recorder.models"] = rec_models
+        try:
+            result = _load_recorder_api()
+        finally:
+            sys.modules.pop("homeassistant.components.recorder.statistics", None)
+            sys.modules.pop("homeassistant.components.recorder.models", None)
+            for k, v in old.items():
+                if v is not None:
+                    sys.modules[k] = v
+
+        assert result is not None
+        SD, SM, add_fn = result
+        assert SD is FakeSD
+        assert SM is FakeSM
+
+    def test_both_paths_fail_returns_none(self):
+        """When both import attempts fail, _load_recorder_api returns None."""
+        import sys
+
+        from custom_components.oclean_ble.statistics import _load_recorder_api
+
+        old = {
+            k: sys.modules.pop(k, None)
+            for k in (
+                "homeassistant.components.recorder.statistics",
+                "homeassistant.components.recorder.models",
+            )
+        }
+        try:
+            result = _load_recorder_api()
+        finally:
+            for k, v in old.items():
+                if v is not None:
+                    sys.modules[k] = v
+
+        assert result is None
+
+
+# ---------------------------------------------------------------------------
+# _calibrate_time – write failure path (lines 583-587)
+# ---------------------------------------------------------------------------
+
+
+class TestCalibrateTimeWriteFailure:
+    @pytest.mark.asyncio
+    async def test_write_failure_does_not_raise(self):
+        """Exception in write_gatt_char must be swallowed with a warning log."""
+        coord = _make_coordinator()
+        client = _make_bleak_client()
+        client.write_gatt_char = AsyncMock(side_effect=Exception("write failed"))
+        # Must not raise
+        await coord._calibrate_time(client)
+
+
+# ---------------------------------------------------------------------------
+# _read_battery_and_unsubscribe – read failure path (lines 684-685)
+# ---------------------------------------------------------------------------
+
+
+class TestBatteryReadFailure:
+    @pytest.mark.asyncio
+    async def test_read_failure_does_not_raise(self):
+        """Exception in read_gatt_char for battery must log a warning and not crash."""
+        coord = _make_coordinator()
+        client = _make_bleak_client()
+        client.read_gatt_char = AsyncMock(side_effect=Exception("read failed"))
+        collected: dict = {}
+        # Must not raise
+        await coord._read_battery_and_unsubscribe(client, collected)
+        assert DATA_BATTERY not in collected
+
+
+# ---------------------------------------------------------------------------
+# _read_device_info_service – device registry update path (lines 556-576)
+# ---------------------------------------------------------------------------
+
+
+class TestDISDeviceRegistryUpdate:
+    @pytest.mark.asyncio
+    async def test_device_registry_updated_when_sw_version_present(self):
+        """async_update_device must be called when sw_version or model_id is read."""
+        from custom_components.oclean_ble.const import DIS_HW_REV_UUID, DIS_MODEL_UUID, DIS_SW_REV_UUID
+
+        coord = _make_coordinator()
+        coord._dis_last_read_ts = 0.0  # force fresh DIS read
+
+        async def _fake_read(uuid, **_kw):
+            return {
+                DIS_MODEL_UUID: bytearray(b"OCLEANY3P"),
+                DIS_HW_REV_UUID: bytearray(b"Rev.D"),
+                DIS_SW_REV_UUID: bytearray(b"2.3.4"),
+            }.get(uuid, bytearray())
+
+        client = _make_bleak_client()
+        client.read_gatt_char = AsyncMock(side_effect=_fake_read)
+
+        mock_device_entry = MagicMock()
+        mock_device_entry.id = "test-device-entry-id"
+        mock_dr = MagicMock()
+        mock_dr.async_get_device.return_value = mock_device_entry
+
+        collected: dict = {}
+        with patch("homeassistant.helpers.device_registry.async_get", return_value=mock_dr, create=True):
+            await coord._read_device_info_service(client, collected)
+
+        mock_dr.async_update_device.assert_called_once()
+        call_kwargs = mock_dr.async_update_device.call_args[1]
+        assert call_kwargs["sw_version"] == "2.3.4"
+        assert call_kwargs["model"] == "OCLEANY3P"
+
+    @pytest.mark.asyncio
+    async def test_device_registry_update_exception_swallowed(self):
+        """If async_get raises, the exception must be caught and not propagate (line 575-576)."""
+        from custom_components.oclean_ble.const import DIS_SW_REV_UUID
+
+        coord = _make_coordinator()
+        coord._dis_last_read_ts = 0.0
+
+        async def _fake_read(uuid, **_kw):
+            return bytearray(b"TestModel") if uuid == DIS_SW_REV_UUID else bytearray()
+
+        client = _make_bleak_client()
+        client.read_gatt_char = AsyncMock(side_effect=_fake_read)
+
+        collected: dict = {}
+        with patch(
+            "homeassistant.helpers.device_registry.async_get", side_effect=Exception("dr unavailable"), create=True
+        ):
+            # Must not raise
+            await coord._read_device_info_service(client, collected)
+
+
+# ---------------------------------------------------------------------------
+# _poll_device – hardware brush-head detection and post-brush cooldown
+# ---------------------------------------------------------------------------
+
+
+class TestPollDeviceHwBrushAndCooldown:
+    @pytest.mark.asyncio
+    async def test_hw_brush_head_supported_set_when_usage_in_collected(self):
+        """_brush_head_hw_supported must be set True when DATA_BRUSH_HEAD_USAGE is collected."""
+        from custom_components.oclean_ble.const import DATA_BRUSH_HEAD_USAGE
+
+        coord = _make_coordinator()
+        coord._store_loaded = True
+        client = _make_bleak_client()
+
+        async def fake_setup_and_read(_client, collected):
+            collected[DATA_BRUSH_HEAD_USAGE] = 7
+            return []
+
+        async def fake_import(_h, _m, _d, sessions, last_ts):
+            return last_ts
+
+        with (
+            patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock,
+            patch(
+                "custom_components.oclean_ble.coordinator.establish_connection",
+                new_callable=AsyncMock,
+                return_value=client,
+            ),
+            patch("custom_components.oclean_ble.coordinator.asyncio.sleep", new_callable=AsyncMock),
+            patch("custom_components.oclean_ble.coordinator.import_new_sessions", side_effect=fake_import),
+            patch.object(coord, "_setup_and_read", side_effect=fake_setup_and_read),
+        ):
+            bt_mock.async_last_service_info.return_value = _make_service_info()
+            await coord._poll_device()
+
+        assert coord._brush_head_hw_supported is True
+
+    @pytest.mark.asyncio
+    async def test_post_brush_cooldown_activated_after_new_session(self):
+        """_cooldown_until must be set in the future when new sessions arrive and cooldown is configured."""
+        import time
+
+        coord = OcleanCoordinator(_make_hass(), "AA:BB:CC:DD:EE:FF", "Oclean", 300, post_brush_cooldown_h=1)
+        coord._store_loaded = True
+        coord._last_session_ts = 0
+        client = _make_bleak_client()
+
+        async def fake_setup_and_read(_client, _collected):
+            return [{"last_brush_time": 1_700_000_001}]
+
+        async def fake_import(_h, _m, _d, sessions, last_ts):
+            return 1_700_000_001
+
+        with (
+            patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock,
+            patch(
+                "custom_components.oclean_ble.coordinator.establish_connection",
+                new_callable=AsyncMock,
+                return_value=client,
+            ),
+            patch("custom_components.oclean_ble.coordinator.asyncio.sleep", new_callable=AsyncMock),
+            patch("custom_components.oclean_ble.coordinator.import_new_sessions", side_effect=fake_import),
+            patch.object(coord, "_setup_and_read", side_effect=fake_setup_and_read),
+        ):
+            bt_mock.async_last_service_info.return_value = _make_service_info()
+            await coord._poll_device()
+
+        assert coord._cooldown_until > time.time()
