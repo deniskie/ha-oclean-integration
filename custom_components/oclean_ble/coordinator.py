@@ -486,8 +486,13 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
 
         await self._calibrate_time(client)
         await self._read_device_info_service(client, collected)
-        await self._subscribe_notifications(client, notification_handler)
+        subscribed = await self._subscribe_notifications(client, notification_handler)
         await self._send_query_commands(client, session_received)
+        # Fallback for devices (e.g. OCLEANA1) where READ_NOTIFY_CHAR_UUID has no CCCD
+        # and therefore cannot be subscribed.  The device updates the characteristic value
+        # in-place; we poll it directly after sending query commands.
+        if READ_NOTIFY_CHAR_UUID not in subscribed:
+            await self._read_response_char_fallback(client, notification_handler)
         await self._paginate_sessions(client, all_sessions, session_received)
         await self._read_battery_and_unsubscribe(client, collected)
 
@@ -606,17 +611,48 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("Oclean time calibration failed: %s (%s)", err, type(err).__name__)
 
-    async def _subscribe_notifications(self, client: BleakClient, handler: Any) -> None:
-        """Subscribe to all notification characteristics."""
+    async def _subscribe_notifications(
+        self, client: BleakClient, handler: Any
+    ) -> frozenset[str]:
+        """Subscribe to all notification characteristics.
+
+        Returns the set of UUIDs successfully subscribed.  Callers use this to
+        detect devices (e.g. OCLEANA1) that don't support CCCD-based notifications
+        on READ_NOTIFY_CHAR_UUID and must be polled via direct READ instead.
+        """
+        subscribed: set[str] = set()
         for char_uuid in _NOTIFY_CHARS:
             try:
                 await client.start_notify(char_uuid, handler)
+                subscribed.add(char_uuid)
                 _LOGGER.debug("Oclean subscribed to %s", char_uuid)
             except Exception as err:  # noqa: BLE001
                 _LOGGER.debug(
                     "Oclean could not subscribe to %s: %s (%s)",
                     char_uuid, err, type(err).__name__,
                 )
+        return frozenset(subscribed)
+
+    async def _read_response_char_fallback(
+        self, client: BleakClient, handler: Any
+    ) -> None:
+        """Directly READ READ_NOTIFY_CHAR_UUID for devices without CCCD support.
+
+        Devices like OCLEANA1 (Protocol 6) place their response data in
+        READ_NOTIFY_CHAR_UUID as a readable value rather than pushing it via
+        BLE notifications.  When subscription fails (no CCCD descriptor), we
+        poll the characteristic after a short delay and feed the result through
+        the same notification_handler as if it had arrived as a notify event.
+        """
+        await asyncio.sleep(1.5)
+        try:
+            raw = await client.read_gatt_char(READ_NOTIFY_CHAR_UUID)
+            data = bytes(raw)
+            _LOGGER.debug("Oclean READ fallback on READ_NOTIFY_CHAR: %s", data.hex())
+            if len(data) > 2:
+                handler(None, bytearray(data))
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.debug("Oclean READ fallback failed: %s (%s)", err, type(err).__name__)
 
     async def _send_query_commands(
         self, client: BleakClient, session_received: asyncio.Event
