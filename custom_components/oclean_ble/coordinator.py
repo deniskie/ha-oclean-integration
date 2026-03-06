@@ -656,7 +656,7 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
             session_received.clear()
             try:
                 await client.write_gatt_char(WRITE_CHAR_UUID, CMD_QUERY_RUNNING_DATA_NEXT, response=True)
-            except (Exception, asyncio.CancelledError) as err:
+            except BaseException as err:  # noqa: BLE001
                 _LOGGER.debug("Oclean 0309 write failed at page %d: %s", page, err)
                 break
 
