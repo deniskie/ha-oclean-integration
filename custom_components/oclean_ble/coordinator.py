@@ -2,18 +2,17 @@
 from __future__ import annotations
 
 import asyncio
+import datetime
 import logging
 import struct
 import time
 import traceback
-import datetime
 from datetime import time as _dtime
 from datetime import timedelta
 from typing import Any
 
 from bleak import BleakClient, BleakError
 from bleak_retry_connector import establish_connection
-
 from homeassistant.components import bluetooth
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
@@ -35,8 +34,8 @@ from .const import (
     DATA_HW_REVISION,
     DATA_LAST_BRUSH_AREAS,
     DATA_LAST_BRUSH_DURATION,
-    DATA_LAST_BRUSH_PRESSURE,
     DATA_LAST_BRUSH_PNUM,
+    DATA_LAST_BRUSH_PRESSURE,
     DATA_LAST_BRUSH_SCORE,
     DATA_LAST_BRUSH_TIME,
     DATA_MODEL_ID,
@@ -69,7 +68,7 @@ def _patch_aioesphomeapi_uuid_parser() -> None:
     so service discovery completes normally.
     """
     try:
-        import aioesphomeapi.model as _model  # only present in proxy setups
+        import aioesphomeapi.model as _model  # noqa: PLC0415  # only present in proxy setups
 
         _orig_join = _model._join_split_uuid
 
@@ -244,7 +243,7 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         try:
             raw = await self._poll_device()
             return OcleanDeviceData.from_dict(raw)
-        except Exception as err:  # noqa: BLE001
+        except Exception as err:
             # Catch all exceptions (BleakError, TimeoutError, IndexError from
             # habluetooth proxy backend, etc.) so HA can keep retrying rather
             # than crashing the integration.
@@ -851,8 +850,8 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         except ImportError:
             pass
         try:
-            from homeassistant.components.recorder.statistics import async_add_external_statistics  # noqa: PLC0415
             from homeassistant.components.recorder.models import StatisticData, StatisticMetaData  # noqa: PLC0415
+            from homeassistant.components.recorder.statistics import async_add_external_statistics  # noqa: PLC0415
             return StatisticData, StatisticMetaData, async_add_external_statistics
         except ImportError:
             return None
