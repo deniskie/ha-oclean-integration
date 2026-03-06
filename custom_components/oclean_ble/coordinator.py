@@ -1,4 +1,5 @@
 """DataUpdateCoordinator for the Oclean integration."""
+
 from __future__ import annotations
 
 import asyncio
@@ -53,6 +54,7 @@ from .const import (
 )
 from .models import OcleanDeviceData
 from .parser import parse_battery, parse_notification
+from .statistics import import_new_sessions
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -68,7 +70,7 @@ def _patch_aioesphomeapi_uuid_parser() -> None:
     so service discovery completes normally.
     """
     try:
-        import aioesphomeapi.model as _model  # noqa: PLC0415  # only present in proxy setups
+        import aioesphomeapi.model as _model  # only present in proxy setups
 
         _orig_join = _model._join_split_uuid
 
@@ -92,6 +94,7 @@ _patch_aioesphomeapi_uuid_parser()
 # ---------------------------------------------------------------------------
 # Poll-window helpers
 # ---------------------------------------------------------------------------
+
 
 def _parse_poll_windows(windows_str: str) -> list[tuple[_dtime, _dtime]]:
     """Parse 'HH:MM-HH:MM[, HH:MM-HH:MM, ...]' into (start, end) time pairs.
@@ -143,14 +146,6 @@ _PERSISTENT_KEYS = (
     DATA_SW_VERSION,
 )
 
-# Metrics exported to HA long-term statistics
-# (data_key, statistic_name_suffix, unit_of_measurement)
-_STAT_METRICS: tuple[tuple[str, str, str | None], ...] = (
-    (DATA_LAST_BRUSH_SCORE,    "brush_score",    "%"),
-    (DATA_LAST_BRUSH_DURATION, "brush_duration", "s"),
-    (DATA_LAST_BRUSH_PRESSURE, "brush_pressure", None),
-)
-
 # Fields delivered by enrichment notifications (0000/2604) that carry no timestamp.
 # These arrive AFTER the session-creating notification (5a00/0307) and must be
 # merged back into the session snapshot for correct statistics import.
@@ -162,10 +157,10 @@ _ENRICHMENT_KEYS: tuple[str, ...] = (
 
 # BLE notification characteristics to subscribe/unsubscribe in each poll
 _NOTIFY_CHARS: tuple[str, ...] = (
-    READ_NOTIFY_CHAR_UUID,   # all device types
-    RECEIVE_BRUSH_UUID,      # Type 1 – brush session data
-    CHANGE_INFO_UUID,        # Type 0 – change-info notifications
-    SEND_BRUSH_CMD_UUID,     # Type 1 – running-data result
+    READ_NOTIFY_CHAR_UUID,  # all device types
+    RECEIVE_BRUSH_UUID,  # Type 1 – brush session data
+    CHANGE_INFO_UUID,  # Type 0 – change-info notifications
+    SEND_BRUSH_CMD_UUID,  # Type 1 – running-data result
 )
 
 # DIS re-read interval: 24 h in seconds. Info only changes after firmware updates.
@@ -252,7 +247,9 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
             # than crashing the integration.
             _LOGGER.debug(
                 "Oclean %s poll failed: %s (%s)\n%s",
-                self._mac, err, type(err).__name__,
+                self._mac,
+                err,
+                type(err).__name__,
                 traceback.format_exc(),
             )
             self.last_poll_successful = False
@@ -310,24 +307,17 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         if self._poll_windows:
             now_t = datetime.datetime.now().time()
             if not any(_in_window(s, e, now_t) for s, e in self._poll_windows):
-                windows_str = ", ".join(
-                    f"{s.strftime('%H:%M')}-{e.strftime('%H:%M')}"
-                    for s, e in self._poll_windows
-                )
+                windows_str = ", ".join(f"{s.strftime('%H:%M')}-{e.strftime('%H:%M')}" for s, e in self._poll_windows)
                 return f"outside poll windows ({windows_str})"
 
         return None
 
     def _resolve_ble_device(self):
         """BLEDevice from HA Bluetooth registry; raises BleakError if not found."""
-        service_info = bluetooth.async_last_service_info(
-            self.hass, self._mac, connectable=True
-        )
+        service_info = bluetooth.async_last_service_info(self.hass, self._mac, connectable=True)
         if service_info is not None:
             return service_info.device
-        device = bluetooth.async_ble_device_from_address(
-            self.hass, self._mac, connectable=True
-        )
+        device = bluetooth.async_ble_device_from_address(self.hass, self._mac, connectable=True)
         if device is None:
             raise BleakError(
                 f"Oclean {self._mac} not found in HA bluetooth registry. "
@@ -345,17 +335,21 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
             self._brush_head_hw_supported = stored.get("brush_head_hw", False)
             _LOGGER.debug(
                 "Oclean loaded store: last_session_ts=%d, brush_head_count=%d, hw=%s",
-                self._last_session_ts, self._brush_head_sw_count, self._brush_head_hw_supported,
+                self._last_session_ts,
+                self._brush_head_sw_count,
+                self._brush_head_hw_supported,
             )
         self._store_loaded = True
 
     async def _save_store(self) -> None:
         """Persist coordinator state to HA storage."""
-        await self._store.async_save({
-            "last_session_ts": self._last_session_ts,
-            "brush_head_count": self._brush_head_sw_count,
-            "brush_head_hw": self._brush_head_hw_supported,
-        })
+        await self._store.async_save(
+            {
+                "last_session_ts": self._last_session_ts,
+                "brush_head_count": self._brush_head_sw_count,
+                "brush_head_hw": self._brush_head_hw_supported,
+            }
+        )
 
     async def _poll_device(self) -> dict[str, Any]:
         """Connect to the device, read data, then disconnect."""
@@ -386,21 +380,24 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
             self._brush_head_hw_supported = True
 
         # Count new sessions before _import_new_sessions updates _last_session_ts
-        new_session_count = sum(
-            1 for s in all_sessions
-            if s.get("last_brush_time", 0) > self._last_session_ts
-        )
+        new_session_count = sum(1 for s in all_sessions if s.get("last_brush_time", 0) > self._last_session_ts)
 
         # Import new sessions into HA long-term statistics
         if all_sessions:
-            await self._import_new_sessions(all_sessions)
+            mac_slug = self._mac.replace(":", "_").lower()
+            new_ts = await import_new_sessions(
+                self.hass, mac_slug, self._device_name, all_sessions, self._last_session_ts
+            )
+            if new_ts > self._last_session_ts:
+                self._last_session_ts = new_ts
+                await self._save_store()
+                _LOGGER.debug("Oclean updated last_session_ts to %d", self._last_session_ts)
 
         # Post-brush cooldown: pause polling for N hours after a new session
         if new_session_count > 0 and self._post_brush_cooldown_s > 0:
             self._cooldown_until = time.time() + self._post_brush_cooldown_s
             _LOGGER.info(
-                "Oclean post-brush cooldown: %d new session(s) detected, "
-                "pausing polls for %.1f h",
+                "Oclean post-brush cooldown: %d new session(s) detected, pausing polls for %.1f h",
                 new_session_count,
                 self._post_brush_cooldown_s / 3600,
             )
@@ -412,7 +409,8 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
                 await self._save_store()
                 _LOGGER.debug(
                     "Oclean brush head sw counter: +%d → %d",
-                    new_session_count, self._brush_head_sw_count,
+                    new_session_count,
+                    self._brush_head_sw_count,
                 )
             collected[DATA_BRUSH_HEAD_USAGE] = self._brush_head_sw_count
 
@@ -461,8 +459,7 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
                     current_ts = collected.get("last_brush_time", 0)
                     if incoming_ts < current_ts:
                         parsed = {
-                            k: v for k, v in parsed.items()
-                            if k not in ("last_brush_time", "last_brush_duration")
+                            k: v for k, v in parsed.items() if k not in ("last_brush_time", "last_brush_duration")
                         }
                 collected.update(parsed)
                 # If this notification contains a brush session, accumulate it
@@ -486,18 +483,15 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         # receives complete session data.
         if all_sessions:
             latest = max(all_sessions, key=lambda s: s.get("last_brush_time", 0))
-            enriched = {
-                k: collected[k]
-                for k in _ENRICHMENT_KEYS
-                if k in collected and k not in latest
-            }
+            enriched = {k: collected[k] for k in _ENRICHMENT_KEYS if k in collected and k not in latest}
             if enriched:
                 latest.update(enriched)
                 _LOGGER.debug("Oclean session snapshot enriched: %s", list(enriched.keys()))
 
         _LOGGER.debug(
             "Oclean fetched %d session(s) total from device (last_known_ts=%d)",
-            len(all_sessions), self._last_session_ts,
+            len(all_sessions),
+            self._last_session_ts,
         )
         # Log each session timestamp so we can check across polls whether the
         # device deletes sessions after retrieval or keeps them.
@@ -513,9 +507,7 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
             )
         return all_sessions
 
-    async def _read_device_info_service(
-        self, client: BleakClient, collected: dict[str, Any]
-    ) -> None:
+    async def _read_device_info_service(self, client: BleakClient, collected: dict[str, Any]) -> None:
         """Read BLE Device Information Service (0x180A) characteristics.
 
         Populates model_id, hw_revision, and sw_version in collected.
@@ -541,9 +533,9 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
             return
 
         dis_chars = {
-            DATA_MODEL_ID:    DIS_MODEL_UUID,
+            DATA_MODEL_ID: DIS_MODEL_UUID,
             DATA_HW_REVISION: DIS_HW_REV_UUID,
-            DATA_SW_VERSION:  DIS_SW_REV_UUID,
+            DATA_SW_VERSION: DIS_SW_REV_UUID,
         }
         for key, uuid in dis_chars.items():
             try:
@@ -563,11 +555,10 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         model_id = collected.get(DATA_MODEL_ID)
         if sw_version or model_id:
             try:
-                from homeassistant.helpers import device_registry as dr  # noqa: PLC0415
+                from homeassistant.helpers import device_registry as dr
+
                 device_registry = dr.async_get(self.hass)
-                device_entry = device_registry.async_get_device(
-                    identifiers={(DOMAIN, self._mac)}
-                )
+                device_entry = device_registry.async_get_device(identifiers={(DOMAIN, self._mac)})
                 if device_entry:
                     device_registry.async_update_device(
                         device_entry.id,
@@ -577,7 +568,9 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
                     )
                     _LOGGER.debug(
                         "Oclean device registry updated: model=%s sw=%s hw=%s",
-                        model_id, sw_version, hw_revision,
+                        model_id,
+                        sw_version,
+                        hw_revision,
                     )
             except Exception as err:  # noqa: BLE001
                 _LOGGER.debug("Oclean device registry update skipped: %s", err)
@@ -602,12 +595,12 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
             except Exception as err:  # noqa: BLE001
                 _LOGGER.debug(
                     "Oclean could not subscribe to %s: %s (%s)",
-                    char_uuid, err, type(err).__name__,
+                    char_uuid,
+                    err,
+                    type(err).__name__,
                 )
 
-    async def _send_query_commands(
-        self, client: BleakClient, session_received: asyncio.Event
-    ) -> None:
+    async def _send_query_commands(self, client: BleakClient, session_received: asyncio.Event) -> None:
         """Send status, device-info, and running-data commands; wait for first session."""
         try:
             await client.write_gatt_char(WRITE_CHAR_UUID, CMD_QUERY_STATUS, response=True)
@@ -656,16 +649,15 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
             if last_ts and last_ts <= self._last_session_ts:
                 _LOGGER.debug(
                     "Oclean pagination stopped: reached already-known session (ts=%d) at page %d",
-                    last_ts, page,
+                    last_ts,
+                    page,
                 )
                 break
 
             session_received.clear()
             try:
-                await client.write_gatt_char(
-                    WRITE_CHAR_UUID, CMD_QUERY_RUNNING_DATA_NEXT, response=True
-                )
-            except (Exception, asyncio.CancelledError) as err:  # noqa: BLE001
+                await client.write_gatt_char(WRITE_CHAR_UUID, CMD_QUERY_RUNNING_DATA_NEXT, response=True)
+            except (Exception, asyncio.CancelledError) as err:
                 _LOGGER.debug("Oclean 0309 write failed at page %d: %s", page, err)
                 break
 
@@ -675,9 +667,7 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
                 _LOGGER.debug("Oclean no more sessions after page %d", page)
                 break
 
-    async def _read_battery_and_unsubscribe(
-        self, client: BleakClient, collected: dict[str, Any]
-    ) -> None:
+    async def _read_battery_and_unsubscribe(self, client: BleakClient, collected: dict[str, Any]) -> None:
         """Read battery level via GATT.
 
         stop_notify is intentionally omitted: the BLE disconnect in _poll_device's
@@ -693,152 +683,3 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
                 collected[DATA_BATTERY] = batt
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("Oclean battery read failed: %s (%s)", err, type(err).__name__)
-
-    async def _import_new_sessions(self, sessions: list[dict[str, Any]]) -> None:
-        """Import brush sessions newer than last_session_ts into HA long-term statistics.
-
-        Uses recorder.statistics.async_add_external_statistics so that historical
-        sessions (e.g. recorded while HA was offline) appear with their actual
-        timestamps in the HA energy/statistics graphs.
-        """
-        new_sessions = [
-            s for s in sessions
-            if s.get("last_brush_time", 0) > self._last_session_ts
-        ]
-        if not new_sessions:
-            _LOGGER.debug("Oclean no new sessions to import into statistics")
-            return
-
-        _LOGGER.debug(
-            "Oclean importing %d new session(s) into HA statistics:", len(new_sessions)
-        )
-        for s in new_sessions:
-            ts = s.get("last_brush_time", 0)
-            _LOGGER.debug(
-                "Oclean  → import ts=%d (%s)",
-                ts,
-                datetime.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S") if ts else "n/a",
-            )
-
-        # Import recorder API lazily to handle setups where recorder is unavailable
-        recorder_api = self._load_recorder_api()
-        if recorder_api is None:
-            _LOGGER.debug(
-                "Oclean recorder statistics API not available; skipping history import"
-            )
-            return
-        StatisticData, StatisticMetaData, async_add_external_statistics = recorder_api
-
-        from homeassistant.util import dt as dt_util  # noqa: PLC0415
-
-        mac_slug = self._mac.replace(":", "_").lower()
-
-        for data_key, stat_suffix, unit in _STAT_METRICS:
-            stat_rows: list[Any] = []
-            for session in new_sessions:
-                value = session.get(data_key)
-                if value is None:
-                    continue
-                ts = session["last_brush_time"]
-                start_dt = datetime.datetime.fromtimestamp(ts, tz=dt_util.UTC).replace(minute=0, second=0, microsecond=0)
-                stat_rows.append(
-                    StatisticData(
-                        start=start_dt,
-                        mean=float(value),
-                        state=float(value),
-                    )
-                )
-
-            if not stat_rows:
-                continue
-
-            metadata = StatisticMetaData(
-                has_mean=True,
-                has_sum=False,
-                name=f"Oclean {self._device_name} {stat_suffix.replace('_', ' ').title()}",
-                source=DOMAIN,
-                statistic_id=f"{DOMAIN}:{mac_slug}_{stat_suffix}",
-                unit_of_measurement=unit,
-            )
-            try:
-                async_add_external_statistics(self.hass, metadata, stat_rows)
-            except Exception as err:  # noqa: BLE001
-                _LOGGER.warning(
-                    "Oclean statistics import failed for '%s_%s': %s – skipping",
-                    mac_slug, stat_suffix, err,
-                )
-                continue
-            _LOGGER.debug(
-                "Oclean imported %d row(s) for statistic '%s:%s_%s'",
-                len(stat_rows), DOMAIN, mac_slug, stat_suffix,
-            )
-
-        # Import per-zone area pressures as individual statistics
-        area_stats_by_zone: dict[str, list[Any]] = {}
-        for session in new_sessions:
-            areas = session.get(DATA_LAST_BRUSH_AREAS)
-            if not isinstance(areas, dict):
-                continue
-            ts = session["last_brush_time"]
-            start_dt = datetime.datetime.fromtimestamp(ts, tz=dt_util.UTC).replace(
-                minute=0, second=0, microsecond=0
-            )
-            for zone_name, pressure in areas.items():
-                area_stats_by_zone.setdefault(zone_name, []).append(
-                    StatisticData(
-                        start=start_dt,
-                        mean=float(pressure),
-                        state=float(pressure),
-                    )
-                )
-
-        for zone_name, stat_rows in area_stats_by_zone.items():
-            metadata = StatisticMetaData(
-                has_mean=True,
-                has_sum=False,
-                name=(
-                    f"Oclean {self._device_name} Area"
-                    f" {zone_name.replace('_', ' ').title()}"
-                ),
-                source=DOMAIN,
-                statistic_id=f"{DOMAIN}:{mac_slug}_area_{zone_name}",
-                unit_of_measurement=None,
-            )
-            try:
-                async_add_external_statistics(self.hass, metadata, stat_rows)
-            except Exception as err:  # noqa: BLE001
-                _LOGGER.warning(
-                    "Oclean statistics import failed for area '%s': %s – skipping",
-                    zone_name, err,
-                )
-                continue
-            _LOGGER.debug(
-                "Oclean imported %d row(s) for area statistic '%s:%s_area_%s'",
-                len(stat_rows), DOMAIN, mac_slug, zone_name,
-            )
-
-        # Persist the newest session timestamp so next poll knows what's already imported
-        max_ts = max(s.get("last_brush_time", 0) for s in new_sessions)
-        if max_ts > self._last_session_ts:
-            self._last_session_ts = max_ts
-            await self._save_store()
-            _LOGGER.debug("Oclean updated last_session_ts to %d", self._last_session_ts)
-
-    @staticmethod
-    def _load_recorder_api():
-        """Load recorder statistics API; return (StatisticData, StatisticMetaData, async_add_external_statistics) or None."""
-        try:
-            from homeassistant.components.recorder.statistics import (  # noqa: PLC0415
-                StatisticData,
-                StatisticMetaData,
-                async_add_external_statistics,
-            )
-            return StatisticData, StatisticMetaData, async_add_external_statistics
-        except ImportError:
-            pass
-        try:
-            from homeassistant.components.recorder.models import StatisticData, StatisticMetaData  # noqa: PLC0415
-            from homeassistant.components.recorder.statistics import async_add_external_statistics  # noqa: PLC0415
-            return StatisticData, StatisticMetaData, async_add_external_statistics
-        except ImportError:
-            return None
