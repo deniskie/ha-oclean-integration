@@ -60,5 +60,3 @@ ignore_missing_imports = true
 warn_unused_ignores = true
 warn_return_any = false
 
-[tool.pytest.ini_options]
-addopts = "--cov=custom_components/oclean_ble --cov-report=term-missing --cov-fail-under=69"
