@@ -1,4 +1,5 @@
 """Config flow for the Oclean Toothbrush integration."""
+
 from __future__ import annotations
 
 import logging
@@ -32,6 +33,7 @@ _LOGGER = logging.getLogger(__name__)
 
 _MAC_RE = re.compile(r"^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$")
 
+
 def _parse_windows_list(windows_str: str) -> list[tuple[str, str]]:
     """Parse 'HH:MM-HH:MM[, ...]' into a list of ('HH:MM:00', 'HH:MM:00') tuples.
 
@@ -64,7 +66,7 @@ def _windows_list_to_str(windows: list[tuple[str, str]]) -> str:
     return ", ".join(parts)
 
 
-class OcleanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+class OcleanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignore[call-arg]
     """Handle a config flow for Oclean."""
 
     VERSION = 1
@@ -78,9 +80,7 @@ class OcleanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     # Bluetooth discovery (passive, triggered by HA bluetooth component)
     # ------------------------------------------------------------------
 
-    async def async_step_bluetooth(
-        self, discovery_info: BluetoothServiceInfoBleak
-    ) -> FlowResult:
+    async def async_step_bluetooth(self, discovery_info: BluetoothServiceInfoBleak) -> FlowResult:
         """Handle device discovered via bluetooth integration."""
         await self.async_set_unique_id(discovery_info.address)
         self._abort_if_unique_id_configured()
@@ -91,9 +91,7 @@ class OcleanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self.context["title_placeholders"] = {"name": self._name}
         return await self.async_step_confirm()
 
-    async def async_step_confirm(
-        self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    async def async_step_confirm(self, user_input: dict[str, Any] | None = None) -> FlowResult:
         """Confirm a bluetooth-discovered device."""
         if user_input is not None:
             poll_interval = user_input.get(CONF_POLL_INTERVAL, DEFAULT_POLL_INTERVAL)
@@ -111,9 +109,9 @@ class OcleanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             description_placeholders={"name": self._name, "mac": self._mac},
             data_schema=vol.Schema(
                 {
-                    vol.Optional(
-                        CONF_POLL_INTERVAL, default=DEFAULT_POLL_INTERVAL
-                    ): vol.All(int, vol.Range(min=MIN_POLL_INTERVAL)),
+                    vol.Optional(CONF_POLL_INTERVAL, default=DEFAULT_POLL_INTERVAL): vol.All(
+                        int, vol.Range(min=MIN_POLL_INTERVAL)
+                    ),
                 }
             ),
         )
@@ -122,9 +120,7 @@ class OcleanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     # Manual setup flow (user initiates via "Add Integration")
     # ------------------------------------------------------------------
 
-    async def async_step_user(
-        self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    async def async_step_user(self, user_input: dict[str, Any] | None = None) -> FlowResult:
         """Handle the initial step – show discovered devices or manual entry."""
         # Scan for already-discovered Oclean devices
         discovered = bluetooth.async_discovered_service_info(self.hass)
@@ -137,9 +133,7 @@ class OcleanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         return await self.async_step_manual(user_input)
 
-    async def async_step_pick_device(
-        self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    async def async_step_pick_device(self, user_input: dict[str, Any] | None = None) -> FlowResult:
         """Let the user pick from discovered devices."""
         errors: dict[str, str] = {}
 
@@ -159,10 +153,7 @@ class OcleanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 },
             )
 
-        device_options = {
-            mac: f"{name} ({mac})"
-            for mac, name in self._discovered_devices.items()
-        }
+        device_options = {mac: f"{name} ({mac})" for mac, name in self._discovered_devices.items()}
 
         return self.async_show_form(
             step_id="pick_device",
@@ -170,16 +161,14 @@ class OcleanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             data_schema=vol.Schema(
                 {
                     vol.Required(CONF_MAC_ADDRESS): vol.In(device_options),
-                    vol.Optional(
-                        CONF_POLL_INTERVAL, default=DEFAULT_POLL_INTERVAL
-                    ): vol.All(int, vol.Range(min=MIN_POLL_INTERVAL)),
+                    vol.Optional(CONF_POLL_INTERVAL, default=DEFAULT_POLL_INTERVAL): vol.All(
+                        int, vol.Range(min=MIN_POLL_INTERVAL)
+                    ),
                 }
             ),
         )
 
-    async def async_step_manual(
-        self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    async def async_step_manual(self, user_input: dict[str, Any] | None = None) -> FlowResult:
         """Handle manual MAC address entry."""
         errors: dict[str, str] = {}
 
@@ -190,9 +179,7 @@ class OcleanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             else:
                 await self.async_set_unique_id(mac)
                 self._abort_if_unique_id_configured()
-                poll_interval = user_input.get(
-                    CONF_POLL_INTERVAL, DEFAULT_POLL_INTERVAL
-                )
+                poll_interval = user_input.get(CONF_POLL_INTERVAL, DEFAULT_POLL_INTERVAL)
                 return self.async_create_entry(
                     title=user_input.get(CONF_DEVICE_NAME, "Oclean"),
                     data={
@@ -209,9 +196,9 @@ class OcleanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 {
                     vol.Required(CONF_MAC_ADDRESS): str,
                     vol.Optional(CONF_DEVICE_NAME, default="Oclean"): str,
-                    vol.Optional(
-                        CONF_POLL_INTERVAL, default=DEFAULT_POLL_INTERVAL
-                    ): vol.All(int, vol.Range(min=MIN_POLL_INTERVAL)),
+                    vol.Optional(CONF_POLL_INTERVAL, default=DEFAULT_POLL_INTERVAL): vol.All(
+                        int, vol.Range(min=MIN_POLL_INTERVAL)
+                    ),
                 }
             ),
         )
@@ -249,14 +236,10 @@ class OcleanOptionsFlow(config_entries.OptionsFlow):
     # Step 1 – global settings + window count
     # ------------------------------------------------------------------
 
-    async def async_step_init(
-        self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    async def async_step_init(self, user_input: dict[str, Any] | None = None) -> FlowResult:
         if user_input is not None:
             self._poll_interval = user_input[CONF_POLL_INTERVAL]
-            self._cooldown = int(
-                user_input.get(CONF_POST_BRUSH_COOLDOWN, DEFAULT_POST_BRUSH_COOLDOWN)
-            )
+            self._cooldown = int(user_input.get(CONF_POST_BRUSH_COOLDOWN, DEFAULT_POST_BRUSH_COOLDOWN))
             self._window_count = int(user_input.get(CONF_WINDOW_COUNT, 0))
             self._collected_windows = []
             if self._window_count > 0:
@@ -274,12 +257,8 @@ class OcleanOptionsFlow(config_entries.OptionsFlow):
             CONF_POLL_INTERVAL,
             self.config_entry.data.get(CONF_POLL_INTERVAL, DEFAULT_POLL_INTERVAL),
         )
-        current_cooldown = int(
-            self.config_entry.options.get(CONF_POST_BRUSH_COOLDOWN, DEFAULT_POST_BRUSH_COOLDOWN)
-        )
-        self._existing_windows = _parse_windows_list(
-            self.config_entry.options.get(CONF_POLL_WINDOWS, "")
-        )
+        current_cooldown = int(self.config_entry.options.get(CONF_POST_BRUSH_COOLDOWN, DEFAULT_POST_BRUSH_COOLDOWN))
+        self._existing_windows = _parse_windows_list(self.config_entry.options.get(CONF_POLL_WINDOWS, ""))
         current_count = len(self._existing_windows)
 
         return self.async_show_form(
@@ -289,9 +268,7 @@ class OcleanOptionsFlow(config_entries.OptionsFlow):
                     vol.Required(CONF_POLL_INTERVAL, default=current_interval): vol.All(
                         int, vol.Range(min=MIN_POLL_INTERVAL)
                     ),
-                    vol.Optional(
-                        CONF_POST_BRUSH_COOLDOWN, default=current_cooldown
-                    ): selector.NumberSelector(
+                    vol.Optional(CONF_POST_BRUSH_COOLDOWN, default=current_cooldown): selector.NumberSelector(
                         selector.NumberSelectorConfig(
                             min=0,
                             max=23,
@@ -300,12 +277,8 @@ class OcleanOptionsFlow(config_entries.OptionsFlow):
                             mode=selector.NumberSelectorMode.BOX,
                         )
                     ),
-                    vol.Optional(
-                        CONF_WINDOW_COUNT, default=current_count
-                    ): selector.NumberSelector(
-                        selector.NumberSelectorConfig(
-                            min=0, max=3, step=1, mode=selector.NumberSelectorMode.BOX
-                        )
+                    vol.Optional(CONF_WINDOW_COUNT, default=current_count): selector.NumberSelector(
+                        selector.NumberSelectorConfig(min=0, max=3, step=1, mode=selector.NumberSelectorMode.BOX)
                     ),
                 }
             ),
@@ -315,24 +288,16 @@ class OcleanOptionsFlow(config_entries.OptionsFlow):
     # Steps 2-4 – one step per poll window
     # ------------------------------------------------------------------
 
-    async def async_step_window_1(
-        self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    async def async_step_window_1(self, user_input: dict[str, Any] | None = None) -> FlowResult:
         return await self._async_step_window(1, user_input)
 
-    async def async_step_window_2(
-        self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    async def async_step_window_2(self, user_input: dict[str, Any] | None = None) -> FlowResult:
         return await self._async_step_window(2, user_input)
 
-    async def async_step_window_3(
-        self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    async def async_step_window_3(self, user_input: dict[str, Any] | None = None) -> FlowResult:
         return await self._async_step_window(3, user_input)
 
-    async def _async_step_window(
-        self, num: int, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    async def _async_step_window(self, num: int, user_input: dict[str, Any] | None = None) -> FlowResult:
         errors: dict[str, str] = {}
 
         if user_input is not None:
@@ -357,11 +322,7 @@ class OcleanOptionsFlow(config_entries.OptionsFlow):
                 )
 
         # Pre-populate from current config if this window already existed.
-        existing = (
-            self._existing_windows[num - 1]
-            if num - 1 < len(self._existing_windows)
-            else None
-        )
+        existing = self._existing_windows[num - 1] if num - 1 < len(self._existing_windows) else None
         s_default = existing[0] if existing else None
         e_default = existing[1] if existing else None
 
@@ -376,9 +337,7 @@ class OcleanOptionsFlow(config_entries.OptionsFlow):
                         else vol.Required(CONF_WINDOW_START)
                     ): selector.TimeSelector(),
                     (
-                        vol.Required(CONF_WINDOW_END, default=e_default)
-                        if e_default
-                        else vol.Required(CONF_WINDOW_END)
+                        vol.Required(CONF_WINDOW_END, default=e_default) if e_default else vol.Required(CONF_WINDOW_END)
                     ): selector.TimeSelector(),
                 }
             ),
