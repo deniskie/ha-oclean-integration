@@ -743,8 +743,6 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
             return
         StatisticData, StatisticMetaData, async_add_external_statistics = recorder_api
 
-        import datetime  # noqa: PLC0415
-
         from homeassistant.util import dt as dt_util  # noqa: PLC0415
 
         mac_slug = self._mac.replace(":", "_").lower()
