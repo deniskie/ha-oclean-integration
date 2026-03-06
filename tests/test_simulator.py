@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 # conftest.py stubs HA + bleak before these imports
-from custom_components.oclean_ble.coordinator import OcleanCoordinator
+from custom_components.oclean_ble.coordinator import OcleanCoordinator, _NOTIFY_CHARS
 from custom_components.oclean_ble.const import (
     DATA_BATTERY,
     DATA_LAST_BRUSH_AREAS,
@@ -500,3 +500,60 @@ class TestSensorStateMapping:
         sensor = OcleanSensor(coord, desc, "AA:BB:CC:DD:EE:FF", "Oclean")
 
         assert sensor.native_value is None
+
+
+# ---------------------------------------------------------------------------
+# Oclean Air 1 (OCLEANA1) – all notify characteristics fail  (issue #7)
+# ---------------------------------------------------------------------------
+
+
+class TestOcleanA1AllNotifyFail:
+    """Issue #7: Oclean Air 1 (OCLEANA1) – all notify characteristics fail.
+
+    Real device behaviour captured in logs/20260227_#7_bato2000_oclean_ble.log:
+      - fbb86, fbb90: no CCCD descriptor → BleakError
+      - fbb89: no notify property → BleakError
+      - 6c290d2e: not found → BleakError
+    The integration must complete the poll gracefully with only battery data.
+    """
+
+    @pytest.mark.asyncio
+    async def test_poll_completes_without_crash(self):
+        from bleak import BleakError
+
+        client = (
+            OcleanDeviceSimulator()
+            .with_battery(99)
+            .with_notify_errors({uuid: BleakError("no notify") for uuid in _NOTIFY_CHARS})
+            .build_client()
+        )
+        result = await _run_poll(_make_coordinator(), client)
+        assert result is not None
+
+    @pytest.mark.asyncio
+    async def test_battery_still_available(self):
+        from bleak import BleakError
+
+        client = (
+            OcleanDeviceSimulator()
+            .with_battery(99)
+            .with_notify_errors({uuid: BleakError("no notify") for uuid in _NOTIFY_CHARS})
+            .build_client()
+        )
+        result = await _run_poll(_make_coordinator(), client)
+        assert result[DATA_BATTERY] == 99
+
+    @pytest.mark.asyncio
+    async def test_no_session_data_when_all_notify_fail(self):
+        from bleak import BleakError
+
+        client = (
+            OcleanDeviceSimulator()
+            .with_battery(99)
+            .with_notify_errors({uuid: BleakError("no notify") for uuid in _NOTIFY_CHARS})
+            .build_client()
+        )
+        result = await _run_poll(_make_coordinator(), client)
+        assert result.get(DATA_LAST_BRUSH_TIME) is None
+        assert result.get(DATA_LAST_BRUSH_SCORE) is None
+        assert result.get(DATA_LAST_BRUSH_DURATION) is None
