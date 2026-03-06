@@ -12,6 +12,10 @@ select = [
     "B",      # flake8-bugbear: likely bugs and design issues
     "BLE",    # flake8-blind-exception: broad except must be suppressed with noqa: BLE001
     "PL",     # pylint: broad rule set including PLC0415 (import-outside-toplevel)
+    "SIM",    # flake8-simplify: unnecessary if/else, return bool directly
+    "PERF",   # perflint: performance anti-patterns (e.g. append in loop vs extend)
+    "C4",     # flake8-comprehensions: unnecessary list()/dict() calls
+    "PTH",    # flake8-use-pathlib: prefer pathlib over os.path / open()
     "RUF100", # ruff: unused noqa directives
 ]
 ignore = [

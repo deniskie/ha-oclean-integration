@@ -14,7 +14,6 @@ from custom_components.oclean_ble.const import (
     MIN_POLL_INTERVAL,
 )
 
-
 # ---------------------------------------------------------------------------
 # MAC address regex validation
 # ---------------------------------------------------------------------------

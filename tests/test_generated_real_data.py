@@ -15,7 +15,6 @@ import pytest
 from custom_components.oclean_ble.coordinator import OcleanCoordinator
 from tests.simulator import OcleanDeviceSimulator
 
-
 # ---------------------------------------------------------------------------
 # Helpers (mirrors tests/test_simulator.py)
 # ---------------------------------------------------------------------------

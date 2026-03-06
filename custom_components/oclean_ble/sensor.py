@@ -132,8 +132,10 @@ async def async_setup_entry(
     ]
     entities.append(OcleanBrushAreasSensor(coordinator, mac, device_name))
     entities.append(OcleanSchemeSensor(coordinator, mac, device_name))
-    for zone_name in TOOTH_AREA_NAMES:
-        entities.append(OcleanToothAreaSensor(coordinator, mac, device_name, zone_name))
+    entities.extend(
+        OcleanToothAreaSensor(coordinator, mac, device_name, zone_name)
+        for zone_name in TOOTH_AREA_NAMES
+    )
     async_add_entities(entities)
 
 
@@ -179,14 +181,12 @@ class OcleanSensor(OcleanEntity, SensorEntity):
             )
         # If the device has reported at least one session but this session-derived
         # field is still None, the device protocol does not support it.
-        if (
+        return not (
             self.entity_description.key in _SESSION_DERIVED_KEYS
             and self.coordinator.data is not None
             and self.coordinator.data.get(DATA_LAST_BRUSH_TIME) is not None
             and self.coordinator.data.get(self.entity_description.key) is None
-        ):
-            return False
-        return True
+        )
 
 
 class OcleanBrushAreasSensor(OcleanEntity, SensorEntity):

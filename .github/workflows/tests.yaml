@@ -18,6 +18,6 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements-test.txt
       - name: Lint (ruff)
-        run: ruff check custom_components/
+        run: ruff check custom_components/ tests/
       - name: Run tests
         run: pytest --tb=short
