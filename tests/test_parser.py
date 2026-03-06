@@ -5,6 +5,15 @@ import calendar
 import datetime
 import json
 
+from custom_components.oclean_ble.const import (
+    RESP_BRUSH_AREAS_T1,
+    RESP_INFO,
+    RESP_INFO_T1,
+    RESP_K3GUIDE,
+    RESP_SCORE_T1,
+    RESP_SESSION_META_T1,
+    TOOTH_AREA_NAMES,
+)
 from custom_components.oclean_ble.parser import (
     _MIN_YEAR,
     _device_datetime,
@@ -21,16 +30,6 @@ from custom_components.oclean_ble.parser import (
     parse_battery,
     parse_notification,
 )
-from custom_components.oclean_ble.const import (
-    RESP_BRUSH_AREAS_T1,
-    RESP_INFO,
-    RESP_INFO_T1,
-    RESP_K3GUIDE,
-    RESP_SCORE_T1,
-    RESP_SESSION_META_T1,
-    TOOTH_AREA_NAMES,
-)
-
 
 # ---------------------------------------------------------------------------
 # Helper: build a syntactically valid 18-byte running-data record

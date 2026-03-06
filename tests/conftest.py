@@ -41,7 +41,7 @@ def _install_ha_stubs() -> None:
     core.callback = lambda f: f
 
     # ---- homeassistant.const ----
-    from enum import Enum
+    from enum import Enum, StrEnum
     const = _stub("homeassistant.const")
     const.Platform = Enum("Platform", ["SENSOR", "BINARY_SENSOR", "BUTTON"])
     const.PERCENTAGE = "%"
@@ -50,7 +50,7 @@ def _install_ha_stubs() -> None:
         SECONDS = "s"
     const.UnitOfTime = UnitOfTime
 
-    class EntityCategory(str, Enum):
+    class EntityCategory(StrEnum):
         DIAGNOSTIC = "diagnostic"
         CONFIG = "config"
     const.EntityCategory = EntityCategory

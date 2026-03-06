@@ -7,17 +7,18 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-# conftest.py stubs HA + bleak before these imports
-from custom_components.oclean_ble.coordinator import (
-    OcleanCoordinator,
-    _in_window,
-    _parse_poll_windows,
-)
 from custom_components.oclean_ble.const import (
     DATA_BATTERY,
     DATA_LAST_BRUSH_AREAS,
     DATA_LAST_BRUSH_PRESSURE,
     DATA_LAST_BRUSH_SCORE,
+)
+
+# conftest.py stubs HA + bleak before these imports
+from custom_components.oclean_ble.coordinator import (
+    OcleanCoordinator,
+    _in_window,
+    _parse_poll_windows,
 )
 
 

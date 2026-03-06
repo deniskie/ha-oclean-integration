@@ -22,7 +22,6 @@ from __future__ import annotations
 import struct
 from unittest.mock import AsyncMock
 
-
 # ---------------------------------------------------------------------------
 # Payload builder functions
 # Each function returns a complete BLE notification (prefix included).
