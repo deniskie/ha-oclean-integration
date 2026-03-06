@@ -16,6 +16,10 @@ select = [
     "PERF",   # perflint: performance anti-patterns (e.g. append in loop vs extend)
     "C4",     # flake8-comprehensions: unnecessary list()/dict() calls
     "PTH",    # flake8-use-pathlib: prefer pathlib over os.path / open()
+    "A",      # flake8-builtins: no shadowing of builtins (type, id, list …)
+    "G",      # flake8-logging-format: lazy % args in logger calls (no f-strings)
+    "RSE",    # flake8-raise: raise with parentheses (raise ValueError() not raise ValueError)
+    "RET",    # flake8-return: no superfluous else after return; clean return paths
     "RUF100", # ruff: unused noqa directives
 ]
 ignore = [
