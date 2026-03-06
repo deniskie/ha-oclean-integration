@@ -349,3 +349,76 @@ class TestReal0307CrossSession:
             for key, value in result.items():
                 if isinstance(value, int):
                     assert value != 0x2a42230000, f"Device constant leaked into {key}"
+
+
+# ===========================================================================
+# Real 0307 OCLEANY3P responses with year_byte=0  (issue #3)
+#
+# Captured from OCLEANY3P (McGiverGim, 2026-02-25).
+# Every poll the device sends a 0307 with session_count=1 but year_byte=0,
+# meaning "no inline session data".  The parser must return {} cleanly.
+# ===========================================================================
+
+class TestRealOCLEANY3PZeroTimestamp0307:
+    """OCLEANY3P sends 0307 with year_byte=0 → no inline session (issue #3).
+
+    Full notification (20 bytes):
+      03 07  2a 42 23  00 01  00  08 1b 00 21 28 00 00 78 00 78 00 00
+      prefix  magic    count  year(0) ...
+
+    year_byte=0 means the device has no inline session to push (paginated mode
+    or no brushing yet).  Previously this caused a misleading "implausible year
+    2000" parse error every poll.  Now it returns {} silently.
+    """
+
+    RAW = bytes.fromhex("03072a4223000100081b00212800007800780000")
+
+    def test_zero_year_returns_empty_dict(self):
+        """year_byte=0 must produce {} without raising or logging an error."""
+        assert parse_notification(self.RAW) == {}
+
+    def test_no_crash_no_session_keys(self):
+        """No session-related keys must appear in the result."""
+        result = parse_notification(self.RAW)
+        for key in ("last_brush_time", "last_brush_pnum", "last_brush_duration",
+                    "last_brush_score", "last_brush_pressure", "last_brush_areas"):
+            assert key not in result, f"Unexpected key in zero-year 0307: {key}"
+
+
+# ===========================================================================
+# Unknown notification types from OCLEANY3P  (issue #3)
+#
+# Two unrecognised notification prefixes observed every poll on OCLEANY3P.
+# Both already return {} gracefully; these tests document and protect that.
+# ===========================================================================
+
+class TestRealOCLEANY3PUnknownNotifications:
+    """OCLEANY3P emits two unknown notification types every poll (issue #3).
+
+    021f: unrecognised format, not decodable yet
+    5100: unrecognised format, not decodable yet
+
+    Both must return {} without crashing.
+    """
+
+    RAW_021F = bytes.fromhex("021f00000f000f211123010d120f010f0f120000")
+    RAW_5100 = bytes.fromhex("5100ffffffffffffff00080d0038320000780078")
+
+    def test_021f_returns_empty_dict(self):
+        assert parse_notification(self.RAW_021F) == {}
+
+    def test_5100_returns_empty_dict(self):
+        assert parse_notification(self.RAW_5100) == {}
+
+    def test_no_sensor_keys_in_unknown_types(self):
+        """Unknown notification types must not produce any sensor or session keys."""
+        sensor_keys = (
+            "battery", "last_brush_time", "last_brush_score",
+            "last_brush_duration", "last_brush_pressure", "last_brush_areas",
+        )
+        for raw in (self.RAW_021F, self.RAW_5100):
+            result = parse_notification(raw)
+            for key in sensor_keys:
+                assert key not in result, (
+                    f"Key {key!r} must not appear in unknown notification {raw[:2].hex()}"
+                )
