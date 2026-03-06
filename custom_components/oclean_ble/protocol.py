@@ -105,13 +105,13 @@ UNKNOWN = DeviceProtocol(
 # ---------------------------------------------------------------------------
 
 _MODEL_MAP: dict[str, DeviceProtocol] = {
-    # Type-1 devices (Oclean X family – 0307 push)
-    "OCLEANY3M": TYPE1,
-    # Type-0 devices (Oclean X Pro family – extended 0308)
-    "OCLEANY3":  TYPE0,
-    "OCLEANY3P": TYPE0,
+    # Type-1 devices (0307 push, RECEIVE_BRUSH_UUID, no CHANGE_INFO_UUID)
+    "OCLEANY3M": TYPE1,   # Oclean X           – confirmed (logs 2026-02-21)
+    "OCLEANY3P": TYPE1,   # Oclean X Pro Elite – confirmed (logs 2026-02-25, issue #3)
+    # Type-0 devices (0308 extended, CHANGE_INFO_UUID)
+    "OCLEANY3":  TYPE0,   # Oclean X Pro       – confirmed (MEMORY.md, APK analysis)
     # Legacy devices (battery-only; no functional notify characteristics)
-    "OCLEANA1":  LEGACY,
+    "OCLEANA1":  LEGACY,  # Oclean Air 1       – confirmed (logs 2026-02-27, issue #7)
 }
 
 
