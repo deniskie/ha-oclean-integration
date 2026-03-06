@@ -452,6 +452,7 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         """
         # Delay after connect: gives habluetooth's proxy backend time to finish
         # processing the GATT service table before we start issuing commands.
+        _LOGGER.debug("Oclean poll start: mac=%s ts=%d", self._mac, int(time.time()))
         await asyncio.sleep(2.0)
 
         all_sessions: list[dict[str, Any]] = []
