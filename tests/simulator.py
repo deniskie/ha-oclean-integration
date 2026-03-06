@@ -257,10 +257,19 @@ class OcleanDeviceSimulator:
     def __init__(self) -> None:
         self._battery: int = 75
         self._notifications: list[bytes] = []
+        self._notify_errors: dict[str, type[Exception] | Exception] = {}
 
     def with_battery(self, battery: int) -> OcleanDeviceSimulator:
         """Set the battery level returned by the GATT Battery Characteristic read."""
         self._battery = battery
+        return self
+
+    def with_notify_errors(
+        self,
+        errors: dict[str, type[Exception] | Exception],
+    ) -> OcleanDeviceSimulator:
+        """Make start_notify raise for specific characteristic UUIDs (simulates OCLEANA1)."""
+        self._notify_errors = errors
         return self
 
     def add_notification(self, data: bytes) -> OcleanDeviceSimulator:
@@ -352,6 +361,7 @@ class OcleanDeviceSimulator:
         """
         notifications = list(self._notifications)
         battery = self._battery
+        notify_errors = dict(self._notify_errors)
 
         client = AsyncMock()
         client.is_connected = True
@@ -363,6 +373,9 @@ class OcleanDeviceSimulator:
         call_count = [0]
 
         async def _start_notify(uuid: str, handler) -> None:
+            if uuid in notify_errors:
+                err = notify_errors[uuid]
+                raise err() if isinstance(err, type) else err
             call_count[0] += 1
             if call_count[0] == 1:
                 for payload in notifications:
