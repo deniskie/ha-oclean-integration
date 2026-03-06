@@ -5,6 +5,8 @@ import calendar
 import datetime
 import json
 
+import pytest
+
 from custom_components.oclean_ble.const import (
     RESP_BRUSH_AREAS_T1,
     RESP_INFO,
@@ -126,57 +128,47 @@ class TestDeviceDatetime:
 
     def test_year_zero_raises(self):
         """year_byte=0 → year 2000 → rejected."""
-        import pytest
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="implausible year"):
             _device_datetime(0, 1, 1, 0, 0, 0)
 
     def test_year_14_raises(self):
         """year_byte=14 → year 2014 → rejected."""
-        import pytest
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="implausible year"):
             _device_datetime(14, 6, 15, 12, 0, 0)
 
     # --- Invalid dates (delegated to datetime constructor) ---
 
     def test_month_zero_raises(self):
-        import pytest
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="month must be in"):
             _device_datetime(24, 0, 1, 0, 0, 0)
 
     def test_month_13_raises(self):
-        import pytest
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="month must be in"):
             _device_datetime(24, 13, 1, 0, 0, 0)
 
     def test_day_zero_raises(self):
-        import pytest
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="day is out of range"):
             _device_datetime(24, 1, 0, 0, 0, 0)
 
     def test_day_32_raises(self):
-        import pytest
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="day is out of range"):
             _device_datetime(24, 1, 32, 0, 0, 0)
 
     def test_hour_24_raises(self):
-        import pytest
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="hour must be in"):
             _device_datetime(24, 1, 1, 24, 0, 0)
 
     def test_minute_60_raises(self):
-        import pytest
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="minute must be in"):
             _device_datetime(24, 1, 1, 0, 60, 0)
 
     def test_second_60_raises(self):
-        import pytest
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="second must be in"):
             _device_datetime(24, 1, 1, 0, 0, 60)
 
     def test_leap_day_in_non_leap_year_raises(self):
         """Feb 29 in a non-leap year must raise."""
-        import pytest
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="day is out of range"):
             _device_datetime(23, 2, 29, 0, 0, 0)  # 2023 is not a leap year
 
 

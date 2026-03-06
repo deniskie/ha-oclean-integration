@@ -20,6 +20,11 @@ select = [
     "G",      # flake8-logging-format: lazy % args in logger calls (no f-strings)
     "RSE",    # flake8-raise: raise with parentheses (raise ValueError() not raise ValueError)
     "RET",    # flake8-return: no superfluous else after return; clean return paths
+    "T20",    # flake8-print: no print() statements in production code
+    "ISC",    # flake8-implicit-str-concat: catch accidental "foo" "bar" concatenation
+    "ASYNC",  # flake8-async: async anti-patterns (blocking calls in async functions)
+    "PIE",    # flake8-pie: misc improvements (no unnecessary pass, dict merge, etc.)
+    "PT",     # flake8-pytest-style: pytest best practices (match= on raises, etc.)
     "RUF100", # ruff: unused noqa directives
 ]
 ignore = [
