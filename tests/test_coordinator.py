@@ -365,8 +365,9 @@ class TestSessionEnrichment:
 
         captured: list = []
 
-        async def fake_import(sessions):
+        async def fake_import(_hass, _mac_slug, _device_name, sessions, last_ts):
             captured.extend(sessions)
+            return last_ts
 
         with (
             patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock,
@@ -376,7 +377,7 @@ class TestSessionEnrichment:
                 return_value=client,
             ),
             patch("custom_components.oclean_ble.coordinator.asyncio.sleep", new_callable=AsyncMock),
-            patch.object(coordinator, "_import_new_sessions", side_effect=fake_import),
+            patch("custom_components.oclean_ble.coordinator.import_new_sessions", side_effect=fake_import),
         ):
             bt_mock.async_last_service_info.return_value = _make_service_info()
             await coordinator._poll_device()
@@ -422,8 +423,9 @@ class TestSessionEnrichment:
 
         captured: list = []
 
-        async def fake_import(sessions):
+        async def fake_import(_hass, _mac_slug, _device_name, sessions, last_ts):
             captured.extend(sessions)
+            return last_ts
 
         with (
             patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock,
@@ -433,7 +435,7 @@ class TestSessionEnrichment:
                 return_value=client,
             ),
             patch("custom_components.oclean_ble.coordinator.asyncio.sleep", new_callable=AsyncMock),
-            patch.object(coordinator, "_import_new_sessions", side_effect=fake_import),
+            patch("custom_components.oclean_ble.coordinator.import_new_sessions", side_effect=fake_import),
         ):
             bt_mock.async_last_service_info.return_value = _make_service_info()
             await coordinator._poll_device()
@@ -569,38 +571,36 @@ class TestImportNewSessions:
         `datetime.datetime.fromtimestamp()` on the logging line – before
         the import statement – raised UnboundLocalError.
         """
-        coord = _make_coordinator()
-        coord._store_loaded = True
-        coord._last_session_ts = 0
+        from custom_components.oclean_ble.statistics import import_new_sessions
+
+        hass = _make_hass()
         sessions = [{"last_brush_time": 1740145339, "last_brush_duration": 150}]
 
-        with patch.object(coord, "_load_recorder_api", return_value=None):
+        with patch("custom_components.oclean_ble.statistics._load_recorder_api", return_value=None):
             # Before fix: UnboundLocalError on the _LOGGER.debug("Oclean → import …") line
-            await coord._import_new_sessions(sessions)
+            await import_new_sessions(hass, "aa_bb_cc_dd_ee_ff", "Oclean", sessions, 0)
 
     @pytest.mark.asyncio
     async def test_session_with_zero_timestamp_uses_na_placeholder(self):
         """last_brush_time=0 must use the 'n/a' branch without error."""
-        coord = _make_coordinator()
-        coord._store_loaded = True
-        coord._last_session_ts = 0
+        from custom_components.oclean_ble.statistics import import_new_sessions
+
+        hass = _make_hass()
         sessions = [{"last_brush_time": 0, "last_brush_duration": 150}]
 
-        with patch.object(coord, "_load_recorder_api", return_value=None):
-            await coord._import_new_sessions(sessions)
+        with patch("custom_components.oclean_ble.statistics._load_recorder_api", return_value=None):
+            await import_new_sessions(hass, "aa_bb_cc_dd_ee_ff", "Oclean", sessions, 0)
 
     @pytest.mark.asyncio
     async def test_no_new_sessions_skips_import(self):
-        """Sessions already imported (ts <= _last_session_ts) must be silently skipped."""
-        coord = _make_coordinator()
-        coord._store_loaded = True
-        coord._last_session_ts = 9_999_999_999
+        """Sessions already imported (ts <= last_session_ts) must be silently skipped."""
+        from custom_components.oclean_ble.statistics import import_new_sessions
+
+        hass = _make_hass()
         sessions = [{"last_brush_time": 1740145339}]
 
-        with patch.object(coord, "_load_recorder_api", return_value=None):
-            await coord._import_new_sessions(sessions)
-
-        assert coord._last_session_ts == 9_999_999_999
+        result = await import_new_sessions(hass, "aa_bb_cc_dd_ee_ff", "Oclean", sessions, 9_999_999_999)
+        assert result == 9_999_999_999
 
 
 # ---------------------------------------------------------------------------
@@ -927,69 +927,60 @@ class TestImportNewSessionsWithRecorder:
 
     @pytest.mark.asyncio
     async def test_imports_new_session_and_updates_last_ts(self):
+        from custom_components.oclean_ble.statistics import import_new_sessions
+
         self._install_dt_util_stub()
         _SD, _SM = self._make_stat_classes()
         add_fn = MagicMock()
+        hass = _make_hass()
 
-        coord = _make_coordinator()
-        coord._store_loaded = True
-        coord._last_session_ts = 0
-
-        with (
-            patch.object(coord, "_load_recorder_api", return_value=(_SD, _SM, add_fn)),
-            patch.object(coord._store, "async_save", new_callable=AsyncMock),
-        ):
+        with patch("custom_components.oclean_ble.statistics._load_recorder_api", return_value=(_SD, _SM, add_fn)):
             sessions = [{"last_brush_time": 1_700_000_001, DATA_LAST_BRUSH_SCORE: 80}]
-            await coord._import_new_sessions(sessions)
+            new_ts = await import_new_sessions(hass, "aa_bb_cc_dd_ee_ff", "Oclean", sessions, 0)
 
-        assert coord._last_session_ts == 1_700_000_001
+        assert new_ts == 1_700_000_001
         add_fn.assert_called()
 
     @pytest.mark.asyncio
     async def test_no_new_sessions_skips_import(self):
+        from custom_components.oclean_ble.statistics import import_new_sessions
+
         _SD, _SM = self._make_stat_classes()
         add_fn = MagicMock()
-        coord = _make_coordinator()
-        coord._store_loaded = True
-        coord._last_session_ts = 9_999_999_999  # all sessions are older
+        hass = _make_hass()
 
-        with patch.object(coord, "_load_recorder_api", return_value=(_SD, _SM, add_fn)):
+        with patch("custom_components.oclean_ble.statistics._load_recorder_api", return_value=(_SD, _SM, add_fn)):
             sessions = [{"last_brush_time": 1_700_000_001}]
-            await coord._import_new_sessions(sessions)
+            new_ts = await import_new_sessions(hass, "aa_bb_cc_dd_ee_ff", "Oclean", sessions, 9_999_999_999)
 
+        assert new_ts == 9_999_999_999
         add_fn.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_recorder_unavailable_skips_gracefully(self):
-        coord = _make_coordinator()
-        coord._store_loaded = True
-        coord._last_session_ts = 0
-        with patch.object(coord, "_load_recorder_api", return_value=None):
+        from custom_components.oclean_ble.statistics import import_new_sessions
+
+        hass = _make_hass()
+        with patch("custom_components.oclean_ble.statistics._load_recorder_api", return_value=None):
             # Must not raise
-            await coord._import_new_sessions([{"last_brush_time": 1_700_000_001}])
+            new_ts = await import_new_sessions(
+                hass, "aa_bb_cc_dd_ee_ff", "Oclean", [{"last_brush_time": 1_700_000_001}], 0
+            )
+        assert new_ts == 0  # recorder unavailable → original ts returned unchanged
 
     @pytest.mark.asyncio
     async def test_area_stats_imported_when_present(self):
+        from custom_components.oclean_ble.statistics import import_new_sessions
+
         self._install_dt_util_stub()
         _SD, _SM = self._make_stat_classes()
         add_fn = MagicMock()
-
-        coord = _make_coordinator()
-        coord._store_loaded = True
-        coord._last_session_ts = 0
+        hass = _make_hass()
         areas = {"upper_left_out": 20, "lower_right_in": 15}
 
-        with (
-            patch.object(coord, "_load_recorder_api", return_value=(_SD, _SM, add_fn)),
-            patch.object(coord._store, "async_save", new_callable=AsyncMock),
-        ):
-            sessions = [
-                {
-                    "last_brush_time": 1_700_000_002,
-                    DATA_LAST_BRUSH_AREAS: areas,
-                }
-            ]
-            await coord._import_new_sessions(sessions)
+        with patch("custom_components.oclean_ble.statistics._load_recorder_api", return_value=(_SD, _SM, add_fn)):
+            sessions = [{"last_brush_time": 1_700_000_002, DATA_LAST_BRUSH_AREAS: areas}]
+            await import_new_sessions(hass, "aa_bb_cc_dd_ee_ff", "Oclean", sessions, 0)
 
         # add_fn called at least once per area zone
         assert add_fn.call_count >= len(areas)

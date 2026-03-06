@@ -6,6 +6,7 @@ DO NOT EDIT – re-run the generator to refresh.
 Each test replays the exact BLE notification bytes captured from a physical
 device and asserts the field values produced by the CURRENT parser.
 """
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -18,6 +19,7 @@ from tests.simulator import OcleanDeviceSimulator
 # ---------------------------------------------------------------------------
 # Helpers (mirrors tests/test_simulator.py)
 # ---------------------------------------------------------------------------
+
 
 def _make_hass():
     hass = MagicMock()
@@ -40,18 +42,20 @@ def _make_service_info(mac: str = "AA:BB:CC:DD:EE:FF"):
 
 
 async def _run_poll(coordinator: OcleanCoordinator, client: AsyncMock) -> dict:
-    with patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock, \
-         patch(
-             "custom_components.oclean_ble.coordinator.establish_connection",
-             new_callable=AsyncMock,
-             return_value=client,
-         ), \
-         patch(
-             "custom_components.oclean_ble.coordinator.asyncio.sleep",
-             new_callable=AsyncMock,
-         ), \
-         patch.object(coordinator, "_paginate_sessions", new_callable=AsyncMock), \
-         patch.object(coordinator, "_import_new_sessions", new_callable=AsyncMock):
+    with (
+        patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock,
+        patch(
+            "custom_components.oclean_ble.coordinator.establish_connection",
+            new_callable=AsyncMock,
+            return_value=client,
+        ),
+        patch(
+            "custom_components.oclean_ble.coordinator.asyncio.sleep",
+            new_callable=AsyncMock,
+        ),
+        patch.object(coordinator, "_paginate_sessions", new_callable=AsyncMock),
+        patch("custom_components.oclean_ble.coordinator.import_new_sessions", new_callable=AsyncMock, return_value=0),
+    ):
         bt_mock.async_last_service_info.return_value = _make_service_info(coordinator._mac)
         return await coordinator._poll_device()
 
@@ -68,8 +72,8 @@ class TestGenerated_unknown:
         client = (
             OcleanDeviceSimulator()
             .with_battery(54)
-            .add_notification(bytes.fromhex('0303020ed5360000'))
-            .add_notification(bytes.fromhex('03072a422300001a0217171d1d4c009600960805'))
+            .add_notification(bytes.fromhex("0303020ed5360000"))
+            .add_notification(bytes.fromhex("03072a422300001a0217171d1d4c009600960805"))
             .build_client()
         )
         result = await _run_poll(_make_coordinator("AA:BB:CC:DD:EE:FF"), client)
@@ -84,8 +88,8 @@ class TestGenerated_unknown:
         client = (
             OcleanDeviceSimulator()
             .with_battery(54)
-            .add_notification(bytes.fromhex('0303020ed4360000'))
-            .add_notification(bytes.fromhex('03072a422300001a0217171d1d4c009600960805'))
+            .add_notification(bytes.fromhex("0303020ed4360000"))
+            .add_notification(bytes.fromhex("03072a422300001a0217171d1d4c009600960805"))
             .build_client()
         )
         result = await _run_poll(_make_coordinator("AA:BB:CC:DD:EE:FF"), client)
@@ -100,8 +104,8 @@ class TestGenerated_unknown:
         client = (
             OcleanDeviceSimulator()
             .with_battery(54)
-            .add_notification(bytes.fromhex('0303020ed7360000'))
-            .add_notification(bytes.fromhex('03072a422300001a0217171d1d4c009600960805'))
+            .add_notification(bytes.fromhex("0303020ed7360000"))
+            .add_notification(bytes.fromhex("03072a422300001a0217171d1d4c009600960805"))
             .build_client()
         )
         result = await _run_poll(_make_coordinator("AA:BB:CC:DD:EE:FF"), client)
@@ -116,8 +120,8 @@ class TestGenerated_unknown:
         client = (
             OcleanDeviceSimulator()
             .with_battery(54)
-            .add_notification(bytes.fromhex('0303020ed3360000'))
-            .add_notification(bytes.fromhex('03072a422300001a0217171d1d4c009600960805'))
+            .add_notification(bytes.fromhex("0303020ed3360000"))
+            .add_notification(bytes.fromhex("03072a422300001a0217171d1d4c009600960805"))
             .build_client()
         )
         result = await _run_poll(_make_coordinator("AA:BB:CC:DD:EE:FF"), client)
@@ -132,8 +136,8 @@ class TestGenerated_unknown:
         client = (
             OcleanDeviceSimulator()
             .with_battery(53)
-            .add_notification(bytes.fromhex('0303020ed8350000'))
-            .add_notification(bytes.fromhex('03072a422300001a0217171d1d4c009600960805'))
+            .add_notification(bytes.fromhex("0303020ed8350000"))
+            .add_notification(bytes.fromhex("03072a422300001a0217171d1d4c009600960805"))
             .build_client()
         )
         result = await _run_poll(_make_coordinator("AA:BB:CC:DD:EE:FF"), client)
@@ -148,8 +152,8 @@ class TestGenerated_unknown:
         client = (
             OcleanDeviceSimulator()
             .with_battery(53)
-            .add_notification(bytes.fromhex('0303020ed6350000'))
-            .add_notification(bytes.fromhex('03072a422300001a0217171d1d4c009600960805'))
+            .add_notification(bytes.fromhex("0303020ed6350000"))
+            .add_notification(bytes.fromhex("03072a422300001a0217171d1d4c009600960805"))
             .build_client()
         )
         result = await _run_poll(_make_coordinator("AA:BB:CC:DD:EE:FF"), client)
@@ -164,8 +168,8 @@ class TestGenerated_unknown:
         client = (
             OcleanDeviceSimulator()
             .with_battery(53)
-            .add_notification(bytes.fromhex('0303020ed4350000'))
-            .add_notification(bytes.fromhex('03072a422300001a0217171d1d4c009600960805'))
+            .add_notification(bytes.fromhex("0303020ed4350000"))
+            .add_notification(bytes.fromhex("03072a422300001a0217171d1d4c009600960805"))
             .build_client()
         )
         result = await _run_poll(_make_coordinator("AA:BB:CC:DD:EE:FF"), client)
@@ -180,8 +184,8 @@ class TestGenerated_unknown:
         client = (
             OcleanDeviceSimulator()
             .with_battery(53)
-            .add_notification(bytes.fromhex('0303020ed5350000'))
-            .add_notification(bytes.fromhex('03072a422300001a0217171d1d4c009600960805'))
+            .add_notification(bytes.fromhex("0303020ed5350000"))
+            .add_notification(bytes.fromhex("03072a422300001a0217171d1d4c009600960805"))
             .build_client()
         )
         result = await _run_poll(_make_coordinator("AA:BB:CC:DD:EE:FF"), client)
@@ -196,8 +200,8 @@ class TestGenerated_unknown:
         client = (
             OcleanDeviceSimulator()
             .with_battery(53)
-            .add_notification(bytes.fromhex('0303020ed3350000'))
-            .add_notification(bytes.fromhex('03072a422300001a0217171d1d4c009600960805'))
+            .add_notification(bytes.fromhex("0303020ed3350000"))
+            .add_notification(bytes.fromhex("03072a422300001a0217171d1d4c009600960805"))
             .build_client()
         )
         result = await _run_poll(_make_coordinator("AA:BB:CC:DD:EE:FF"), client)
@@ -212,8 +216,8 @@ class TestGenerated_unknown:
         client = (
             OcleanDeviceSimulator()
             .with_battery(53)
-            .add_notification(bytes.fromhex('0303020ed0350000'))
-            .add_notification(bytes.fromhex('03072a422300001a0217171d1d4c009600960805'))
+            .add_notification(bytes.fromhex("0303020ed0350000"))
+            .add_notification(bytes.fromhex("03072a422300001a0217171d1d4c009600960805"))
             .build_client()
         )
         result = await _run_poll(_make_coordinator("AA:BB:CC:DD:EE:FF"), client)
@@ -228,8 +232,8 @@ class TestGenerated_unknown:
         client = (
             OcleanDeviceSimulator()
             .with_battery(53)
-            .add_notification(bytes.fromhex('0303020ece350000'))
-            .add_notification(bytes.fromhex('03072a422300001a0217171d1d4c009600960805'))
+            .add_notification(bytes.fromhex("0303020ece350000"))
+            .add_notification(bytes.fromhex("03072a422300001a0217171d1d4c009600960805"))
             .build_client()
         )
         result = await _run_poll(_make_coordinator("AA:BB:CC:DD:EE:FF"), client)
@@ -244,8 +248,8 @@ class TestGenerated_unknown:
         client = (
             OcleanDeviceSimulator()
             .with_battery(53)
-            .add_notification(bytes.fromhex('0303020ed7350000'))
-            .add_notification(bytes.fromhex('03072a422300001a0217171d1d4c009600960805'))
+            .add_notification(bytes.fromhex("0303020ed7350000"))
+            .add_notification(bytes.fromhex("03072a422300001a0217171d1d4c009600960805"))
             .build_client()
         )
         result = await _run_poll(_make_coordinator("AA:BB:CC:DD:EE:FF"), client)
@@ -260,8 +264,8 @@ class TestGenerated_unknown:
         client = (
             OcleanDeviceSimulator()
             .with_battery(53)
-            .add_notification(bytes.fromhex('0303020ed2350000'))
-            .add_notification(bytes.fromhex('03072a422300001a0217171d1d4c009600960805'))
+            .add_notification(bytes.fromhex("0303020ed2350000"))
+            .add_notification(bytes.fromhex("03072a422300001a0217171d1d4c009600960805"))
             .build_client()
         )
         result = await _run_poll(_make_coordinator("AA:BB:CC:DD:EE:FF"), client)
@@ -276,8 +280,8 @@ class TestGenerated_unknown:
         client = (
             OcleanDeviceSimulator()
             .with_battery(53)
-            .add_notification(bytes.fromhex('0303020ecf350000'))
-            .add_notification(bytes.fromhex('03072a422300001a0217171d1d4c009600960805'))
+            .add_notification(bytes.fromhex("0303020ecf350000"))
+            .add_notification(bytes.fromhex("03072a422300001a0217171d1d4c009600960805"))
             .build_client()
         )
         result = await _run_poll(_make_coordinator("AA:BB:CC:DD:EE:FF"), client)
@@ -292,8 +296,8 @@ class TestGenerated_unknown:
         client = (
             OcleanDeviceSimulator()
             .with_battery(53)
-            .add_notification(bytes.fromhex('0303020ec9350000'))
-            .add_notification(bytes.fromhex('03072a422300001a0217171d1d4c009600960805'))
+            .add_notification(bytes.fromhex("0303020ec9350000"))
+            .add_notification(bytes.fromhex("03072a422300001a0217171d1d4c009600960805"))
             .build_client()
         )
         result = await _run_poll(_make_coordinator("AA:BB:CC:DD:EE:FF"), client)
@@ -308,8 +312,8 @@ class TestGenerated_unknown:
         client = (
             OcleanDeviceSimulator()
             .with_battery(53)
-            .add_notification(bytes.fromhex('0303020ecd350000'))
-            .add_notification(bytes.fromhex('03072a422300001a0217171d1d4c009600960805'))
+            .add_notification(bytes.fromhex("0303020ecd350000"))
+            .add_notification(bytes.fromhex("03072a422300001a0217171d1d4c009600960805"))
             .build_client()
         )
         result = await _run_poll(_make_coordinator("AA:BB:CC:DD:EE:FF"), client)
@@ -324,8 +328,8 @@ class TestGenerated_unknown:
         client = (
             OcleanDeviceSimulator()
             .with_battery(53)
-            .add_notification(bytes.fromhex('0303020ecb350000'))
-            .add_notification(bytes.fromhex('03072a422300001a0217171d1d4c009600960805'))
+            .add_notification(bytes.fromhex("0303020ecb350000"))
+            .add_notification(bytes.fromhex("03072a422300001a0217171d1d4c009600960805"))
             .build_client()
         )
         result = await _run_poll(_make_coordinator("AA:BB:CC:DD:EE:FF"), client)
@@ -340,8 +344,8 @@ class TestGenerated_unknown:
         client = (
             OcleanDeviceSimulator()
             .with_battery(53)
-            .add_notification(bytes.fromhex('0303020ecc350000'))
-            .add_notification(bytes.fromhex('03072a422300001a0217171d1d4c009600960805'))
+            .add_notification(bytes.fromhex("0303020ecc350000"))
+            .add_notification(bytes.fromhex("03072a422300001a0217171d1d4c009600960805"))
             .build_client()
         )
         result = await _run_poll(_make_coordinator("AA:BB:CC:DD:EE:FF"), client)
@@ -356,8 +360,8 @@ class TestGenerated_unknown:
         client = (
             OcleanDeviceSimulator()
             .with_battery(53)
-            .add_notification(bytes.fromhex('0303020eca350000'))
-            .add_notification(bytes.fromhex('03072a422300001a0217171d1d4c009600960805'))
+            .add_notification(bytes.fromhex("0303020eca350000"))
+            .add_notification(bytes.fromhex("03072a422300001a0217171d1d4c009600960805"))
             .build_client()
         )
         result = await _run_poll(_make_coordinator("AA:BB:CC:DD:EE:FF"), client)
@@ -372,8 +376,8 @@ class TestGenerated_unknown:
         client = (
             OcleanDeviceSimulator()
             .with_battery(53)
-            .add_notification(bytes.fromhex('0303020ec8350000'))
-            .add_notification(bytes.fromhex('03072a422300001a0217171d1d4c009600960805'))
+            .add_notification(bytes.fromhex("0303020ec8350000"))
+            .add_notification(bytes.fromhex("03072a422300001a0217171d1d4c009600960805"))
             .build_client()
         )
         result = await _run_poll(_make_coordinator("AA:BB:CC:DD:EE:FF"), client)
@@ -388,8 +392,8 @@ class TestGenerated_unknown:
         client = (
             OcleanDeviceSimulator()
             .with_battery(53)
-            .add_notification(bytes.fromhex('0303020ec7350000'))
-            .add_notification(bytes.fromhex('03072a422300001a0217171d1d4c009600960805'))
+            .add_notification(bytes.fromhex("0303020ec7350000"))
+            .add_notification(bytes.fromhex("03072a422300001a0217171d1d4c009600960805"))
             .build_client()
         )
         result = await _run_poll(_make_coordinator("AA:BB:CC:DD:EE:FF"), client)
@@ -404,10 +408,10 @@ class TestGenerated_unknown:
         client = (
             OcleanDeviceSimulator()
             .with_battery(45)
-            .add_notification(bytes.fromhex('0303020ea72d0100'))
-            .add_notification(bytes.fromhex('03072a422300011a02181535134c009600960b03'))
-            .add_notification(bytes.fromhex('540000000f000823172208001111070f0f110000'))
-            .add_notification(bytes.fromhex('5a00ffffffffffffff1a02180018134c00960096'))
+            .add_notification(bytes.fromhex("0303020ea72d0100"))
+            .add_notification(bytes.fromhex("03072a422300011a02181535134c009600960b03"))
+            .add_notification(bytes.fromhex("540000000f000823172208001111070f0f110000"))
+            .add_notification(bytes.fromhex("5a00ffffffffffffff1a02180018134c00960096"))
             .build_client()
         )
         result = await _run_poll(_make_coordinator("AA:BB:CC:DD:EE:FF"), client)
@@ -422,10 +426,10 @@ class TestGenerated_unknown:
         client = (
             OcleanDeviceSimulator()
             .with_battery(45)
-            .add_notification(bytes.fromhex('0303020eae2d0100'))
-            .add_notification(bytes.fromhex('03072a422300011a02181535134c009600960b03'))
-            .add_notification(bytes.fromhex('540000000f000823172208001111070f0f110000'))
-            .add_notification(bytes.fromhex('5a00ffffffffffffff1a02180018134c00960096'))
+            .add_notification(bytes.fromhex("0303020eae2d0100"))
+            .add_notification(bytes.fromhex("03072a422300011a02181535134c009600960b03"))
+            .add_notification(bytes.fromhex("540000000f000823172208001111070f0f110000"))
+            .add_notification(bytes.fromhex("5a00ffffffffffffff1a02180018134c00960096"))
             .build_client()
         )
         result = await _run_poll(_make_coordinator("AA:BB:CC:DD:EE:FF"), client)
@@ -440,10 +444,10 @@ class TestGenerated_unknown:
         client = (
             OcleanDeviceSimulator()
             .with_battery(45)
-            .add_notification(bytes.fromhex('0303020ead2d0100'))
-            .add_notification(bytes.fromhex('03072a422300011a02181535134c009600960b03'))
-            .add_notification(bytes.fromhex('540000000f000823172208001111070f0f110000'))
-            .add_notification(bytes.fromhex('5a00ffffffffffffff1a02180018134c00960096'))
+            .add_notification(bytes.fromhex("0303020ead2d0100"))
+            .add_notification(bytes.fromhex("03072a422300011a02181535134c009600960b03"))
+            .add_notification(bytes.fromhex("540000000f000823172208001111070f0f110000"))
+            .add_notification(bytes.fromhex("5a00ffffffffffffff1a02180018134c00960096"))
             .build_client()
         )
         result = await _run_poll(_make_coordinator("AA:BB:CC:DD:EE:FF"), client)
@@ -458,10 +462,10 @@ class TestGenerated_unknown:
         client = (
             OcleanDeviceSimulator()
             .with_battery(45)
-            .add_notification(bytes.fromhex('0303020eb22d0100'))
-            .add_notification(bytes.fromhex('03072a422300011a02181535134c009600960b03'))
-            .add_notification(bytes.fromhex('540000000f000823172208001111070f0f110000'))
-            .add_notification(bytes.fromhex('5a00ffffffffffffff1a02180018134c00960096'))
+            .add_notification(bytes.fromhex("0303020eb22d0100"))
+            .add_notification(bytes.fromhex("03072a422300011a02181535134c009600960b03"))
+            .add_notification(bytes.fromhex("540000000f000823172208001111070f0f110000"))
+            .add_notification(bytes.fromhex("5a00ffffffffffffff1a02180018134c00960096"))
             .build_client()
         )
         result = await _run_poll(_make_coordinator("AA:BB:CC:DD:EE:FF"), client)
@@ -476,10 +480,10 @@ class TestGenerated_unknown:
         client = (
             OcleanDeviceSimulator()
             .with_battery(45)
-            .add_notification(bytes.fromhex('0303020eb02d0100'))
-            .add_notification(bytes.fromhex('03072a422300011a02181535134c009600960b03'))
-            .add_notification(bytes.fromhex('540000000f000823172208001111070f0f110000'))
-            .add_notification(bytes.fromhex('5a00ffffffffffffff1a02180018134c00960096'))
+            .add_notification(bytes.fromhex("0303020eb02d0100"))
+            .add_notification(bytes.fromhex("03072a422300011a02181535134c009600960b03"))
+            .add_notification(bytes.fromhex("540000000f000823172208001111070f0f110000"))
+            .add_notification(bytes.fromhex("5a00ffffffffffffff1a02180018134c00960096"))
             .build_client()
         )
         result = await _run_poll(_make_coordinator("AA:BB:CC:DD:EE:FF"), client)
@@ -487,4 +491,3 @@ class TestGenerated_unknown:
         assert result.get("last_brush_time") is not None
         assert result.get("last_brush_duration") == 150
         assert result.get("last_brush_pnum") == 76
-

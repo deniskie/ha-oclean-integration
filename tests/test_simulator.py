@@ -5,6 +5,7 @@ to sensor native_value, without a real device or a full HA instance.
 
 Each test class covers one device scenario or sensor entity type.
 """
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -61,18 +62,20 @@ async def _run_poll(coordinator: OcleanCoordinator, client: AsyncMock) -> dict:
     - _paginate_sessions: no-op to avoid the 2-second asyncio.wait_for timeout
     - _import_new_sessions: no-op (HA recorder not available in unit tests)
     """
-    with patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock, \
-         patch(
-             "custom_components.oclean_ble.coordinator.establish_connection",
-             new_callable=AsyncMock,
-             return_value=client,
-         ), \
-         patch(
-             "custom_components.oclean_ble.coordinator.asyncio.sleep",
-             new_callable=AsyncMock,
-         ), \
-         patch.object(coordinator, "_paginate_sessions", new_callable=AsyncMock), \
-         patch.object(coordinator, "_import_new_sessions", new_callable=AsyncMock):
+    with (
+        patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock,
+        patch(
+            "custom_components.oclean_ble.coordinator.establish_connection",
+            new_callable=AsyncMock,
+            return_value=client,
+        ),
+        patch(
+            "custom_components.oclean_ble.coordinator.asyncio.sleep",
+            new_callable=AsyncMock,
+        ),
+        patch.object(coordinator, "_paginate_sessions", new_callable=AsyncMock),
+        patch("custom_components.oclean_ble.coordinator.import_new_sessions", new_callable=AsyncMock, return_value=0),
+    ):
         bt_mock.async_last_service_info.return_value = _make_service_info()
         return await coordinator._poll_device()
 
@@ -211,21 +214,24 @@ class TestOcleanXScenarios:
 
         captured: list = []
 
-        async def fake_import(sessions):
+        async def fake_import(_hass, _mac_slug, _device_name, sessions, last_ts):
             captured.extend(sessions)
+            return last_ts
 
-        with patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock, \
-             patch(
-                 "custom_components.oclean_ble.coordinator.establish_connection",
-                 new_callable=AsyncMock,
-                 return_value=client,
-             ), \
-             patch(
-                 "custom_components.oclean_ble.coordinator.asyncio.sleep",
-                 new_callable=AsyncMock,
-             ), \
-             patch.object(coordinator, "_paginate_sessions", new_callable=AsyncMock), \
-             patch.object(coordinator, "_import_new_sessions", side_effect=fake_import):
+        with (
+            patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock,
+            patch(
+                "custom_components.oclean_ble.coordinator.establish_connection",
+                new_callable=AsyncMock,
+                return_value=client,
+            ),
+            patch(
+                "custom_components.oclean_ble.coordinator.asyncio.sleep",
+                new_callable=AsyncMock,
+            ),
+            patch.object(coordinator, "_paginate_sessions", new_callable=AsyncMock),
+            patch("custom_components.oclean_ble.coordinator.import_new_sessions", side_effect=fake_import),
+        ):
             bt_mock.async_last_service_info.return_value = _make_service_info()
             await coordinator._poll_device()
 
@@ -255,8 +261,15 @@ class TestOcleanXProScenarios:
             OcleanDeviceSimulator()
             .with_battery(65)
             .add_0308_extended_session(
-                2026, 2, 24, 7, 30, 0,
-                pnum=42, duration=120, score=88,
+                2026,
+                2,
+                24,
+                7,
+                30,
+                0,
+                pnum=42,
+                duration=120,
+                score=88,
                 area_pressures=areas,
             )
             .build_client()
@@ -279,30 +292,40 @@ class TestOcleanXProScenarios:
         client = (
             OcleanDeviceSimulator()
             .add_0308_extended_session(
-                2026, 2, 24, 7, 30, 0,
-                pnum=42, duration=120, score=42,   # score from 0308 = 42
+                2026,
+                2,
+                24,
+                7,
+                30,
+                0,
+                pnum=42,
+                duration=120,
+                score=42,  # score from 0308 = 42
             )
-            .add_score(99)   # 0000 tries to push score=99 – must be ignored
+            .add_score(99)  # 0000 tries to push score=99 – must be ignored
             .build_client()
         )
 
         captured: list = []
 
-        async def fake_import(sessions):
+        async def fake_import(_hass, _mac_slug, _device_name, sessions, last_ts):
             captured.extend(sessions)
+            return last_ts
 
-        with patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock, \
-             patch(
-                 "custom_components.oclean_ble.coordinator.establish_connection",
-                 new_callable=AsyncMock,
-                 return_value=client,
-             ), \
-             patch(
-                 "custom_components.oclean_ble.coordinator.asyncio.sleep",
-                 new_callable=AsyncMock,
-             ), \
-             patch.object(coordinator, "_paginate_sessions", new_callable=AsyncMock), \
-             patch.object(coordinator, "_import_new_sessions", side_effect=fake_import):
+        with (
+            patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock,
+            patch(
+                "custom_components.oclean_ble.coordinator.establish_connection",
+                new_callable=AsyncMock,
+                return_value=client,
+            ),
+            patch(
+                "custom_components.oclean_ble.coordinator.asyncio.sleep",
+                new_callable=AsyncMock,
+            ),
+            patch.object(coordinator, "_paginate_sessions", new_callable=AsyncMock),
+            patch("custom_components.oclean_ble.coordinator.import_new_sessions", side_effect=fake_import),
+        ):
             bt_mock.async_last_service_info.return_value = _make_service_info()
             await coordinator._poll_device()
 
@@ -319,8 +342,15 @@ class TestOcleanXProScenarios:
         client = (
             OcleanDeviceSimulator()
             .add_0308_extended_session(
-                2026, 2, 24, 7, 30, 0,
-                pnum=1, duration=90, score=127,  # out-of-range raw value
+                2026,
+                2,
+                24,
+                7,
+                30,
+                0,
+                pnum=1,
+                duration=90,
+                score=127,  # out-of-range raw value
             )
             .build_client()
         )
@@ -341,8 +371,15 @@ class TestOcleanXProScenarios:
             return (
                 OcleanDeviceSimulator()
                 .add_0308_extended_session(
-                    2026, 2, 24, 7, 30, 0,
-                    pnum=1, duration=90, score=80,
+                    2026,
+                    2,
+                    24,
+                    7,
+                    30,
+                    0,
+                    pnum=1,
+                    duration=90,
+                    score=80,
                     tz_offset_quarters=tz,
                 )
                 .build_client()
