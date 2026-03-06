@@ -246,6 +246,15 @@ def _parse_info_t1_response(payload: bytes) -> dict[str, Any]:
         _LOGGER.debug("Oclean Type-1 INFO: payload too short (%d bytes)", len(payload))
         return {}
 
+    # year_byte == 0 → device reports no inline session or uses paginated mode.
+    # This is normal for OCLEANY3P: session_count=1 but no inline timestamp yet.
+    if payload[5] == 0:
+        _LOGGER.debug(
+            "Oclean 0307: zero timestamp (year_byte=0x00) – no inline session data (raw: %s)",
+            payload.hex(),
+        )
+        return {}
+
     try:
         # bytes 5-10: device local timestamp (confirmed)
         device_dt = _device_datetime(
