@@ -446,7 +446,7 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         _seen_ts: set[int] = set()
         session_received = asyncio.Event()
 
-        def notification_handler(sender: Any, raw: bytearray) -> None:
+        def notification_handler(_sender: Any, raw: bytearray) -> None:
             data = bytes(raw)
             _LOGGER.debug("Oclean notification raw: %s", data.hex())
             parsed = parse_notification(data)
