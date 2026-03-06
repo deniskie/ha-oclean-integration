@@ -21,14 +21,9 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from .const import (
     BATTERY_CHAR_UUID,
     BLE_NOTIFICATION_WAIT,
-    CHANGE_INFO_UUID,
     CMD_CALIBRATE_TIME_PREFIX,
     CMD_CLEAR_BRUSH_HEAD,
-    CMD_QUERY_EXTENDED_DATA_T1,
-    CMD_QUERY_RUNNING_DATA,
     CMD_QUERY_RUNNING_DATA_NEXT,
-    CMD_QUERY_RUNNING_DATA_T1,
-    CMD_QUERY_STATUS,
     DATA_BATTERY,
     DATA_BRUSH_HEAD_USAGE,
     DATA_HW_REVISION,
@@ -45,14 +40,12 @@ from .const import (
     DIS_SW_REV_UUID,
     DOMAIN,
     MAX_SESSION_PAGES,
-    READ_NOTIFY_CHAR_UUID,
-    RECEIVE_BRUSH_UUID,
-    SEND_BRUSH_CMD_UUID,
     STORAGE_VERSION,
     WRITE_CHAR_UUID,
 )
 from .models import OcleanDeviceData
 from .parser import parse_battery, parse_notification
+from .protocol import UNKNOWN, DeviceProtocol, protocol_for_model
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -160,13 +153,9 @@ _ENRICHMENT_KEYS: tuple[str, ...] = (
     DATA_LAST_BRUSH_PRESSURE,
 )
 
-# BLE notification characteristics to subscribe/unsubscribe in each poll
-_NOTIFY_CHARS: tuple[str, ...] = (
-    READ_NOTIFY_CHAR_UUID,   # all device types
-    RECEIVE_BRUSH_UUID,      # Type 1 – brush session data
-    CHANGE_INFO_UUID,        # Type 0 – change-info notifications
-    SEND_BRUSH_CMD_UUID,     # Type 1 – running-data result
-)
+# All notify characteristics across all device types (used as fallback set for
+# the UNKNOWN protocol and referenced in tests via _NOTIFY_CHARS).
+_NOTIFY_CHARS: tuple[str, ...] = UNKNOWN.notify_chars
 
 
 class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
@@ -209,6 +198,10 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         # and the software counter is no longer written to the sensor.
         self._brush_head_sw_count: int = 0
         self._brush_head_hw_supported: bool = False
+
+        # Active device protocol profile – selected after the first DIS read.
+        # UNKNOWN is the safe fallback: subscribes all chars, sends all commands.
+        self._protocol: DeviceProtocol = UNKNOWN
 
         # Unix timestamp of the last successful DIS read.  0.0 = never read.
         # DIS values (model, firmware, hw revision) are stable but could change
@@ -449,9 +442,17 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
           6. Battery read      (standard GATT char)
           7. Unsubscribe / disconnect
         """
+        # Select protocol from cached model_id (known from a previous poll).
+        # _read_device_info_service() may update this if a fresh DIS read occurs.
+        cached_model = self._last_raw.get(DATA_MODEL_ID)
+        self._protocol = protocol_for_model(cached_model)
+        _LOGGER.debug(
+            "Oclean poll start: mac=%s ts=%d protocol=%s (model=%s)",
+            self._mac, int(time.time()), self._protocol.name, cached_model or "unknown",
+        )
+
         # Delay after connect: gives habluetooth's proxy backend time to finish
         # processing the GATT service table before we start issuing commands.
-        _LOGGER.debug("Oclean poll start: mac=%s ts=%d", self._mac, int(time.time()))
         await asyncio.sleep(2.0)
 
         all_sessions: list[dict[str, Any]] = []
@@ -569,6 +570,16 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         if any(collected.get(k) for k in dis_keys):
             self._dis_last_read_ts = time.time()
 
+        # Update protocol profile based on the freshly read model ID.
+        model_id = collected.get(DATA_MODEL_ID)
+        new_protocol = protocol_for_model(model_id)
+        if new_protocol is not self._protocol:
+            _LOGGER.debug(
+                "Oclean protocol updated: %s → %s (model=%s)",
+                self._protocol.name, new_protocol.name, model_id,
+            )
+            self._protocol = new_protocol
+
         # Mirror model/firmware into the HA device registry so the device
         # info panel shows the values without requiring a dedicated sensor.
         sw_version = collected.get(DATA_SW_VERSION)
@@ -607,8 +618,8 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
             _LOGGER.warning("Oclean time calibration failed: %s (%s)", err, type(err).__name__)
 
     async def _subscribe_notifications(self, client: BleakClient, handler: Any) -> None:
-        """Subscribe to all notification characteristics."""
-        for char_uuid in _NOTIFY_CHARS:
+        """Subscribe to notification characteristics for the active device protocol."""
+        for char_uuid in self._protocol.notify_chars:
             try:
                 await client.start_notify(char_uuid, handler)
                 _LOGGER.debug("Oclean subscribed to %s", char_uuid)
@@ -621,39 +632,30 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
     async def _send_query_commands(
         self, client: BleakClient, session_received: asyncio.Event
     ) -> None:
-        """Send status, device-info, and running-data commands; wait for first session."""
-        try:
-            await client.write_gatt_char(WRITE_CHAR_UUID, CMD_QUERY_STATUS, response=True)
-            _LOGGER.debug("Oclean CMD_QUERY_STATUS sent")
-        except Exception as err:  # noqa: BLE001
-            _LOGGER.warning("Oclean status query failed: %s (%s)", err, type(err).__name__)
+        """Send query commands for the active device protocol; wait for first session.
 
-        # CMD_DEVICE_INFO (0202) intentionally omitted: the device responds with a plain
-        # "OK" ACK that provides no useful data.  All firmware/model info comes from the
-        # BLE Device Information Service (0x180A) read in _read_device_info_service().
-
-        # Running-data first page (0308); also try Type-1 variant (device ignores unknown cmds)
-        try:
-            await client.write_gatt_char(WRITE_CHAR_UUID, CMD_QUERY_RUNNING_DATA, response=True)
-            _LOGGER.debug("Oclean CMD_QUERY_RUNNING_DATA (0308) sent")
-        except Exception as err:  # noqa: BLE001
-            _LOGGER.warning("Oclean running-data request failed: %s (%s)", err, type(err).__name__)
-        try:
-            await client.write_gatt_char(SEND_BRUSH_CMD_UUID, CMD_QUERY_RUNNING_DATA_T1, response=True)
-            _LOGGER.debug("Oclean CMD_QUERY_RUNNING_DATA_T1 (0307) sent")
-        except Exception as err:  # noqa: BLE001
-            _LOGGER.debug("Oclean Type-1 running-data skipped: %s (%s)", err, type(err).__name__)
-        try:
-            await client.write_gatt_char(SEND_BRUSH_CMD_UUID, CMD_QUERY_EXTENDED_DATA_T1, response=True)
-            _LOGGER.debug("Oclean CMD_QUERY_EXTENDED_DATA_T1 (0314) sent")
-        except Exception as err:  # noqa: BLE001
-            _LOGGER.debug("Oclean 0314 extended-data skipped: %s (%s)", err, type(err).__name__)
+        Commands are defined by the protocol profile so only appropriate commands
+        are sent for the connected device.  Failures are logged at DEBUG level
+        since unexpected commands are simply ignored by the firmware.
+        """
+        for char_uuid, cmd in self._protocol.query_commands:
+            try:
+                await client.write_gatt_char(char_uuid, cmd, response=True)
+                _LOGGER.debug("Oclean command 0x%s sent to ...%s", cmd.hex(), char_uuid[-8:])
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.debug(
+                    "Oclean command 0x%s skipped: %s (%s)",
+                    cmd.hex(), err, type(err).__name__,
+                )
 
         # Wait for first session notification (or timeout if device has no records)
         try:
             await asyncio.wait_for(session_received.wait(), timeout=float(BLE_NOTIFICATION_WAIT))
         except asyncio.TimeoutError:
-            _LOGGER.debug("Oclean no session notification after first 0308 (device may have no records)")
+            _LOGGER.debug(
+                "Oclean no session notification within %.1f s (device may have no records)",
+                float(BLE_NOTIFICATION_WAIT),
+            )
 
     async def _paginate_sessions(
         self,
@@ -662,6 +664,10 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         session_received: asyncio.Event,
     ) -> None:
         """Fetch older sessions via 0309 pagination until done or safety limit reached."""
+        if not self._protocol.supports_pagination:
+            _LOGGER.debug("Oclean pagination skipped (%s protocol)", self._protocol.name)
+            return
+
         for page in range(MAX_SESSION_PAGES - 1):
             if not all_sessions:
                 break
