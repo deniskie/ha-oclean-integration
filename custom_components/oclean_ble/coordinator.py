@@ -452,6 +452,7 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         """
         # Delay after connect: gives habluetooth's proxy backend time to finish
         # processing the GATT service table before we start issuing commands.
+        _LOGGER.debug("Oclean poll start: mac=%s ts=%d", self._mac, int(time.time()))
         await asyncio.sleep(2.0)
 
         all_sessions: list[dict[str, Any]] = []
@@ -741,8 +742,6 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
             )
             return
         StatisticData, StatisticMetaData, async_add_external_statistics = recorder_api
-
-        import datetime  # noqa: PLC0415
 
         from homeassistant.util import dt as dt_util  # noqa: PLC0415
 

@@ -50,6 +50,11 @@ def _install_ha_stubs() -> None:
         SECONDS = "s"
     const.UnitOfTime = UnitOfTime
 
+    class EntityCategory(str, Enum):
+        DIAGNOSTIC = "diagnostic"
+        CONFIG = "config"
+    const.EntityCategory = EntityCategory
+
     # ---- homeassistant.exceptions ----
     exc = _stub("homeassistant.exceptions")
 
@@ -144,6 +149,9 @@ def _install_ha_stubs() -> None:
         def __init__(self, coordinator):
             self.coordinator = coordinator
 
+        def __class_getitem__(cls, item):
+            return cls
+
     uc.UpdateFailed = UpdateFailed
     uc.DataUpdateCoordinator = DataUpdateCoordinator
     uc.CoordinatorEntity = CoordinatorEntity
@@ -203,7 +211,7 @@ def _install_ha_stubs() -> None:
 
     class SensorEntityDescription:
         def __init__(self, *, key, name="", device_class=None, state_class=None,
-                     native_unit_of_measurement=None, icon=None):
+                     native_unit_of_measurement=None, icon=None, **kwargs):
             self.key = key
             self.name = name
             self.device_class = device_class
