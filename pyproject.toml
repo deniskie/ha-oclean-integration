@@ -1,0 +1,42 @@
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+
+[tool.ruff.lint]
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # pyflakes: undefined names, unused imports, redefinitions (catches F811)
+    "I",      # isort: import ordering
+    "UP",     # pyupgrade: modern Python syntax
+    "B",      # flake8-bugbear: likely bugs and design issues
+    "BLE",    # flake8-blind-exception: broad except must be suppressed with noqa: BLE001
+    "PL",     # pylint: broad rule set including PLC0415 (import-outside-toplevel)
+    "RUF100", # ruff: unused noqa directives
+]
+ignore = [
+    # Line length handled per-project style (coordinator.py has long lines intentionally)
+    "E501",
+    # Magic numbers are common in BLE byte parsing
+    "PLR2004",
+    # Complexity limits – coordinator is intentionally dense
+    "PLR0912",
+    "PLR0913",
+    "PLR0915",
+    "PLR1702",
+    # Loop variable reassignment (part = part.strip()) is an acceptable idiom here
+    "PLW2901",
+    # TYPE_CHECKING blocks are not used in this HA integration pattern
+    "TC001",
+    "TC002",
+    "TC003",
+    # En-dashes in docstrings/comments are intentional style
+    "RUF002",
+    "RUF003",
+    # asyncio.TimeoutError alias (UP041) requires Python 3.11+; keep explicit for clarity
+    "UP041",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests import freely and may redefine names for readability
+"tests/*" = ["F401", "F811", "PLC0415"]

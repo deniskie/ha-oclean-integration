@@ -1,6 +1,7 @@
 """Tests for coordinator.py – BleakClient is fully mocked."""
 from __future__ import annotations
 
+import asyncio
 from datetime import time as dtime
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -470,3 +471,158 @@ class TestInWindow:
 
     def test_overnight_outside(self):
         assert _in_window(dtime(23, 0), dtime(1, 0), dtime(12, 0)) is False
+
+
+# ---------------------------------------------------------------------------
+# _import_new_sessions  (regression: issue #8)
+# ---------------------------------------------------------------------------
+
+
+class TestImportNewSessions:
+    """Regression guard for issue #8: UnboundLocalError caused by a local
+    `import datetime` that shadowed the module-level import and made `datetime`
+    an unbound local at the point of first use on line 734.
+    """
+
+    @pytest.mark.asyncio
+    async def test_timestamps_logged_without_unbound_error(self):
+        """Must not raise UnboundLocalError when sessions are present (issue #8).
+
+        Before fix: `import datetime` inside _import_new_sessions() made
+        `datetime` a local variable throughout the entire function.
+        `datetime.datetime.fromtimestamp()` on the logging line – before
+        the import statement – raised UnboundLocalError.
+        """
+        coord = _make_coordinator()
+        coord._store_loaded = True
+        coord._last_session_ts = 0
+        sessions = [{"last_brush_time": 1740145339, "last_brush_duration": 150}]
+
+        with patch.object(coord, "_load_recorder_api", return_value=None):
+            # Before fix: UnboundLocalError on the _LOGGER.debug("Oclean → import …") line
+            await coord._import_new_sessions(sessions)
+
+    @pytest.mark.asyncio
+    async def test_session_with_zero_timestamp_uses_na_placeholder(self):
+        """last_brush_time=0 must use the 'n/a' branch without error."""
+        coord = _make_coordinator()
+        coord._store_loaded = True
+        coord._last_session_ts = 0
+        sessions = [{"last_brush_time": 0, "last_brush_duration": 150}]
+
+        with patch.object(coord, "_load_recorder_api", return_value=None):
+            await coord._import_new_sessions(sessions)
+
+    @pytest.mark.asyncio
+    async def test_no_new_sessions_skips_import(self):
+        """Sessions already imported (ts <= _last_session_ts) must be silently skipped."""
+        coord = _make_coordinator()
+        coord._store_loaded = True
+        coord._last_session_ts = 9_999_999_999
+        sessions = [{"last_brush_time": 1740145339}]
+
+        with patch.object(coord, "_load_recorder_api", return_value=None):
+            await coord._import_new_sessions(sessions)
+
+        assert coord._last_session_ts == 9_999_999_999
+
+
+
+# ---------------------------------------------------------------------------
+# _paginate_sessions  (regression: issue #9)
+# ---------------------------------------------------------------------------
+
+
+class TestPaginateSessions:
+    """Regression guard for issue #9: asyncio.CancelledError raised by
+    write_gatt_char (e.g. ESPHome proxy timeout) was not caught because
+    CancelledError inherits from BaseException, not Exception.
+    """
+
+    @pytest.mark.asyncio
+    async def test_cancelled_error_breaks_gracefully(self):
+        """CancelledError from write_gatt_char must not propagate (issue #9).
+
+        Before fix: `except Exception` did not catch asyncio.CancelledError.
+        The error bubbled through _setup_and_read → _poll_device →
+        _async_update_data and crashed every subsequent poll.
+        """
+        coord = _make_coordinator()
+        coord._store_loaded = True
+        coord._last_session_ts = 0
+
+        client = AsyncMock()
+        client.write_gatt_char = AsyncMock(side_effect=asyncio.CancelledError())
+
+        all_sessions = [{"last_brush_time": 1740145339}]
+        event = asyncio.Event()
+
+        # Before fix: asyncio.CancelledError propagated out of this call
+        await coord._paginate_sessions(client, all_sessions, event)
+
+    @pytest.mark.asyncio
+    async def test_bleak_error_breaks_gracefully(self):
+        """Any Exception subclass from write_gatt_char must also break pagination."""
+        from bleak import BleakError
+
+        coord = _make_coordinator()
+        coord._store_loaded = True
+        coord._last_session_ts = 0
+
+        client = AsyncMock()
+        client.write_gatt_char = AsyncMock(side_effect=BleakError("disconnected"))
+
+        all_sessions = [{"last_brush_time": 1740145339}]
+        event = asyncio.Event()
+
+        await coord._paginate_sessions(client, all_sessions, event)
+
+    @pytest.mark.asyncio
+    async def test_empty_sessions_skips_all_writes(self):
+        """No sessions → pagination loop exits immediately without any write."""
+        coord = _make_coordinator()
+        coord._store_loaded = True
+
+        client = AsyncMock()
+        event = asyncio.Event()
+
+        await coord._paginate_sessions(client, [], event)
+
+        client.write_gatt_char.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_already_known_session_stops_without_write(self):
+        """Session ts <= _last_session_ts must stop pagination before writing."""
+        coord = _make_coordinator()
+        coord._store_loaded = True
+        coord._last_session_ts = 9_999_999_999
+
+        client = AsyncMock()
+        event = asyncio.Event()
+        all_sessions = [{"last_brush_time": 1740145339}]
+
+        await coord._paginate_sessions(client, all_sessions, event)
+
+        client.write_gatt_char.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_timeout_waiting_for_next_page_breaks_gracefully(self):
+        """asyncio.TimeoutError while waiting for the next notification must break pagination."""
+        from custom_components.oclean_ble.const import CMD_QUERY_RUNNING_DATA_NEXT, WRITE_CHAR_UUID
+
+        coord = _make_coordinator()
+        coord._store_loaded = True
+        coord._last_session_ts = 0
+
+        client = AsyncMock()
+        client.write_gatt_char = AsyncMock()
+
+        all_sessions = [{"last_brush_time": 1740145339}]
+        event = asyncio.Event()
+        # event is never set → asyncio.wait_for raises TimeoutError after 2 s
+
+        await coord._paginate_sessions(client, all_sessions, event)
+
+        client.write_gatt_char.assert_called_once_with(
+            WRITE_CHAR_UUID, CMD_QUERY_RUNNING_DATA_NEXT, response=True
+        )
