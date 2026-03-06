@@ -168,6 +168,9 @@ _NOTIFY_CHARS: tuple[str, ...] = (
     SEND_BRUSH_CMD_UUID,     # Type 1 – running-data result
 )
 
+# DIS re-read interval: 24 h in seconds. Info only changes after firmware updates.
+_DIS_REFRESH_INTERVAL = 86_400
+
 
 class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
     """Coordinator that polls the Oclean toothbrush via BLE every N seconds."""
@@ -268,21 +271,7 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         Called by the "Reset Brush Head" button entity.
         Raises BleakError if the device cannot be reached.
         """
-        service_info = bluetooth.async_last_service_info(
-            self.hass, self._mac, connectable=True
-        )
-        ble_device = (
-            service_info.device
-            if service_info is not None
-            else bluetooth.async_ble_device_from_address(
-                self.hass, self._mac, connectable=True
-            )
-        )
-        if ble_device is None:
-            raise BleakError(
-                f"Oclean {self._mac} not found in HA bluetooth registry."
-            )
-
+        ble_device = self._resolve_ble_device()
         client = await establish_connection(
             BleakClient,
             ble_device,
@@ -319,8 +308,7 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
             return f"post-brush cooldown active ({remaining_h:.1f} h remaining)"
 
         if self._poll_windows:
-            import datetime as _datetime  # noqa: PLC0415
-            now_t = _datetime.datetime.now().time()
+            now_t = datetime.datetime.now().time()
             if not any(_in_window(s, e, now_t) for s, e in self._poll_windows):
                 windows_str = ", ".join(
                     f"{s.strftime('%H:%M')}-{e.strftime('%H:%M')}"
@@ -537,7 +525,6 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         # Firmware/model info rarely changes (only after a firmware update).
         # Re-read from the device at most once every 24 h; use the cached values
         # from _last_raw for all other polls to keep the BLE session short.
-        _DIS_REFRESH_INTERVAL = 86_400  # 24 h in seconds
         dis_keys = (DATA_MODEL_ID, DATA_HW_REVISION, DATA_SW_VERSION)
         age = time.time() - self._dis_last_read_ts
         if self._dis_last_read_ts > 0 and age < _DIS_REFRESH_INTERVAL:

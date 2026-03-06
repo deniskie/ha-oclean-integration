@@ -27,6 +27,10 @@ _LOGGER = logging.getLogger(__name__)
 
 # Earliest plausible session year for any Oclean device.
 _MIN_YEAR = 2015
+# Minimum payload sizes for each binary record format.
+_RUNNING_DATA_MIN_RECORD_SIZE = 18   # 0308 simple format (m5348m1)
+_T1_MIN_SIZE = 12                    # 0307 Type-1 push (need through byte 11 for pNum)
+_EXT_MIN_SIZE = 32                   # 0308 extended format (AbstractC0002b.m37y)
 
 
 def _parse_signed_byte(value: int) -> int:
@@ -144,18 +148,17 @@ def _parse_state_response(payload: bytes) -> dict[str, Any]:
 
     # Log unknown bytes to help identify their purpose over time.
     # Enable via:  logger: logs: custom_components.oclean_ble: debug
-    if len(payload) >= 1:
-        _LOGGER.debug(
-            "Oclean STATE unknown bytes –"
-            " b0=0x%02x (status? always 0x02 on OcleanX)"
-            " b1=0x%02x (unknown, varies)"
-            " b2=0x%02x (unknown, varies)"
-            " b4-5=%s (unknown, always 0x0000 so far)",
-            payload[0],
-            payload[1] if len(payload) > 1 else -1,
-            payload[2] if len(payload) > 2 else -1,
-            payload[4:6].hex() if len(payload) >= 6 else "n/a",
-        )
+    _LOGGER.debug(
+        "Oclean STATE unknown bytes –"
+        " b0=0x%02x (status? always 0x02 on OcleanX)"
+        " b1=0x%02x (unknown, varies)"
+        " b2=0x%02x (unknown, varies)"
+        " b4-5=%s (unknown, always 0x0000 so far)",
+        payload[0],
+        payload[1] if len(payload) > 1 else -1,
+        payload[2] if len(payload) > 2 else -1,
+        payload[4:6].hex() if len(payload) >= 6 else "n/a",
+    )
 
     return result
 
@@ -241,7 +244,6 @@ def _parse_info_t1_response(payload: bytes) -> dict[str, Any]:
     """
     _LOGGER.debug("Oclean Type-1 INFO response raw: %s", payload.hex())
 
-    _T1_MIN_SIZE = 12  # need at least through byte 11 (pNum)
     if len(payload) < _T1_MIN_SIZE:
         _LOGGER.debug("Oclean Type-1 INFO: payload too short (%d bytes)", len(payload))
         return {}
@@ -299,8 +301,6 @@ def _parse_info_t1_response(payload: bytes) -> dict[str, Any]:
         return {}
 
 
-# Minimum bytes per running-data record (from m5348m1 byte access pattern)
-_RUNNING_DATA_MIN_RECORD_SIZE = 18
 
 
 def _parse_running_data_record(data: bytes) -> dict[str, Any]:
@@ -381,7 +381,6 @@ def _parse_extended_running_data_record(data: bytes) -> dict[str, Any]:
       byte  31:    crossNumber (overPullNum)
       bytes 32+:   pressureProfile (variable)
     """
-    _EXT_MIN_SIZE = 32
     if len(data) < _EXT_MIN_SIZE:
         return {}
 
