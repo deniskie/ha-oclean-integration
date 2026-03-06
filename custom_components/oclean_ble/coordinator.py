@@ -16,6 +16,7 @@ from bleak import BleakClient, BleakError
 from bleak_retry_connector import establish_connection
 from homeassistant.components import bluetooth
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
@@ -555,8 +556,6 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         model_id = collected.get(DATA_MODEL_ID)
         if sw_version or model_id:
             try:
-                from homeassistant.helpers import device_registry as dr
-
                 device_registry = dr.async_get(self.hass)
                 device_entry = device_registry.async_get_device(identifiers={(DOMAIN, self._mac)})
                 if device_entry:
