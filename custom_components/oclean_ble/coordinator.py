@@ -334,6 +334,9 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
             self._last_session_ts = stored.get("last_session_ts", 0)
             self._brush_head_sw_count = stored.get("brush_head_count", 0)
             self._brush_head_hw_supported = stored.get("brush_head_hw", False)
+            last_session = stored.get("last_session", {})
+            if last_session:
+                self._last_raw.update(last_session)
             _LOGGER.debug(
                 "Oclean loaded store: last_session_ts=%d, brush_head_count=%d, hw=%s",
                 self._last_session_ts,
@@ -344,11 +347,15 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
 
     async def _save_store(self) -> None:
         """Persist coordinator state to HA storage."""
+        last_session = {
+            k: self._last_raw[k] for k in _PERSISTENT_KEYS if k in self._last_raw and self._last_raw[k] is not None
+        }
         await self._store.async_save(
             {
                 "last_session_ts": self._last_session_ts,
                 "brush_head_count": self._brush_head_sw_count,
                 "brush_head_hw": self._brush_head_hw_supported,
+                "last_session": last_session,
             }
         )
 
