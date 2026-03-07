@@ -1,4 +1,5 @@
 """Unit tests for protocol.py – DeviceProtocol profiles and model lookup."""
+
 from __future__ import annotations
 
 import pytest
@@ -21,7 +22,6 @@ from custom_components.oclean_ble.protocol import (
     DeviceProtocol,
     protocol_for_model,
 )
-
 
 # ===========================================================================
 # DeviceProtocol dataclass
@@ -162,8 +162,7 @@ class TestUnknownProfile:
 
     def test_includes_all_notify_chars(self):
         """UNKNOWN must subscribe to all known notify characteristics."""
-        for char in (READ_NOTIFY_CHAR_UUID, RECEIVE_BRUSH_UUID,
-                     CHANGE_INFO_UUID, SEND_BRUSH_CMD_UUID):
+        for char in (READ_NOTIFY_CHAR_UUID, RECEIVE_BRUSH_UUID, CHANGE_INFO_UUID, SEND_BRUSH_CMD_UUID):
             assert char in UNKNOWN.notify_chars
 
     def test_includes_all_commands(self):
@@ -188,12 +187,15 @@ class TestUnknownProfile:
 
 
 class TestProtocolForModel:
-    @pytest.mark.parametrize("model_id,expected", [
-        ("OCLEANY3M", TYPE1),   # Oclean X – confirmed
-        ("OCLEANY3P", TYPE1),   # Oclean X Pro Elite – confirmed (issue #3)
-        ("OCLEANY3",  TYPE0),   # Oclean X Pro – confirmed
-        ("OCLEANA1",  LEGACY),  # Oclean Air 1 – confirmed (issue #7)
-    ])
+    @pytest.mark.parametrize(
+        ("model_id", "expected"),
+        [
+            ("OCLEANY3M", TYPE1),  # Oclean X – confirmed
+            ("OCLEANY3P", TYPE1),  # Oclean X Pro Elite – confirmed (issue #3)
+            ("OCLEANY3", TYPE0),  # Oclean X Pro – confirmed
+            ("OCLEANA1", LEGACY),  # Oclean Air 1 – confirmed (issue #7)
+        ],
+    )
     def test_known_models(self, model_id: str, expected: DeviceProtocol):
         assert protocol_for_model(model_id) is expected
 
