@@ -1,4 +1,5 @@
 """Sensor entities for the Oclean Toothbrush integration."""
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -39,13 +40,14 @@ from .entity import OcleanEntity
 # Session-derived keys: only populated from parsed brush session notifications.
 # After the first session is received (DATA_LAST_BRUSH_TIME is set), any of
 # these keys that remain None are structurally unsupported by the device protocol.
-_SESSION_DERIVED_KEYS: frozenset[str] = frozenset({
-    DATA_LAST_BRUSH_SCORE,
-    DATA_LAST_BRUSH_DURATION,
-    DATA_LAST_BRUSH_PRESSURE,
-    DATA_LAST_BRUSH_AREAS,
-    DATA_LAST_BRUSH_PNUM,
-})
+_SESSION_DERIVED_KEYS: frozenset[str] = frozenset(
+    {
+        DATA_LAST_BRUSH_DURATION,
+        DATA_LAST_BRUSH_PRESSURE,
+        DATA_LAST_BRUSH_AREAS,
+        DATA_LAST_BRUSH_PNUM,
+    }
+)
 
 
 SENSOR_DESCRIPTIONS: tuple[SensorEntityDescription, ...] = (
@@ -127,15 +129,11 @@ async def async_setup_entry(
     device_name = entry.data.get(CONF_DEVICE_NAME, "Oclean")
 
     entities: list[Any] = [
-        OcleanSensor(coordinator, description, mac, device_name)
-        for description in SENSOR_DESCRIPTIONS
+        OcleanSensor(coordinator, description, mac, device_name) for description in SENSOR_DESCRIPTIONS
     ]
     entities.append(OcleanBrushAreasSensor(coordinator, mac, device_name))
     entities.append(OcleanSchemeSensor(coordinator, mac, device_name))
-    entities.extend(
-        OcleanToothAreaSensor(coordinator, mac, device_name, zone_name)
-        for zone_name in TOOTH_AREA_NAMES
-    )
+    entities.extend(OcleanToothAreaSensor(coordinator, mac, device_name, zone_name) for zone_name in TOOTH_AREA_NAMES)
     async_add_entities(entities)
 
 
@@ -176,8 +174,7 @@ class OcleanSensor(OcleanEntity, SensorEntity):
         if not self.coordinator.last_update_success:
             # Stay available if we have any cached value
             return (
-                self.coordinator.data is not None
-                and self.coordinator.data.get(self.entity_description.key) is not None
+                self.coordinator.data is not None and self.coordinator.data.get(self.entity_description.key) is not None
             )
         # If the device has reported at least one session but this session-derived
         # field is still None, the device protocol does not support it.
