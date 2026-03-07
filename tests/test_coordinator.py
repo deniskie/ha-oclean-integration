@@ -819,6 +819,46 @@ class TestLoadStoreWithData:
         assert coord._brush_head_hw_supported is False
         assert coord._store_loaded is True
 
+    @pytest.mark.asyncio
+    async def test_last_session_restored_into_last_raw(self):
+        """Session data persisted in storage must be restored to _last_raw on startup.
+
+        Ensures last_brush_score survives HA restarts even when the 0000 score push
+        does not fire during the next poll (issue #19).
+        """
+        from unittest.mock import AsyncMock as AM
+
+        coord = _make_coordinator()
+        coord._store.async_load = AM(
+            return_value={
+                "last_session_ts": 1_700_000_000,
+                "brush_head_count": 0,
+                "brush_head_hw": False,
+                "last_session": {
+                    DATA_LAST_BRUSH_SCORE: 95,
+                    "last_brush_time": 1_700_000_000,
+                },
+            }
+        )
+        await coord._load_store()
+        assert coord._last_raw[DATA_LAST_BRUSH_SCORE] == 95
+        assert coord._last_raw["last_brush_time"] == 1_700_000_000
+
+    @pytest.mark.asyncio
+    async def test_save_store_persists_last_session(self):
+        """_save_store must write last_session containing non-None _last_raw session fields."""
+        saved: dict = {}
+
+        async def _fake_save(data):
+            saved.update(data)
+
+        coord = _make_coordinator()
+        coord._store.async_save = _fake_save
+        coord._last_raw = {DATA_LAST_BRUSH_SCORE: 88, "last_brush_time": 1_700_000_001}
+        await coord._save_store()
+        assert "last_session" in saved
+        assert saved["last_session"][DATA_LAST_BRUSH_SCORE] == 88
+
 
 # ---------------------------------------------------------------------------
 # _read_device_info_service – DIS cache path

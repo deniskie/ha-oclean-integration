@@ -124,13 +124,19 @@ class TestOcleanSensorAvailable:
         sensor = _make_sensor("battery", data=None, last_update_success=False)
         assert sensor.available is False
 
-    def test_session_key_after_first_session_value_none_is_unavailable(self):
-        """Device had a session but score field is still None → not supported."""
+    def test_score_available_even_when_no_score_received_yet(self):
+        """Score must stay available when session exists but no score push was received yet.
+
+        DATA_LAST_BRUSH_SCORE is NOT in _SESSION_DERIVED_KEYS: the score arrives via
+        a real-time 0000 push only during/after brushing and is absent from historical
+        session data. Marking it 'unavailable' would permanently hide it on devices
+        like OCLEANY3MH that do support it (issue #19).
+        """
         sensor = _make_sensor(
             DATA_LAST_BRUSH_SCORE,
             data={DATA_LAST_BRUSH_TIME: 1_700_000_000, DATA_LAST_BRUSH_SCORE: None},
         )
-        assert sensor.available is False
+        assert sensor.available is True
 
     def test_session_key_before_first_session_is_available(self):
         """No session yet → can't declare field unsupported."""

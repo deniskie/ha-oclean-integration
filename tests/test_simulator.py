@@ -506,8 +506,12 @@ class TestSensorStateMapping:
 
         assert sensor.native_value == str(pnum)
 
-    def test_score_sensor_unavailable_when_session_received_but_no_score(self):
-        """Session-derived field: available=False when time is set but score is None."""
+    def test_score_sensor_available_when_session_received_but_no_score(self):
+        """Score sensor stays available even when session exists but no score push received yet.
+
+        last_brush_score is not a session-derived unavailability key: the score arrives
+        via a real-time 0000 push and is absent from historical poll data (issue #19).
+        """
         from custom_components.oclean_ble.sensor import SENSOR_DESCRIPTIONS, OcleanSensor
 
         data = OcleanDeviceData(last_brush_time=1740145339, last_brush_score=None)
@@ -515,7 +519,7 @@ class TestSensorStateMapping:
         desc = next(d for d in SENSOR_DESCRIPTIONS if d.key == DATA_LAST_BRUSH_SCORE)
         sensor = OcleanSensor(coord, desc, "AA:BB:CC:DD:EE:FF", "Oclean")
 
-        assert sensor.available is False
+        assert sensor.available is True
 
     def test_battery_sensor_always_available_when_data_present(self):
         from custom_components.oclean_ble.sensor import SENSOR_DESCRIPTIONS, OcleanSensor
