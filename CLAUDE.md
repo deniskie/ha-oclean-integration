@@ -10,6 +10,11 @@ pip install -r requirements-test.txt
 pytest
 ```
 
+### Lint (always include tests/)
+```bash
+ruff check custom_components/ tests/
+```
+
 ### Run a single test file
 ```bash
 pytest tests/test_parser.py

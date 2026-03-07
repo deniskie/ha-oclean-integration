@@ -18,6 +18,8 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements-test.txt
       - name: Lint (ruff)
-        run: ruff check custom_components/
+        run: ruff check custom_components/ tests/
+      - name: Type check (mypy)
+        run: mypy custom_components/oclean_ble/ --ignore-missing-imports
       - name: Run tests
         run: pytest --tb=short

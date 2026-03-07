@@ -58,8 +58,8 @@ After restart, go to **Settings → Integrations → Add Integration** and searc
 | `sensor.oclean_last_brush_scheme_type` | Brush programme name (from pNum); falls back to numeric ID if name is unknown | – | ✅ Tested |
 | `sensor.oclean_brush_head_usage` | Brush head wear indicator | – | ⚠️ Unconfirmed |
 | `sensor.oclean_last_brush_pressure` | Average brushing pressure across all tooth zones | – | ⚠️ Unconfirmed |
-| `sensor.oclean_last_brush_areas` | Number of cleaned tooth zones (0–8); individual zone values as attributes | – | ⚠️ Unconfirmed |
-| `sensor.oclean_tooth_area_<zone>` | Pressure for one tooth zone (8 sensors: `upper_left_out`, `upper_left_in`, `lower_left_out`, `lower_left_in`, `upper_right_out`, `upper_right_in`, `lower_right_out`, `lower_right_in`). Raw value 0–255; 0 = not cleaned | – | ⚠️ Unconfirmed |
+| `sensor.oclean_last_brush_areas` | Number of cleaned tooth zones (0–8); individual zone values as attributes. Populated from `2604` notifications (Type-1 devices) or extended 0308 format (Type-0 devices) | – | ⚠️ Unconfirmed |
+| `sensor.oclean_tooth_area_<zone>` | Pressure for one tooth zone (8 sensors: `upper_left_out`, `upper_left_in`, `lower_left_out`, `lower_left_in`, `upper_right_out`, `upper_right_in`, `lower_right_out`, `lower_right_in`). Raw value 0–255; 0 = not cleaned. Populated from `2604` notifications (Type-1 devices) or extended 0308 format (Type-0 devices) | – | ⚠️ Unconfirmed |
 | `sensor.oclean_firmware_version` | Firmware version (diagnostic) | – | ✅ Tested |
 | `sensor.oclean_model` | Device model identifier (diagnostic) | – | ✅ Tested |
 | `sensor.oclean_hardware_revision` | Hardware revision (diagnostic) | – | ✅ Tested |
@@ -101,9 +101,8 @@ After restart, go to **Settings → Integrations → Add Integration** and searc
 | Feature | Details |
 |---------|---------|
 | Brush head usage counter | Resets when the "Reset Brush Head" button is pressed |
-| Last brush pressure | Average brushing pressure across all tooth zones (extended format only) |
-| Last brush clean | Percentage of tooth zones that were cleaned (extended format only) |
-| Last brush areas | Pressure per tooth zone; individual zones as entity attributes and as 8 dedicated sensors (extended format only) |
+| Last brush pressure | Average brushing pressure across all tooth zones (extended 0308 format only) |
+| Last brush areas | Pressure per tooth zone; individual zones as entity attributes and as 8 dedicated sensors. Source: `2604` notifications on Type-1 devices (Oclean X series) or extended 0308 format on Type-0 devices |
 | Brush head reset button | Sends reset command to device; no response verification yet |
 | Session history pagination | Fetches multiple pages of session history from device |
 | Offline session import | Sessions recorded while HA was unreachable are imported on the next poll, provided they are still in the device's buffer. Note: the official Oclean app likely clears the buffer on sync – for best results, avoid using the official app in parallel. |
@@ -123,6 +122,12 @@ After restart, go to **Settings → Integrations → Add Integration** and searc
 ## Configuration
 
 The poll interval and other options can be changed after setup via **Settings → Integrations → Oclean → Configure**.
+
+### Post-Brush Cooldown
+
+After a new session is detected, polling can be paused for a configurable number of hours. This avoids unnecessary Bluetooth connections immediately after brushing, when no new data is expected.
+
+Set the cooldown duration (in hours) in **Settings → Integrations → Oclean → Configure**. The default is `0` (disabled).
 
 ### Poll Windows
 

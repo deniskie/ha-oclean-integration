@@ -1,4 +1,5 @@
 """Tests for coordinator.py – BleakClient is fully mocked."""
+
 from __future__ import annotations
 
 import asyncio
@@ -7,17 +8,20 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-# conftest.py stubs HA + bleak before these imports
-from custom_components.oclean_ble.coordinator import (
-    OcleanCoordinator,
-    _in_window,
-    _parse_poll_windows,
-)
 from custom_components.oclean_ble.const import (
     DATA_BATTERY,
     DATA_LAST_BRUSH_AREAS,
     DATA_LAST_BRUSH_PRESSURE,
     DATA_LAST_BRUSH_SCORE,
+    DATA_MODEL_ID,
+    DATA_SW_VERSION,
+)
+
+# conftest.py stubs HA + bleak before these imports
+from custom_components.oclean_ble.coordinator import (
+    OcleanCoordinator,
+    _in_window,
+    _parse_poll_windows,
 )
 
 
@@ -33,6 +37,7 @@ def _make_service_info(mac="AA:BB:CC:DD:EE:FF"):
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_hass():
     hass = MagicMock()
@@ -61,6 +66,7 @@ def _make_bleak_client(battery_value=75):
 # _poll_device – success path
 # ---------------------------------------------------------------------------
 
+
 def _bt_no_device(bt_mock):
     """Both HA bluetooth lookups return None → BLEDevice stub path."""
     bt_mock.async_last_service_info.return_value = None
@@ -79,9 +85,14 @@ class TestPollDeviceSuccess:
         coordinator = _make_coordinator()
         client = _make_bleak_client(battery_value=82)
 
-        with patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock, \
-             patch("custom_components.oclean_ble.coordinator.establish_connection",
-                   new_callable=AsyncMock, return_value=client):
+        with (
+            patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock,
+            patch(
+                "custom_components.oclean_ble.coordinator.establish_connection",
+                new_callable=AsyncMock,
+                return_value=client,
+            ),
+        ):
             self._patch_bt_with_device(bt_mock)
             result = await coordinator._poll_device()
 
@@ -93,10 +104,15 @@ class TestPollDeviceSuccess:
         coordinator = _make_coordinator()
         client = _make_bleak_client()
 
-        with patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock, \
-             patch("custom_components.oclean_ble.coordinator.establish_connection",
-                   new_callable=AsyncMock, return_value=client), \
-             patch("custom_components.oclean_ble.coordinator.asyncio.sleep", new_callable=AsyncMock):
+        with (
+            patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock,
+            patch(
+                "custom_components.oclean_ble.coordinator.establish_connection",
+                new_callable=AsyncMock,
+                return_value=client,
+            ),
+            patch("custom_components.oclean_ble.coordinator.asyncio.sleep", new_callable=AsyncMock),
+        ):
             self._patch_bt_with_device(bt_mock)
             await coordinator._poll_device()
 
@@ -111,10 +127,15 @@ class TestPollDeviceSuccess:
         coordinator = _make_coordinator()
         client = _make_bleak_client()
 
-        with patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock, \
-             patch("custom_components.oclean_ble.coordinator.establish_connection",
-                   new_callable=AsyncMock, return_value=client), \
-             patch("custom_components.oclean_ble.coordinator.asyncio.sleep", new_callable=AsyncMock):
+        with (
+            patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock,
+            patch(
+                "custom_components.oclean_ble.coordinator.establish_connection",
+                new_callable=AsyncMock,
+                return_value=client,
+            ),
+            patch("custom_components.oclean_ble.coordinator.asyncio.sleep", new_callable=AsyncMock),
+        ):
             self._patch_bt_with_device(bt_mock)
             await coordinator._poll_device()
 
@@ -128,10 +149,15 @@ class TestPollDeviceSuccess:
         coordinator = _make_coordinator()
         client = _make_bleak_client()
 
-        with patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock, \
-             patch("custom_components.oclean_ble.coordinator.establish_connection",
-                   new_callable=AsyncMock, return_value=client), \
-             patch("custom_components.oclean_ble.coordinator.asyncio.sleep", new_callable=AsyncMock):
+        with (
+            patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock,
+            patch(
+                "custom_components.oclean_ble.coordinator.establish_connection",
+                new_callable=AsyncMock,
+                return_value=client,
+            ),
+            patch("custom_components.oclean_ble.coordinator.asyncio.sleep", new_callable=AsyncMock),
+        ):
             self._patch_bt_with_device(bt_mock)
             await coordinator._poll_device()
 
@@ -144,17 +170,23 @@ class TestPollDeviceSuccess:
         client = _make_bleak_client(battery_value=70)
         service_info = _make_service_info()
 
-        with patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock, \
-             patch("custom_components.oclean_ble.coordinator.establish_connection",
-                   new_callable=AsyncMock, return_value=client) as ec_mock, \
-             patch("custom_components.oclean_ble.coordinator.asyncio.sleep", new_callable=AsyncMock):
+        with (
+            patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock,
+            patch(
+                "custom_components.oclean_ble.coordinator.establish_connection",
+                new_callable=AsyncMock,
+                return_value=client,
+            ) as ec_mock,
+            patch("custom_components.oclean_ble.coordinator.asyncio.sleep", new_callable=AsyncMock),
+        ):
             bt_mock.async_last_service_info.return_value = service_info
 
             result = await coordinator._poll_device()
 
         ec_mock.assert_awaited_once()
-        assert ec_mock.call_args[0][1] is service_info.device, \
+        assert ec_mock.call_args[0][1] is service_info.device, (
             "establish_connection must receive service_info.device (BLEDevice), not service_info"
+        )
         assert result[DATA_BATTERY] == 70
 
     @pytest.mark.asyncio
@@ -176,16 +208,22 @@ class TestPollDeviceSuccess:
         coordinator = _make_coordinator()
         client = _make_bleak_client()
 
-        with patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock, \
-             patch("custom_components.oclean_ble.coordinator.establish_connection",
-                   new_callable=AsyncMock, return_value=client), \
-             patch("custom_components.oclean_ble.coordinator.asyncio.sleep", new_callable=AsyncMock):
+        with (
+            patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock,
+            patch(
+                "custom_components.oclean_ble.coordinator.establish_connection",
+                new_callable=AsyncMock,
+                return_value=client,
+            ),
+            patch("custom_components.oclean_ble.coordinator.asyncio.sleep", new_callable=AsyncMock),
+        ):
             self._patch_bt_with_device(bt_mock)
             await coordinator._poll_device()
 
         calls = bt_mock.async_last_service_info.call_args_list
-        assert any(c == ((coordinator.hass, coordinator._mac), {"connectable": True})
-                   for c in calls), "connectable=True call must be present"
+        assert any(c == ((coordinator.hass, coordinator._mac), {"connectable": True}) for c in calls), (
+            "connectable=True call must be present"
+        )
 
     @pytest.mark.asyncio
     async def test_notification_data_merged_into_result(self):
@@ -195,10 +233,15 @@ class TestPollDeviceSuccess:
         async def fake_sleep(_):
             pass
 
-        with patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock, \
-             patch("custom_components.oclean_ble.coordinator.establish_connection",
-                   new_callable=AsyncMock, return_value=client), \
-             patch("custom_components.oclean_ble.coordinator.asyncio.sleep", side_effect=fake_sleep):
+        with (
+            patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock,
+            patch(
+                "custom_components.oclean_ble.coordinator.establish_connection",
+                new_callable=AsyncMock,
+                return_value=client,
+            ),
+            patch("custom_components.oclean_ble.coordinator.asyncio.sleep", side_effect=fake_sleep),
+        ):
             self._patch_bt_with_device(bt_mock)
             result = await coordinator._poll_device()
 
@@ -209,6 +252,7 @@ class TestPollDeviceSuccess:
 # _poll_device – failure path
 # ---------------------------------------------------------------------------
 
+
 class TestPollDeviceFailure:
     @pytest.mark.asyncio
     async def test_bleak_error_raises_update_failed_on_first_poll(self):
@@ -217,9 +261,14 @@ class TestPollDeviceFailure:
 
         coordinator = _make_coordinator()
 
-        with patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock, \
-             patch("custom_components.oclean_ble.coordinator.establish_connection",
-                   new_callable=AsyncMock, side_effect=BleakError("timeout")):
+        with (
+            patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock,
+            patch(
+                "custom_components.oclean_ble.coordinator.establish_connection",
+                new_callable=AsyncMock,
+                side_effect=BleakError("timeout"),
+            ),
+        ):
             _bt_no_device(bt_mock)
             with pytest.raises(UpdateFailed):
                 await coordinator._async_update_data()
@@ -231,9 +280,14 @@ class TestPollDeviceFailure:
         coordinator = _make_coordinator()
         coordinator._last_raw = {DATA_BATTERY: 55}
 
-        with patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock, \
-             patch("custom_components.oclean_ble.coordinator.establish_connection",
-                   new_callable=AsyncMock, side_effect=BleakError("device gone")):
+        with (
+            patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock,
+            patch(
+                "custom_components.oclean_ble.coordinator.establish_connection",
+                new_callable=AsyncMock,
+                side_effect=BleakError("device gone"),
+            ),
+        ):
             _bt_no_device(bt_mock)
             result = await coordinator._async_update_data()
 
@@ -246,13 +300,18 @@ class TestPollDeviceFailure:
         coordinator = _make_coordinator()
         client = _make_bleak_client()
 
-        with patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock, \
-             patch("custom_components.oclean_ble.coordinator.establish_connection",
-                   new_callable=AsyncMock, return_value=client), \
-             patch(
-                 "custom_components.oclean_ble.coordinator.asyncio.sleep",
-                 side_effect=RuntimeError("unexpected"),
-             ):
+        with (
+            patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock,
+            patch(
+                "custom_components.oclean_ble.coordinator.establish_connection",
+                new_callable=AsyncMock,
+                return_value=client,
+            ),
+            patch(
+                "custom_components.oclean_ble.coordinator.asyncio.sleep",
+                side_effect=RuntimeError("unexpected"),
+            ),
+        ):
             bt_mock.async_last_service_info.return_value = _make_service_info()
             client.connect = AsyncMock()
 
@@ -265,6 +324,7 @@ class TestPollDeviceFailure:
 # ---------------------------------------------------------------------------
 # Data persistence across polls
 # ---------------------------------------------------------------------------
+
 
 class TestSessionEnrichment:
     """Enrichment notifications (0000/2604) must be merged into the session snapshot."""
@@ -305,14 +365,20 @@ class TestSessionEnrichment:
 
         captured: list = []
 
-        async def fake_import(sessions):
+        async def fake_import(_hass, _mac_slug, _device_name, sessions, last_ts):
             captured.extend(sessions)
+            return last_ts
 
-        with patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock, \
-             patch("custom_components.oclean_ble.coordinator.establish_connection",
-                   new_callable=AsyncMock, return_value=client), \
-             patch("custom_components.oclean_ble.coordinator.asyncio.sleep", new_callable=AsyncMock), \
-             patch.object(coordinator, "_import_new_sessions", side_effect=fake_import):
+        with (
+            patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock,
+            patch(
+                "custom_components.oclean_ble.coordinator.establish_connection",
+                new_callable=AsyncMock,
+                return_value=client,
+            ),
+            patch("custom_components.oclean_ble.coordinator.asyncio.sleep", new_callable=AsyncMock),
+            patch("custom_components.oclean_ble.coordinator.import_new_sessions", side_effect=fake_import),
+        ):
             bt_mock.async_last_service_info.return_value = _make_service_info()
             await coordinator._poll_device()
 
@@ -332,22 +398,22 @@ class TestSessionEnrichment:
 
         # Build a minimal valid 0308 extended payload (32 bytes) with score=42
         payload = bytearray(34)
-        payload[0] = 0x00   # high byte of length
-        payload[1] = 0x20   # length = 32
-        payload[2] = 26     # year-2000 = 2026
-        payload[3] = 2      # month
-        payload[4] = 24     # day
-        payload[5] = 1      # hour
-        payload[6] = 0      # minute
-        payload[7] = 0      # second
-        payload[8] = 42     # pNum
-        struct.pack_into(">H", payload, 9, 120)   # duration = 120 s
+        payload[0] = 0x00  # high byte of length
+        payload[1] = 0x20  # length = 32
+        payload[2] = 26  # year-2000 = 2026
+        payload[3] = 2  # month
+        payload[4] = 24  # day
+        payload[5] = 1  # hour
+        payload[6] = 0  # minute
+        payload[7] = 0  # second
+        payload[8] = 42  # pNum
+        struct.pack_into(">H", payload, 9, 120)  # duration = 120 s
         struct.pack_into(">H", payload, 11, 100)  # validDuration
-        payload[19] = 0     # tz offset
+        payload[19] = 0  # tz offset
         for i in range(8):
             payload[20 + i] = 10  # area pressures
-        payload[28] = 42    # score = 42 (must NOT be overwritten by 0000 score=95)
-        payload[29] = 1     # schemeType
+        payload[28] = 42  # score = 42 (must NOT be overwritten by 0000 score=95)
+        payload[29] = 1  # schemeType
         raw_0308 = bytes([0x03, 0x08]) + bytes(payload)
 
         client = self._make_client_firing_notifications(
@@ -357,21 +423,26 @@ class TestSessionEnrichment:
 
         captured: list = []
 
-        async def fake_import(sessions):
+        async def fake_import(_hass, _mac_slug, _device_name, sessions, last_ts):
             captured.extend(sessions)
+            return last_ts
 
-        with patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock, \
-             patch("custom_components.oclean_ble.coordinator.establish_connection",
-                   new_callable=AsyncMock, return_value=client), \
-             patch("custom_components.oclean_ble.coordinator.asyncio.sleep", new_callable=AsyncMock), \
-             patch.object(coordinator, "_import_new_sessions", side_effect=fake_import):
+        with (
+            patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock,
+            patch(
+                "custom_components.oclean_ble.coordinator.establish_connection",
+                new_callable=AsyncMock,
+                return_value=client,
+            ),
+            patch("custom_components.oclean_ble.coordinator.asyncio.sleep", new_callable=AsyncMock),
+            patch("custom_components.oclean_ble.coordinator.import_new_sessions", side_effect=fake_import),
+        ):
             bt_mock.async_last_service_info.return_value = _make_service_info()
             await coordinator._poll_device()
 
         assert captured, "At least one session must have been captured"
         newest = max(captured, key=lambda s: s.get("last_brush_time", 0))
-        assert newest.get(DATA_LAST_BRUSH_SCORE) == 42, \
-            "Score from 0308 must not be overwritten by 0000 enrichment"
+        assert newest.get(DATA_LAST_BRUSH_SCORE) == 42, "Score from 0308 must not be overwritten by 0000 enrichment"
 
 
 class TestDataPersistence:
@@ -384,10 +455,15 @@ class TestDataPersistence:
         }
         client = _make_bleak_client(battery_value=61)
 
-        with patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock, \
-             patch("custom_components.oclean_ble.coordinator.establish_connection",
-                   new_callable=AsyncMock, return_value=client), \
-             patch("custom_components.oclean_ble.coordinator.asyncio.sleep", new_callable=AsyncMock):
+        with (
+            patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock,
+            patch(
+                "custom_components.oclean_ble.coordinator.establish_connection",
+                new_callable=AsyncMock,
+                return_value=client,
+            ),
+            patch("custom_components.oclean_ble.coordinator.asyncio.sleep", new_callable=AsyncMock),
+        ):
             bt_mock.async_last_service_info.return_value = _make_service_info()
             result = await coordinator._poll_device()
 
@@ -399,6 +475,7 @@ class TestDataPersistence:
 # ---------------------------------------------------------------------------
 # _parse_poll_windows
 # ---------------------------------------------------------------------------
+
 
 class TestParsePollWindows:
     def test_empty_string_returns_empty_list(self):
@@ -447,6 +524,7 @@ class TestParsePollWindows:
 # _in_window
 # ---------------------------------------------------------------------------
 
+
 class TestInWindow:
     def test_inside_normal_window(self):
         assert _in_window(dtime(7, 0), dtime(8, 0), dtime(7, 30)) is True
@@ -493,39 +571,36 @@ class TestImportNewSessions:
         `datetime.datetime.fromtimestamp()` on the logging line – before
         the import statement – raised UnboundLocalError.
         """
-        coord = _make_coordinator()
-        coord._store_loaded = True
-        coord._last_session_ts = 0
+        from custom_components.oclean_ble.statistics import import_new_sessions
+
+        hass = _make_hass()
         sessions = [{"last_brush_time": 1740145339, "last_brush_duration": 150}]
 
-        with patch.object(coord, "_load_recorder_api", return_value=None):
+        with patch("custom_components.oclean_ble.statistics._load_recorder_api", return_value=None):
             # Before fix: UnboundLocalError on the _LOGGER.debug("Oclean → import …") line
-            await coord._import_new_sessions(sessions)
+            await import_new_sessions(hass, "aa_bb_cc_dd_ee_ff", "Oclean", sessions, 0)
 
     @pytest.mark.asyncio
     async def test_session_with_zero_timestamp_uses_na_placeholder(self):
         """last_brush_time=0 must use the 'n/a' branch without error."""
-        coord = _make_coordinator()
-        coord._store_loaded = True
-        coord._last_session_ts = 0
+        from custom_components.oclean_ble.statistics import import_new_sessions
+
+        hass = _make_hass()
         sessions = [{"last_brush_time": 0, "last_brush_duration": 150}]
 
-        with patch.object(coord, "_load_recorder_api", return_value=None):
-            await coord._import_new_sessions(sessions)
+        with patch("custom_components.oclean_ble.statistics._load_recorder_api", return_value=None):
+            await import_new_sessions(hass, "aa_bb_cc_dd_ee_ff", "Oclean", sessions, 0)
 
     @pytest.mark.asyncio
     async def test_no_new_sessions_skips_import(self):
-        """Sessions already imported (ts <= _last_session_ts) must be silently skipped."""
-        coord = _make_coordinator()
-        coord._store_loaded = True
-        coord._last_session_ts = 9_999_999_999
+        """Sessions already imported (ts <= last_session_ts) must be silently skipped."""
+        from custom_components.oclean_ble.statistics import import_new_sessions
+
+        hass = _make_hass()
         sessions = [{"last_brush_time": 1740145339}]
 
-        with patch.object(coord, "_load_recorder_api", return_value=None):
-            await coord._import_new_sessions(sessions)
-
-        assert coord._last_session_ts == 9_999_999_999
-
+        result = await import_new_sessions(hass, "aa_bb_cc_dd_ee_ff", "Oclean", sessions, 9_999_999_999)
+        assert result == 9_999_999_999
 
 
 # ---------------------------------------------------------------------------
@@ -623,6 +698,566 @@ class TestPaginateSessions:
 
         await coord._paginate_sessions(client, all_sessions, event)
 
-        client.write_gatt_char.assert_called_once_with(
-            WRITE_CHAR_UUID, CMD_QUERY_RUNNING_DATA_NEXT, response=True
+        client.write_gatt_char.assert_called_once_with(WRITE_CHAR_UUID, CMD_QUERY_RUNNING_DATA_NEXT, response=True)
+
+
+# ---------------------------------------------------------------------------
+# _poll_skip_reason – cooldown and window skip paths
+# ---------------------------------------------------------------------------
+
+
+class TestPollSkipReason:
+    def test_cooldown_active_returns_reason(self):
+        import time
+
+        coord = _make_coordinator()
+        coord._cooldown_until = time.time() + 3600
+        reason = coord._poll_skip_reason()
+        assert reason is not None
+        assert "cooldown" in reason
+
+    def test_cooldown_expired_returns_none(self):
+        coord = _make_coordinator()
+        coord._cooldown_until = 1.0  # far in the past
+        assert coord._poll_skip_reason() is None
+
+    def test_outside_windows_returns_reason(self):
+        from custom_components.oclean_ble.coordinator import _parse_poll_windows
+
+        coord = _make_coordinator()
+        # Set windows to a range that is very unlikely to include now (midnight-00:01)
+        # To be safe, use both "00:00-00:01" and "23:59-00:00" and pick the opposite.
+        # Simplest: set a single window from 00:00 to 00:01 and ensure current time is outside.
+        # Use a 1-minute window at 00:00-00:01; if the test runs at 00:00, we fall back to no-op.
+        # Instead, set _poll_windows directly to a known-past window.
+        coord._poll_windows = _parse_poll_windows("00:00-00:01")
+        import datetime
+
+        if datetime.datetime.now().hour == 0 and datetime.datetime.now().minute == 0:
+            return  # skip if window happens to be active now
+        reason = coord._poll_skip_reason()
+        assert reason is not None
+        assert "outside poll windows" in reason
+
+    def test_inside_windows_returns_none(self):
+        from custom_components.oclean_ble.coordinator import _parse_poll_windows
+
+        coord = _make_coordinator()
+        # Window covering all hours: 00:00-23:59
+        coord._poll_windows = _parse_poll_windows("00:00-23:59")
+        assert coord._poll_skip_reason() is None
+
+    def test_no_windows_configured_returns_none(self):
+        coord = _make_coordinator()
+        assert coord._poll_windows == []
+        assert coord._poll_skip_reason() is None
+
+
+# ---------------------------------------------------------------------------
+# _async_update_data – skip path (with and without stale data)
+# ---------------------------------------------------------------------------
+
+
+class TestAsyncUpdateDataSkip:
+    @pytest.mark.asyncio
+    async def test_skip_with_stale_data_returns_device_data(self):
+        import time
+
+        coord = _make_coordinator()
+        coord._store_loaded = True
+        coord._cooldown_until = time.time() + 3600
+        coord._last_raw = {DATA_BATTERY: 80}
+        result = await coord._async_update_data()
+        assert result.battery == 80
+
+    @pytest.mark.asyncio
+    async def test_skip_without_stale_data_returns_empty_device_data(self):
+        import time
+
+        from custom_components.oclean_ble.models import OcleanDeviceData
+
+        coord = _make_coordinator()
+        coord._store_loaded = True
+        coord._cooldown_until = time.time() + 3600
+        coord._last_raw = {}
+        result = await coord._async_update_data()
+        assert isinstance(result, OcleanDeviceData)
+        assert result.battery is None
+
+
+# ---------------------------------------------------------------------------
+# _load_store – with stored data (previously persisted state)
+# ---------------------------------------------------------------------------
+
+
+class TestLoadStoreWithData:
+    @pytest.mark.asyncio
+    async def test_restores_persisted_values(self):
+        from unittest.mock import AsyncMock as AM
+
+        coord = _make_coordinator()
+        coord._store.async_load = AM(
+            return_value={
+                "last_session_ts": 1_700_000_000,
+                "brush_head_count": 42,
+                "brush_head_hw": True,
+            }
         )
+        await coord._load_store()
+        assert coord._last_session_ts == 1_700_000_000
+        assert coord._brush_head_sw_count == 42
+        assert coord._brush_head_hw_supported is True
+        assert coord._store_loaded is True
+
+    @pytest.mark.asyncio
+    async def test_empty_store_leaves_defaults(self):
+        coord = _make_coordinator()
+        # Default _StoreStub returns None → no changes
+        await coord._load_store()
+        assert coord._last_session_ts == 0
+        assert coord._brush_head_sw_count == 0
+        assert coord._brush_head_hw_supported is False
+        assert coord._store_loaded is True
+
+
+# ---------------------------------------------------------------------------
+# _read_device_info_service – DIS cache path
+# ---------------------------------------------------------------------------
+
+
+class TestReadDeviceInfoServiceCached:
+    @pytest.mark.asyncio
+    async def test_dis_cache_hit_skips_read(self):
+        import time
+
+        from custom_components.oclean_ble.const import DATA_MODEL_ID, DATA_SW_VERSION
+
+        coord = _make_coordinator()
+        coord._dis_last_read_ts = time.time() - 100  # 100 s ago → within 24 h window
+        coord._last_raw = {DATA_MODEL_ID: "OCLEANY3P", DATA_SW_VERSION: "2.3.4"}
+        client = _make_bleak_client()
+        collected: dict = {}
+        await coord._read_device_info_service(client, collected)
+        client.read_gatt_char.assert_not_called()
+        assert collected[DATA_MODEL_ID] == "OCLEANY3P"
+        assert collected[DATA_SW_VERSION] == "2.3.4"
+
+
+# ---------------------------------------------------------------------------
+# _send_query_commands – write failure paths
+# ---------------------------------------------------------------------------
+
+
+class TestSendQueryCommandsWriteFailures:
+    @pytest.mark.asyncio
+    async def test_all_writes_fail_no_crash(self):
+        from bleak import BleakError
+
+        coord = _make_coordinator()
+        coord._store_loaded = True
+        client = _make_bleak_client()
+        client.write_gatt_char = AsyncMock(side_effect=BleakError("write failed"))
+        event = asyncio.Event()
+        event.set()  # skip the wait
+        # Must not raise
+        await coord._send_query_commands(client, event)
+
+    @pytest.mark.asyncio
+    async def test_status_write_fails_continues_to_running_data(self):
+        import itertools
+
+        from bleak import BleakError
+
+        coord = _make_coordinator()
+        coord._store_loaded = True
+        client = _make_bleak_client()
+        # First call (CMD_QUERY_STATUS) raises; subsequent calls succeed
+        call_results = itertools.chain(
+            [BleakError("status failed")],
+            [None, None, None],  # remaining writes succeed
+        )
+
+        async def side_effect(*_a, **_kw):
+            r = next(call_results)
+            if isinstance(r, Exception):
+                raise r
+
+        client.write_gatt_char = AsyncMock(side_effect=side_effect)
+        event = asyncio.Event()
+        event.set()
+        await coord._send_query_commands(client, event)
+        # At least the running-data writes were attempted
+        assert client.write_gatt_char.call_count >= 2
+
+
+# ---------------------------------------------------------------------------
+# _import_new_sessions – recorder API available, statistics import
+# ---------------------------------------------------------------------------
+
+
+class TestImportNewSessionsWithRecorder:
+    def _make_stat_classes(self):
+        """Return minimal StatisticData / StatisticMetaData stubs."""
+
+        class _SD:
+            def __init__(self, *, start, mean, state):
+                self.start = start
+                self.mean = mean
+                self.state = state
+
+        class _SM:
+            def __init__(self, **kwargs):
+                self.__dict__.update(kwargs)
+
+        return _SD, _SM
+
+    @staticmethod
+    def _install_dt_util_stub():
+        """Install a homeassistant.util.dt stub with a real UTC tzinfo."""
+        import datetime
+        import sys
+        import types
+
+        dt_stub = types.ModuleType("homeassistant.util.dt")
+        dt_stub.UTC = datetime.UTC
+        util_stub = types.ModuleType("homeassistant.util")
+        util_stub.dt = dt_stub
+        sys.modules["homeassistant.util"] = util_stub
+        sys.modules["homeassistant.util.dt"] = dt_stub
+
+    @pytest.mark.asyncio
+    async def test_imports_new_session_and_updates_last_ts(self):
+        from custom_components.oclean_ble.statistics import import_new_sessions
+
+        self._install_dt_util_stub()
+        _SD, _SM = self._make_stat_classes()
+        add_fn = MagicMock()
+        hass = _make_hass()
+
+        with patch("custom_components.oclean_ble.statistics._load_recorder_api", return_value=(_SD, _SM, add_fn)):
+            sessions = [{"last_brush_time": 1_700_000_001, DATA_LAST_BRUSH_SCORE: 80}]
+            new_ts = await import_new_sessions(hass, "aa_bb_cc_dd_ee_ff", "Oclean", sessions, 0)
+
+        assert new_ts == 1_700_000_001
+        add_fn.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_no_new_sessions_skips_import(self):
+        from custom_components.oclean_ble.statistics import import_new_sessions
+
+        _SD, _SM = self._make_stat_classes()
+        add_fn = MagicMock()
+        hass = _make_hass()
+
+        with patch("custom_components.oclean_ble.statistics._load_recorder_api", return_value=(_SD, _SM, add_fn)):
+            sessions = [{"last_brush_time": 1_700_000_001}]
+            new_ts = await import_new_sessions(hass, "aa_bb_cc_dd_ee_ff", "Oclean", sessions, 9_999_999_999)
+
+        assert new_ts == 9_999_999_999
+        add_fn.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_recorder_unavailable_skips_gracefully(self):
+        from custom_components.oclean_ble.statistics import import_new_sessions
+
+        hass = _make_hass()
+        with patch("custom_components.oclean_ble.statistics._load_recorder_api", return_value=None):
+            # Must not raise
+            new_ts = await import_new_sessions(
+                hass, "aa_bb_cc_dd_ee_ff", "Oclean", [{"last_brush_time": 1_700_000_001}], 0
+            )
+        assert new_ts == 0  # recorder unavailable → original ts returned unchanged
+
+    @pytest.mark.asyncio
+    async def test_area_stats_imported_when_present(self):
+        from custom_components.oclean_ble.statistics import import_new_sessions
+
+        self._install_dt_util_stub()
+        _SD, _SM = self._make_stat_classes()
+        add_fn = MagicMock()
+        hass = _make_hass()
+        areas = {"upper_left_out": 20, "lower_right_in": 15}
+
+        with patch("custom_components.oclean_ble.statistics._load_recorder_api", return_value=(_SD, _SM, add_fn)):
+            sessions = [{"last_brush_time": 1_700_000_002, DATA_LAST_BRUSH_AREAS: areas}]
+            await import_new_sessions(hass, "aa_bb_cc_dd_ee_ff", "Oclean", sessions, 0)
+
+        # add_fn called at least once per area zone
+        assert add_fn.call_count >= len(areas)
+
+    @pytest.mark.asyncio
+    async def test_metric_add_raises_continues_to_next_metric(self):
+        """Exception in async_add_external_statistics must log and continue (lines 116-123)."""
+        from custom_components.oclean_ble.statistics import import_new_sessions
+
+        self._install_dt_util_stub()
+        _SD, _SM = self._make_stat_classes()
+        add_fn = MagicMock(side_effect=Exception("stat write failed"))
+        hass = _make_hass()
+
+        with patch("custom_components.oclean_ble.statistics._load_recorder_api", return_value=(_SD, _SM, add_fn)):
+            sessions = [{"last_brush_time": 1_700_000_003, DATA_LAST_BRUSH_SCORE: 90}]
+            # Must not raise despite add_fn failing
+            new_ts = await import_new_sessions(hass, "aa_bb_cc_dd_ee_ff", "Oclean", sessions, 0)
+
+        assert new_ts == 1_700_000_003
+
+    @pytest.mark.asyncio
+    async def test_area_stat_add_raises_continues(self):
+        """Exception in async_add_external_statistics for area stats must continue (lines 156-162)."""
+        from custom_components.oclean_ble.statistics import import_new_sessions
+
+        self._install_dt_util_stub()
+        _SD, _SM = self._make_stat_classes()
+        add_fn = MagicMock(side_effect=Exception("area stat write failed"))
+        hass = _make_hass()
+        areas = {"upper_left_out": 30}
+
+        with patch("custom_components.oclean_ble.statistics._load_recorder_api", return_value=(_SD, _SM, add_fn)):
+            sessions = [{"last_brush_time": 1_700_000_004, DATA_LAST_BRUSH_AREAS: areas}]
+            new_ts = await import_new_sessions(hass, "aa_bb_cc_dd_ee_ff", "Oclean", sessions, 0)
+
+        assert new_ts == 1_700_000_004
+
+
+# ---------------------------------------------------------------------------
+# _load_recorder_api – fallback import path (lines 37-53)
+# ---------------------------------------------------------------------------
+
+
+class TestLoadRecorderAPIFallback:
+    def test_fallback_path_when_statistic_data_not_in_recorder_statistics(self):
+        """When StatisticData is absent from recorder.statistics, fall back to recorder.models."""
+        import sys
+        import types
+
+        from custom_components.oclean_ble.statistics import _load_recorder_api
+
+        class FakeSD:
+            pass
+
+        class FakeSM:
+            pass
+
+        def fake_add(*_a, **_kw):
+            pass
+
+        # Build a recorder.statistics stub WITHOUT StatisticData (simulates old HA split)
+        rec_stats = types.ModuleType("homeassistant.components.recorder.statistics")
+        rec_stats.async_add_external_statistics = fake_add
+        # StatisticData / StatisticMetaData intentionally absent
+
+        rec_models = types.ModuleType("homeassistant.components.recorder.models")
+        rec_models.StatisticData = FakeSD
+        rec_models.StatisticMetaData = FakeSM
+
+        # Save and patch sys.modules
+        old = {
+            k: sys.modules.pop(k, None)
+            for k in (
+                "homeassistant.components.recorder.statistics",
+                "homeassistant.components.recorder.models",
+            )
+        }
+        sys.modules["homeassistant.components.recorder.statistics"] = rec_stats
+        sys.modules["homeassistant.components.recorder.models"] = rec_models
+        try:
+            result = _load_recorder_api()
+        finally:
+            sys.modules.pop("homeassistant.components.recorder.statistics", None)
+            sys.modules.pop("homeassistant.components.recorder.models", None)
+            for k, v in old.items():
+                if v is not None:
+                    sys.modules[k] = v
+
+        assert result is not None
+        SD, SM, add_fn = result
+        assert SD is FakeSD
+        assert SM is FakeSM
+
+    def test_both_paths_fail_returns_none(self):
+        """When both import attempts fail, _load_recorder_api returns None."""
+        import sys
+
+        from custom_components.oclean_ble.statistics import _load_recorder_api
+
+        old = {
+            k: sys.modules.pop(k, None)
+            for k in (
+                "homeassistant.components.recorder.statistics",
+                "homeassistant.components.recorder.models",
+            )
+        }
+        try:
+            result = _load_recorder_api()
+        finally:
+            for k, v in old.items():
+                if v is not None:
+                    sys.modules[k] = v
+
+        assert result is None
+
+
+# ---------------------------------------------------------------------------
+# _calibrate_time – write failure path (lines 583-587)
+# ---------------------------------------------------------------------------
+
+
+class TestCalibrateTimeWriteFailure:
+    @pytest.mark.asyncio
+    async def test_write_failure_does_not_raise(self):
+        """Exception in write_gatt_char must be swallowed with a warning log."""
+        coord = _make_coordinator()
+        client = _make_bleak_client()
+        client.write_gatt_char = AsyncMock(side_effect=Exception("write failed"))
+        # Must not raise
+        await coord._calibrate_time(client)
+
+
+# ---------------------------------------------------------------------------
+# _read_battery_and_unsubscribe – read failure path (lines 684-685)
+# ---------------------------------------------------------------------------
+
+
+class TestBatteryReadFailure:
+    @pytest.mark.asyncio
+    async def test_read_failure_does_not_raise(self):
+        """Exception in read_gatt_char for battery must log a warning and not crash."""
+        coord = _make_coordinator()
+        client = _make_bleak_client()
+        client.read_gatt_char = AsyncMock(side_effect=Exception("read failed"))
+        collected: dict = {}
+        # Must not raise
+        await coord._read_battery_and_unsubscribe(client, collected)
+        assert DATA_BATTERY not in collected
+
+
+# ---------------------------------------------------------------------------
+# _read_device_info_service – device registry update path (lines 556-576)
+# ---------------------------------------------------------------------------
+
+
+class TestDISDeviceRegistryUpdate:
+    @pytest.mark.asyncio
+    async def test_device_registry_updated_when_sw_version_present(self):
+        """async_update_device must be called when sw_version or model_id is read."""
+        from custom_components.oclean_ble.const import DIS_HW_REV_UUID, DIS_MODEL_UUID, DIS_SW_REV_UUID
+
+        coord = _make_coordinator()
+        coord._dis_last_read_ts = 0.0  # force fresh DIS read
+
+        async def _fake_read(uuid, **_kw):
+            return {
+                DIS_MODEL_UUID: bytearray(b"OCLEANY3P"),
+                DIS_HW_REV_UUID: bytearray(b"Rev.D"),
+                DIS_SW_REV_UUID: bytearray(b"2.3.4"),
+            }.get(uuid, bytearray())
+
+        client = _make_bleak_client()
+        client.read_gatt_char = AsyncMock(side_effect=_fake_read)
+
+        mock_device_entry = MagicMock()
+        mock_device_entry.id = "test-device-entry-id"
+        mock_dr = MagicMock()
+        mock_dr.async_get_device.return_value = mock_device_entry
+
+        collected: dict = {}
+        with patch("homeassistant.helpers.device_registry.async_get", return_value=mock_dr, create=True):
+            await coord._read_device_info_service(client, collected)
+
+        mock_dr.async_update_device.assert_called_once()
+        call_kwargs = mock_dr.async_update_device.call_args[1]
+        assert call_kwargs["sw_version"] == "2.3.4"
+        assert call_kwargs["model"] == "OCLEANY3P"
+
+    @pytest.mark.asyncio
+    async def test_device_registry_update_exception_swallowed(self):
+        """If async_get raises, the exception must be caught and not propagate (line 575-576)."""
+        from custom_components.oclean_ble.const import DIS_SW_REV_UUID
+
+        coord = _make_coordinator()
+        coord._dis_last_read_ts = 0.0
+
+        async def _fake_read(uuid, **_kw):
+            return bytearray(b"TestModel") if uuid == DIS_SW_REV_UUID else bytearray()
+
+        client = _make_bleak_client()
+        client.read_gatt_char = AsyncMock(side_effect=_fake_read)
+
+        collected: dict = {}
+        with patch(
+            "homeassistant.helpers.device_registry.async_get", side_effect=Exception("dr unavailable"), create=True
+        ):
+            # Must not raise
+            await coord._read_device_info_service(client, collected)
+
+
+# ---------------------------------------------------------------------------
+# _poll_device – hardware brush-head detection and post-brush cooldown
+# ---------------------------------------------------------------------------
+
+
+class TestPollDeviceHwBrushAndCooldown:
+    @pytest.mark.asyncio
+    async def test_hw_brush_head_supported_set_when_usage_in_collected(self):
+        """_brush_head_hw_supported must be set True when DATA_BRUSH_HEAD_USAGE is collected."""
+        from custom_components.oclean_ble.const import DATA_BRUSH_HEAD_USAGE
+
+        coord = _make_coordinator()
+        coord._store_loaded = True
+        client = _make_bleak_client()
+
+        async def fake_setup_and_read(_client, collected):
+            collected[DATA_BRUSH_HEAD_USAGE] = 7
+            return []
+
+        async def fake_import(_h, _m, _d, sessions, last_ts):
+            return last_ts
+
+        with (
+            patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock,
+            patch(
+                "custom_components.oclean_ble.coordinator.establish_connection",
+                new_callable=AsyncMock,
+                return_value=client,
+            ),
+            patch("custom_components.oclean_ble.coordinator.asyncio.sleep", new_callable=AsyncMock),
+            patch("custom_components.oclean_ble.coordinator.import_new_sessions", side_effect=fake_import),
+            patch.object(coord, "_setup_and_read", side_effect=fake_setup_and_read),
+        ):
+            bt_mock.async_last_service_info.return_value = _make_service_info()
+            await coord._poll_device()
+
+        assert coord._brush_head_hw_supported is True
+
+    @pytest.mark.asyncio
+    async def test_post_brush_cooldown_activated_after_new_session(self):
+        """_cooldown_until must be set in the future when new sessions arrive and cooldown is configured."""
+        import time
+
+        coord = OcleanCoordinator(_make_hass(), "AA:BB:CC:DD:EE:FF", "Oclean", 300, post_brush_cooldown_h=1)
+        coord._store_loaded = True
+        coord._last_session_ts = 0
+        client = _make_bleak_client()
+
+        async def fake_setup_and_read(_client, _collected):
+            return [{"last_brush_time": 1_700_000_001}]
+
+        async def fake_import(_h, _m, _d, sessions, last_ts):
+            return 1_700_000_001
+
+        with (
+            patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock,
+            patch(
+                "custom_components.oclean_ble.coordinator.establish_connection",
+                new_callable=AsyncMock,
+                return_value=client,
+            ),
+            patch("custom_components.oclean_ble.coordinator.asyncio.sleep", new_callable=AsyncMock),
+            patch("custom_components.oclean_ble.coordinator.import_new_sessions", side_effect=fake_import),
+            patch.object(coord, "_setup_and_read", side_effect=fake_setup_and_read),
+        ):
+            bt_mock.async_last_service_info.return_value = _make_service_info()
+            await coord._poll_device()
+
+        assert coord._cooldown_until > time.time()

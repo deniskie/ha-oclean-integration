@@ -54,10 +54,8 @@ class OcleanEntity(CoordinatorEntity[OcleanCoordinator]):
         """
         if not self.coordinator.last_update_success:
             return value is not None
-        if (
+        return not (
             self.coordinator.data is not None
             and self.coordinator.data.get(DATA_LAST_BRUSH_TIME) is not None
             and value is None
-        ):
-            return False
-        return True
+        )
