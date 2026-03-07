@@ -49,6 +49,12 @@ RESP_BRUSH_AREAS_T1 = bytes.fromhex("2604")  # Per-tooth-area pressure data (Typ
 RESP_UNKNOWN_5400 = bytes.fromhex(
     "5400"
 )  # Unknown push (Type-1, Oclean X); not in APK – empirical analysis in progress
+# OCLEANY3P-specific notification types (observed 2026-02-24, sw=1.0.0.41)
+# Sent by device in response to CMD_QUERY_RUNNING_DATA_T1 (0307) on SEND_BRUSH_CMD_UUID.
+# Structural role appears analogous to 2604 (area pressures) and 5a00 (session meta)
+# on OCLEANY3M, but the exact byte layout needs correlated brush-session data to confirm.
+RESP_UNKNOWN_021F = bytes.fromhex("021f")  # Candidate: zone/area data for OCLEANY3P
+RESP_UNKNOWN_5100 = bytes.fromhex("5100")  # Candidate: session metadata for OCLEANY3P (similar 7×0xFF header as 5a00)
 
 # Config entry keys
 CONF_MAC_ADDRESS = "mac_address"
