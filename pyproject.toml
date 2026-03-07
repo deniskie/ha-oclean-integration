@@ -12,6 +12,19 @@ select = [
     "B",      # flake8-bugbear: likely bugs and design issues
     "BLE",    # flake8-blind-exception: broad except must be suppressed with noqa: BLE001
     "PL",     # pylint: broad rule set including PLC0415 (import-outside-toplevel)
+    "SIM",    # flake8-simplify: unnecessary if/else, return bool directly
+    "PERF",   # perflint: performance anti-patterns (e.g. append in loop vs extend)
+    "C4",     # flake8-comprehensions: unnecessary list()/dict() calls
+    "PTH",    # flake8-use-pathlib: prefer pathlib over os.path / open()
+    "A",      # flake8-builtins: no shadowing of builtins (type, id, list …)
+    "G",      # flake8-logging-format: lazy % args in logger calls (no f-strings)
+    "RSE",    # flake8-raise: raise with parentheses (raise ValueError() not raise ValueError)
+    "RET",    # flake8-return: no superfluous else after return; clean return paths
+    "T20",    # flake8-print: no print() statements in production code
+    "ISC",    # flake8-implicit-str-concat: catch accidental "foo" "bar" concatenation
+    "ASYNC",  # flake8-async: async anti-patterns (blocking calls in async functions)
+    "PIE",    # flake8-pie: misc improvements (no unnecessary pass, dict merge, etc.)
+    "PT",     # flake8-pytest-style: pytest best practices (match= on raises, etc.)
     "RUF100", # ruff: unused noqa directives
 ]
 ignore = [
@@ -40,3 +53,14 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 # Tests import freely and may redefine names for readability
 "tests/*" = ["F401", "F811", "PLC0415"]
+# Lazy imports are intentional: aioesphomeapi is optional (proxy-only),
+# device_registry and recorder API must be loaded at runtime
+"custom_components/oclean_ble/coordinator.py" = ["PLC0415"]
+"custom_components/oclean_ble/statistics.py" = ["PLC0415"]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+warn_unused_ignores = true
+warn_return_any = false
+

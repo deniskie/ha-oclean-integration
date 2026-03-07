@@ -1,14 +1,28 @@
 """Unit tests for parser.py – no Home Assistant required."""
+
 from __future__ import annotations
 
 import calendar
 import datetime
 import json
 
+import pytest
+
+from custom_components.oclean_ble.const import (
+    RESP_BRUSH_AREAS_T1,
+    RESP_EXTENDED_T1,
+    RESP_INFO,
+    RESP_INFO_T1,
+    RESP_K3GUIDE,
+    RESP_SCORE_T1,
+    RESP_SESSION_META_T1,
+    TOOTH_AREA_NAMES,
+)
 from custom_components.oclean_ble.parser import (
     _MIN_YEAR,
     _device_datetime,
     _map_json_brush_data,
+    _parse_0314_response,
     _parse_brush_areas_t1_response,
     _parse_extended_running_data_record,
     _parse_info_response,
@@ -21,20 +35,11 @@ from custom_components.oclean_ble.parser import (
     parse_battery,
     parse_notification,
 )
-from custom_components.oclean_ble.const import (
-    RESP_BRUSH_AREAS_T1,
-    RESP_INFO,
-    RESP_INFO_T1,
-    RESP_K3GUIDE,
-    RESP_SCORE_T1,
-    RESP_SESSION_META_T1,
-    TOOTH_AREA_NAMES,
-)
-
 
 # ---------------------------------------------------------------------------
 # Helper: build a syntactically valid 18-byte running-data record
 # ---------------------------------------------------------------------------
+
 
 def _make_record(
     *,
@@ -44,13 +49,13 @@ def _make_record(
     hour: int = 8,
     minute: int = 30,
     second: int = 0,
-    tz_quarters: int = 32,   # +32 × 15 min = UTC+8
+    tz_quarters: int = 32,  # +32 × 15 min = UTC+8
     week: int = 11,
     p_num: int = 1,
     blunt_teeth: int = 5,
     pressure_raw: int = 600,  # → 600/300 = 2.0
-    padding: int = 0,         # value for unknown bytes 9–13
-    extra: bytes = b"",       # appended after byte 17
+    padding: int = 0,  # value for unknown bytes 9–13
+    extra: bytes = b"",  # appended after byte 17
 ) -> bytes:
     """Build a minimal 18-byte (+ extra) running-data record."""
     record = bytearray(18)
@@ -60,10 +65,10 @@ def _make_record(
     record[3] = hour
     record[4] = minute
     record[5] = second
-    record[6] = tz_quarters % 256          # signed → unsigned byte storage
+    record[6] = tz_quarters % 256  # signed → unsigned byte storage
     record[7] = week
     record[8] = p_num
-    record[9:14] = bytes([padding] * 5)    # unknown bytes
+    record[9:14] = bytes([padding] * 5)  # unknown bytes
     record[14:16] = blunt_teeth.to_bytes(2, "little")
     record[16:18] = pressure_raw.to_bytes(2, "little")
     return bytes(record) + extra
@@ -82,6 +87,7 @@ def _expected_utc_ts(year, month, day, hour, minute, second, tz_quarters) -> int
 # _device_datetime helper
 # ---------------------------------------------------------------------------
 
+
 class TestDeviceDatetime:
     """Tests for _device_datetime() – the shared year-2000 datetime builder."""
 
@@ -98,9 +104,7 @@ class TestDeviceDatetime:
 
     def test_all_fields_preserved(self):
         dt = _device_datetime(23, 11, 7, 22, 59, 45)
-        assert (dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second) == (
-            2023, 11, 7, 22, 59, 45
-        )
+        assert (dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second) == (2023, 11, 7, 22, 59, 45)
 
     def test_leap_day_accepted(self):
         """Feb 29 in a leap year must not raise."""
@@ -122,68 +126,60 @@ class TestDeviceDatetime:
     def test_year_below_min_raises(self):
         """Any year below _MIN_YEAR must raise ValueError."""
         import pytest
+
         with pytest.raises(ValueError, match="implausible year"):
             _device_datetime(_MIN_YEAR - 2000 - 1, 1, 1, 0, 0, 0)
 
     def test_year_zero_raises(self):
         """year_byte=0 → year 2000 → rejected."""
-        import pytest
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="implausible year"):
             _device_datetime(0, 1, 1, 0, 0, 0)
 
     def test_year_14_raises(self):
         """year_byte=14 → year 2014 → rejected."""
-        import pytest
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="implausible year"):
             _device_datetime(14, 6, 15, 12, 0, 0)
 
     # --- Invalid dates (delegated to datetime constructor) ---
 
     def test_month_zero_raises(self):
-        import pytest
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="month must be in"):
             _device_datetime(24, 0, 1, 0, 0, 0)
 
     def test_month_13_raises(self):
-        import pytest
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="month must be in"):
             _device_datetime(24, 13, 1, 0, 0, 0)
 
     def test_day_zero_raises(self):
-        import pytest
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="day is out of range"):
             _device_datetime(24, 1, 0, 0, 0, 0)
 
     def test_day_32_raises(self):
-        import pytest
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="day is out of range"):
             _device_datetime(24, 1, 32, 0, 0, 0)
 
     def test_hour_24_raises(self):
-        import pytest
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="hour must be in"):
             _device_datetime(24, 1, 1, 24, 0, 0)
 
     def test_minute_60_raises(self):
-        import pytest
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="minute must be in"):
             _device_datetime(24, 1, 1, 0, 60, 0)
 
     def test_second_60_raises(self):
-        import pytest
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="second must be in"):
             _device_datetime(24, 1, 1, 0, 0, 60)
 
     def test_leap_day_in_non_leap_year_raises(self):
         """Feb 29 in a non-leap year must raise."""
-        import pytest
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="day is out of range"):
             _device_datetime(23, 2, 29, 0, 0, 0)  # 2023 is not a leap year
 
 
 # ---------------------------------------------------------------------------
 # parse_battery
 # ---------------------------------------------------------------------------
+
 
 class TestParseBattery:
     def test_valid_value(self):
@@ -211,6 +207,7 @@ class TestParseBattery:
 # parse_notification – routing
 # ---------------------------------------------------------------------------
 
+
 class TestParseNotificationRouting:
     def test_empty_returns_empty(self):
         assert parse_notification(b"") == {}
@@ -221,7 +218,7 @@ class TestParseNotificationRouting:
     def test_state_response_routed(self):
         # 03 03 + observed real payload (Oclean X, idle): 02 0e 4b 1d 00 00
         # byte 3 = 0x1d = 29 → battery
-        data = bytes([0x03, 0x03, 0x02, 0x0e, 0x4b, 0x1d, 0x00, 0x00])
+        data = bytes([0x03, 0x03, 0x02, 0x0E, 0x4B, 0x1D, 0x00, 0x00])
         result = parse_notification(data)
         assert result["battery"] == 29
         assert "is_brushing" not in result
@@ -259,46 +256,48 @@ class TestParseNotificationRouting:
 # _parse_state_response
 # ---------------------------------------------------------------------------
 
+
 class TestParseStateResponse:
     def test_battery_extracted_from_byte3(self):
         # Observed on Oclean X: byte 3 = battery %.
         # Payload after 0303 prefix: 02 0e XX battery 00 00
-        payload = bytes([0x02, 0x0e, 0x4b, 0x1d, 0x00, 0x00])  # battery = 0x1d = 29
+        payload = bytes([0x02, 0x0E, 0x4B, 0x1D, 0x00, 0x00])  # battery = 0x1d = 29
         result = _parse_state_response(payload)
         assert result["battery"] == 29
 
     def test_battery_extracted_various_values(self):
-        payload = bytes([0x02, 0x0e, 0x39, 0x19, 0x00, 0x00])  # battery = 0x19 = 25
+        payload = bytes([0x02, 0x0E, 0x39, 0x19, 0x00, 0x00])  # battery = 0x19 = 25
         assert _parse_state_response(payload)["battery"] == 25
 
     def test_battery_out_of_range_ignored(self):
         # Values > 100 are not a valid battery level
-        payload = bytes([0x02, 0x0e, 0x00, 0x80, 0x00, 0x00])  # 0x80 = 128 → skip
+        payload = bytes([0x02, 0x0E, 0x00, 0x80, 0x00, 0x00])  # 0x80 = 128 → skip
         result = _parse_state_response(payload)
         assert "battery" not in result
 
     def test_no_is_brushing_in_result(self):
         # byte 0 on Oclean X is always 0x02 regardless of brushing state → not reported
-        payload = bytes([0x02, 0x0e, 0x4b, 0x1d, 0x00, 0x00])
+        payload = bytes([0x02, 0x0E, 0x4B, 0x1D, 0x00, 0x00])
         result = _parse_state_response(payload)
         assert "is_brushing" not in result
 
     def test_short_payload_no_crash(self):
         # Payloads shorter than 4 bytes → no battery (byte 3 absent), no crash
         assert _parse_state_response(bytes([0x02])) == {}
-        assert _parse_state_response(bytes([0x02, 0x0e, 0x39])) == {}
+        assert _parse_state_response(bytes([0x02, 0x0E, 0x39])) == {}
 
     def test_empty_payload_returns_empty(self):
         assert _parse_state_response(b"") == {}
 
     def test_exact_4_bytes_extracts_battery(self):
-        payload = bytes([0x02, 0x0e, 0x38, 0x1b])  # battery = 0x1b = 27
+        payload = bytes([0x02, 0x0E, 0x38, 0x1B])  # battery = 0x1b = 27
         assert _parse_state_response(payload)["battery"] == 27
 
 
 # ---------------------------------------------------------------------------
 # _map_json_brush_data
 # ---------------------------------------------------------------------------
+
 
 class TestMapJsonBrushData:
     def test_camel_case_keys(self):
@@ -354,16 +353,20 @@ class TestMapJsonBrushData:
 # _parse_running_data_record  (new binary parser from C3340b1.m5348m1)
 # ---------------------------------------------------------------------------
 
-class TestParseRunningDataRecord:
 
+class TestParseRunningDataRecord:
     # --- Happy path ---
 
     def test_utc_plus8_timestamp(self):
         """Device in UTC+8: local 08:30 → UTC 00:30."""
         record = _make_record(
-            year=2024, month=3, day=15,
-            hour=8, minute=30, second=0,
-            tz_quarters=32,          # +32 × 15 min = +480 min = UTC+8
+            year=2024,
+            month=3,
+            day=15,
+            hour=8,
+            minute=30,
+            second=0,
+            tz_quarters=32,  # +32 × 15 min = +480 min = UTC+8
         )
         result = _parse_running_data_record(record)
         expected_ts = _expected_utc_ts(2024, 3, 15, 8, 30, 0, 32)
@@ -373,9 +376,13 @@ class TestParseRunningDataRecord:
         """Device in UTC-5: local 12:00 → UTC 17:00."""
         # -20 quarter-hours stored as 256 - 20 = 236
         record = _make_record(
-            year=2024, month=3, day=15,
-            hour=12, minute=0, second=0,
-            tz_quarters=236,         # 236 - 256 = -20 → -300 min = UTC-5
+            year=2024,
+            month=3,
+            day=15,
+            hour=12,
+            minute=0,
+            second=0,
+            tz_quarters=236,  # 236 - 256 = -20 → -300 min = UTC-5
         )
         result = _parse_running_data_record(record)
         expected_ts = _expected_utc_ts(2024, 3, 15, 12, 0, 0, 236)
@@ -384,8 +391,12 @@ class TestParseRunningDataRecord:
     def test_utc_zero_timezone(self):
         """Device in UTC: no offset, timestamps are identical."""
         record = _make_record(
-            year=2024, month=1, day=1,
-            hour=0, minute=0, second=0,
+            year=2024,
+            month=1,
+            day=1,
+            hour=0,
+            minute=0,
+            second=0,
             tz_quarters=0,
         )
         result = _parse_running_data_record(record)
@@ -500,11 +511,11 @@ class TestParseRunningDataRecord:
 # _parse_info_response  (wraps _parse_running_data_record)
 # ---------------------------------------------------------------------------
 
-class TestParseInfoResponse:
 
+class TestParseInfoResponse:
     def test_valid_record_returns_data(self):
         """A full 18-byte payload is parsed into brush data."""
-        payload = _make_record(pressure_raw=300)   # → 1.0
+        payload = _make_record(pressure_raw=300)  # → 1.0
         result = _parse_info_response(payload)
         assert result["last_brush_pressure"] == 1.0
         assert "last_brush_time" in result
@@ -530,8 +541,8 @@ class TestParseInfoResponse:
 # parse_notification → INFO routing (end-to-end through the full chain)
 # ---------------------------------------------------------------------------
 
-class TestParseNotificationInfoRouting:
 
+class TestParseNotificationInfoRouting:
     def test_info_notification_with_valid_record(self):
         """03 07 header + valid 18-byte record → brush data extracted."""
         payload = RESP_INFO + _make_record(pressure_raw=450)
@@ -553,10 +564,14 @@ class TestParseNotificationInfoRouting:
 
     def test_info_notification_utc_timestamp_correctness(self):
         """Full notification round-trip preserves UTC conversion."""
-        tz_quarters = 32   # UTC+8
+        tz_quarters = 32  # UTC+8
         rec = _make_record(
-            year=2025, month=6, day=21,
-            hour=9, minute=0, second=0,
+            year=2025,
+            month=6,
+            day=21,
+            hour=9,
+            minute=0,
+            second=0,
             tz_quarters=tz_quarters,
             pressure_raw=300,
         )
@@ -568,6 +583,7 @@ class TestParseNotificationInfoRouting:
 # ---------------------------------------------------------------------------
 # Helpers for Type-1 (0307) records
 # ---------------------------------------------------------------------------
+
 
 def _make_t1_record(
     *,
@@ -592,7 +608,7 @@ def _make_t1_record(
       extra     : bytes 14+ (validDuration, pressureArea, etc.)
     """
     header = bytearray(14)
-    header[0:5] = b"\x2a\x42\x23\x00\x00"   # magic "*B#" + session count
+    header[0:5] = b"\x2a\x42\x23\x00\x00"  # magic "*B#" + session count
     header[5] = year - 2000
     header[6] = month
     header[7] = day
@@ -608,6 +624,7 @@ def _make_t1_record(
 def _expected_t1_ts(year, month, day, hour, minute, second) -> int:
     """Expected unix timestamp from Type-1 record (device local time → system local tz)."""
     import time
+
     return int(time.mktime(datetime.datetime(year, month, day, hour, minute, second).timetuple()))
 
 
@@ -615,8 +632,8 @@ def _expected_t1_ts(year, month, day, hour, minute, second) -> int:
 # _parse_info_t1_response  (Type-1 / 0307 running-data)
 # ---------------------------------------------------------------------------
 
-class TestParseInfoT1Response:
 
+class TestParseInfoT1Response:
     # --- Real observed payloads (ground truth) ---
 
     def test_real_session_7s(self):
@@ -677,11 +694,11 @@ class TestParseInfoT1Response:
         """Minimum valid payload: 12 bytes (through pNum at byte 11)."""
         payload = bytearray(12)
         payload[0:5] = b"\x2a\x42\x23\x00\x00"
-        payload[5] = 26   # year - 2000
-        payload[6] = 2    # month
-        payload[7] = 21   # day
-        payload[8] = 16   # hour
-        payload[9] = 25   # minute
+        payload[5] = 26  # year - 2000
+        payload[6] = 2  # month
+        payload[7] = 21  # day
+        payload[8] = 16  # hour
+        payload[9] = 25  # minute
         payload[10] = 31  # second
         payload[11] = 42  # pNum
         result = _parse_info_t1_response(bytes(payload))
@@ -703,8 +720,8 @@ class TestParseInfoT1Response:
 # parse_notification → Type-1 INFO routing (0307)
 # ---------------------------------------------------------------------------
 
-class TestParseNotificationInfoT1Routing:
 
+class TestParseNotificationInfoT1Routing:
     def test_0307_real_session_2min(self):
         """Real 2-min session: timestamp, pNum=0, duration=120 s extracted."""
         raw = bytes.fromhex("03072a422300001a0215102c1c00007800780201")
@@ -728,8 +745,7 @@ class TestParseNotificationInfoT1Routing:
         assert parse_notification(payload) == {}
 
     def test_0307_valid_constructed_record(self):
-        rec = _make_t1_record(year=2026, month=1, day=10,
-                               hour=7, minute=30, second=0, pnum=76, duration=120)
+        rec = _make_t1_record(year=2026, month=1, day=10, hour=7, minute=30, second=0, pnum=76, duration=120)
         result = parse_notification(RESP_INFO_T1 + rec)
         assert result["last_brush_pnum"] == 76
         assert result["last_brush_duration"] == 120
@@ -755,6 +771,7 @@ class TestParseNotificationInfoT1Routing:
 # Helper: build an extended 32-byte running-data record (AbstractC0002b.m37y)
 # ---------------------------------------------------------------------------
 
+
 def _make_extended_record(
     *,
     year: int = 2026,
@@ -767,7 +784,7 @@ def _make_extended_record(
     duration: int = 120,
     valid_duration: int = 110,
     pressure_zones: tuple = (50, 50, 50, 50, 50),  # 5 intermediate zone values (bytes 13-17)
-    tz_quarters: int = 4,                           # +4 × 15 min = UTC+1
+    tz_quarters: int = 4,  # +4 × 15 min = UTC+1
     area_pressures: tuple = (100, 80, 90, 70, 110, 85, 95, 60),  # 8 tooth area bytes 20-27
     score: int = 85,
     scheme_type: int = 2,
@@ -778,8 +795,8 @@ def _make_extended_record(
     """Build a minimal 32-byte extended running-data record (+ optional extra bytes)."""
     record_length = 32 + len(extra)
     buf = bytearray(32)
-    buf[0] = (record_length >> 8) & 0xFF   # high byte of BE uint16 (always 0 for BLE MTU < 256)
-    buf[1] = record_length & 0xFF           # low byte = actual length
+    buf[0] = (record_length >> 8) & 0xFF  # high byte of BE uint16 (always 0 for BLE MTU < 256)
+    buf[1] = record_length & 0xFF  # low byte = actual length
     buf[2] = year - 2000
     buf[3] = month
     buf[4] = day
@@ -787,14 +804,14 @@ def _make_extended_record(
     buf[6] = minute
     buf[7] = second
     buf[8] = p_num
-    buf[9]  = (duration >> 8) & 0xFF
+    buf[9] = (duration >> 8) & 0xFF
     buf[10] = duration & 0xFF
     buf[11] = (valid_duration >> 8) & 0xFF
     buf[12] = valid_duration & 0xFF
-    buf[13:18] = bytes(pressure_zones)      # 5 intermediate pressure zone values
-    buf[18] = 0                             # RESERVED
-    buf[19] = tz_quarters % 256             # signed stored as unsigned byte
-    buf[20:28] = bytes(area_pressures)      # 8 tooth area pressure values
+    buf[13:18] = bytes(pressure_zones)  # 5 intermediate pressure zone values
+    buf[18] = 0  # RESERVED
+    buf[19] = tz_quarters % 256  # signed stored as unsigned byte
+    buf[20:28] = bytes(area_pressures)  # 8 tooth area pressure values
     buf[28] = score
     buf[29] = scheme_type
     buf[30] = bus_brushing
@@ -806,8 +823,8 @@ def _make_extended_record(
 # _parse_extended_running_data_record  (new – AbstractC0002b.m37y format)
 # ---------------------------------------------------------------------------
 
-class TestParseExtendedRunningDataRecord:
 
+class TestParseExtendedRunningDataRecord:
     # --- Field extraction ---
 
     def test_score_extracted(self):
@@ -842,8 +859,12 @@ class TestParseExtendedRunningDataRecord:
     def test_utc_conversion_utcplus1(self):
         """tz_quarters=4 (UTC+1): device 20:00 → UTC 19:00."""
         rec = _make_extended_record(
-            year=2026, month=2, day=21,
-            hour=20, minute=0, second=0,
+            year=2026,
+            month=2,
+            day=21,
+            hour=20,
+            minute=0,
+            second=0,
             tz_quarters=4,
         )
         expected = _expected_utc_ts(2026, 2, 21, 20, 0, 0, 4)
@@ -852,8 +873,12 @@ class TestParseExtendedRunningDataRecord:
     def test_utc_conversion_utcplus8(self):
         """tz_quarters=32 (UTC+8): device 08:30 → UTC 00:30."""
         rec = _make_extended_record(
-            year=2026, month=1, day=1,
-            hour=8, minute=30, second=0,
+            year=2026,
+            month=1,
+            day=1,
+            hour=8,
+            minute=30,
+            second=0,
             tz_quarters=32,
         )
         expected = _expected_utc_ts(2026, 1, 1, 8, 30, 0, 32)
@@ -862,8 +887,12 @@ class TestParseExtendedRunningDataRecord:
     def test_utc_conversion_negative_offset(self):
         """tz_quarters=236 (= -20, UTC-5): device 12:00 → UTC 17:00."""
         rec = _make_extended_record(
-            year=2026, month=6, day=15,
-            hour=12, minute=0, second=0,
+            year=2026,
+            month=6,
+            day=15,
+            hour=12,
+            minute=0,
+            second=0,
             tz_quarters=236,
         )
         expected = _expected_utc_ts(2026, 6, 15, 12, 0, 0, 236)
@@ -893,14 +922,14 @@ class TestParseExtendedRunningDataRecord:
         pressures = (1, 2, 3, 4, 5, 6, 7, 8)  # each area gets its BrushAreaType value
         rec = _make_extended_record(area_pressures=pressures)
         areas = _parse_extended_running_data_record(rec)["last_brush_areas"]
-        assert areas["upper_left_out"] == 1     # AREA_LIFT_UP_OUT   (value 1)
-        assert areas["upper_left_in"]  == 2     # AREA_LIFT_UP_IN    (value 2)
-        assert areas["lower_left_out"] == 3     # AREA_LIFT_DOWN_OUT (value 3)
-        assert areas["lower_left_in"]  == 4     # AREA_LIFT_DOWN_IN  (value 4)
-        assert areas["upper_right_out"] == 5    # AREA_RIGHT_UP_OUT  (value 5)
-        assert areas["upper_right_in"]  == 6    # AREA_RIGHT_UP_IN   (value 6)
-        assert areas["lower_right_out"] == 7    # AREA_RIGHT_DOWN_OUT(value 7)
-        assert areas["lower_right_in"]  == 8    # AREA_RIGHT_DOWN_IN (value 8)
+        assert areas["upper_left_out"] == 1  # AREA_LIFT_UP_OUT   (value 1)
+        assert areas["upper_left_in"] == 2  # AREA_LIFT_UP_IN    (value 2)
+        assert areas["lower_left_out"] == 3  # AREA_LIFT_DOWN_OUT (value 3)
+        assert areas["lower_left_in"] == 4  # AREA_LIFT_DOWN_IN  (value 4)
+        assert areas["upper_right_out"] == 5  # AREA_RIGHT_UP_OUT  (value 5)
+        assert areas["upper_right_in"] == 6  # AREA_RIGHT_UP_IN   (value 6)
+        assert areas["lower_right_out"] == 7  # AREA_RIGHT_DOWN_OUT(value 7)
+        assert areas["lower_right_in"] == 8  # AREA_RIGHT_DOWN_IN (value 8)
 
     def test_area_all_zones_zero_still_returns_dict(self):
         """All-zero areas → dict present with 8 zero values."""
@@ -975,8 +1004,8 @@ class TestParseExtendedRunningDataRecord:
 # _parse_info_response  – format auto-detection (extended vs. simple)
 # ---------------------------------------------------------------------------
 
-class TestParseInfoResponseFormatDetection:
 
+class TestParseInfoResponseFormatDetection:
     def test_extended_format_detected_and_parsed(self):
         """payload[0]==0, payload[1]>=32 → extended format with score/areas/pNum."""
         payload = _make_extended_record(score=72, p_num=5, duration=90)
@@ -1007,7 +1036,7 @@ class TestParseInfoResponseFormatDetection:
         # Manually craft a payload that claims to be 32 bytes but is only 20
         buf = bytearray(20)
         buf[0] = 0
-        buf[1] = 32   # claims 32 bytes but len=20 → 20 >= 32 is False
+        buf[1] = 32  # claims 32 bytes but len=20 → 20 >= 32 is False
         result = _parse_info_response(bytes(buf))
         # Falls through to simple format; bytes(20) has year=0→2000, month=0 → invalid → {}
         assert result == {}
@@ -1040,8 +1069,8 @@ class TestParseInfoResponseFormatDetection:
 # _parse_k3guide_response  (new – 0340 real-time zone guidance)
 # ---------------------------------------------------------------------------
 
-class TestParseK3GuideResponse:
 
+class TestParseK3GuideResponse:
     def test_valid_6_bytes_returns_empty_dict(self):
         """K3GUIDE is real-time only – must not persist any sensor state."""
         payload = bytes([100, 80, 90, 70, 3, 1])
@@ -1084,8 +1113,8 @@ class TestParseK3GuideResponse:
 # parse_notification → K3GUIDE routing (0340)
 # ---------------------------------------------------------------------------
 
-class TestParseNotificationK3GuideRouting:
 
+class TestParseNotificationK3GuideRouting:
     def test_0340_prefix_returns_empty(self):
         """0340 notifications are real-time only and must not return sensor state."""
         data = RESP_K3GUIDE + bytes([100, 80, 90, 70, 3, 1])
@@ -1113,6 +1142,7 @@ class TestParseNotificationK3GuideRouting:
 # ---------------------------------------------------------------------------
 # Type-1 score notification (0000)
 # ---------------------------------------------------------------------------
+
 
 class TestParseScoreT1Response:
     # Observed payload from Oclean X log 2026-02-24: score=95, rest logged only
@@ -1160,6 +1190,7 @@ class TestParseScoreT1Response:
 # Type-1 session-metadata notification (5a00) – logging only
 # ---------------------------------------------------------------------------
 
+
 class TestParseSessionMetaT1Response:
     # Observed payload: Feb 24 2026 00:24:19, duration 150 s
     _REAL_PAYLOAD = bytes.fromhex("ffffffffffffff1a02180018134c00960096")
@@ -1201,6 +1232,7 @@ class TestParseSessionMetaT1Response:
 # Type-1 brush-areas notification (2604)
 # ---------------------------------------------------------------------------
 
+
 class TestParseBrushAreasT1Response:
     # Observed payload from Oclean X log 2026-02-24
     _REAL_PAYLOAD = bytes.fromhex("390000000f0018181a1a0710071009101007")
@@ -1210,14 +1242,14 @@ class TestParseBrushAreasT1Response:
         assert "last_brush_areas" in result
         areas = result["last_brush_areas"]
         assert len(areas) == 8
-        assert areas["upper_left_out"] == 0x18   # 24
-        assert areas["upper_left_in"] == 0x18    # 24
-        assert areas["lower_left_out"] == 0x1a   # 26
-        assert areas["lower_left_in"] == 0x1a    # 26
+        assert areas["upper_left_out"] == 0x18  # 24
+        assert areas["upper_left_in"] == 0x18  # 24
+        assert areas["lower_left_out"] == 0x1A  # 26
+        assert areas["lower_left_in"] == 0x1A  # 26
         assert areas["upper_right_out"] == 0x07  # 7
-        assert areas["upper_right_in"] == 0x10   # 16
+        assert areas["upper_right_in"] == 0x10  # 16
         assert areas["lower_right_out"] == 0x07  # 7
-        assert areas["lower_right_in"] == 0x10   # 16
+        assert areas["lower_right_in"] == 0x10  # 16
 
     def test_real_payload_pressure(self):
         result = _parse_brush_areas_t1_response(self._REAL_PAYLOAD)
@@ -1252,3 +1284,76 @@ class TestParseBrushAreasT1Response:
         result = parse_notification(data)
         assert "last_brush_areas" in result
         assert result["last_brush_areas"]["upper_left_out"] == 24
+
+
+# ---------------------------------------------------------------------------
+# _parse_info_response – extended format detected but parsing fails (lines 198-199)
+# ---------------------------------------------------------------------------
+
+
+class TestParseInfoResponseExtendedFail:
+    """Extended format header detected, but _parse_extended_running_data_record returns {}."""
+
+    def test_extended_format_invalid_date_returns_empty(self):
+        # payload[0]=0, payload[1]=32, len==32 → extended format detected.
+        # data[2] (year_byte) = 0 → year 2000 < _MIN_YEAR → ValueError inside
+        # _parse_extended_running_data_record → returns {} → hits lines 198-199.
+        payload = bytes([0, 32, 0, 1, 1, 0, 0, 0]) + bytes(24)
+        assert len(payload) == 32
+        result = _parse_info_response(payload)
+        assert result == {}
+
+    def test_extended_format_fail_via_parse_notification(self):
+        payload = RESP_INFO + bytes([0, 32, 0, 1, 1, 0, 0, 0]) + bytes(24)
+        result = parse_notification(payload)
+        assert result == {}
+
+    def test_extended_format_not_triggered_for_normal_record(self):
+        # payload[0] != 0 → simple path, not extended
+        payload = _make_record()
+        result = _parse_info_response(payload)
+        assert "last_brush_time" in result
+
+
+# ---------------------------------------------------------------------------
+# _parse_session_meta_t1_response – except path (lines 529-531)
+# ---------------------------------------------------------------------------
+
+
+class TestParseSessionMetaT1ExceptPath:
+    """except branch when _device_datetime raises ValueError on invalid date."""
+
+    def test_zero_year_byte_returns_empty(self):
+        # 7 × 0xFF + year_byte=0 at byte 7 → year 2000 < _MIN_YEAR → ValueError
+        payload = bytes([0xFF] * 7) + bytes([0, 1, 1, 0, 0, 0]) + bytes(5)
+        assert len(payload) == 18
+        result = _parse_session_meta_t1_response(payload)
+        assert result == {}
+
+    def test_invalid_month_returns_empty(self):
+        # year=26 (→ 2026) but month=13 → ValueError from datetime.date
+        payload = bytes([0xFF] * 7) + bytes([26, 13, 1, 0, 0, 0]) + bytes(5)
+        result = _parse_session_meta_t1_response(payload)
+        assert result == {}
+
+
+# ---------------------------------------------------------------------------
+# _parse_0314_response – always returns {} but logs each byte (lines 574-581)
+# ---------------------------------------------------------------------------
+
+
+class TestParse0314Response:
+    """_parse_0314_response logs every byte and always returns {}."""
+
+    def test_non_empty_payload_returns_empty(self):
+        result = _parse_0314_response(bytes([0x01, 0x02, 0x03]))
+        assert result == {}
+
+    def test_empty_payload_returns_empty(self):
+        result = _parse_0314_response(b"")
+        assert result == {}
+
+    def test_routed_via_parse_notification(self):
+        payload = RESP_EXTENDED_T1 + bytes([0x01, 0x02, 0x03])
+        result = parse_notification(payload)
+        assert result == {}

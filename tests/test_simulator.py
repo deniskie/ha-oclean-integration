@@ -5,27 +5,27 @@ to sensor native_value, without a real device or a full HA instance.
 
 Each test class covers one device scenario or sensor entity type.
 """
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-# conftest.py stubs HA + bleak before these imports
-from custom_components.oclean_ble.coordinator import OcleanCoordinator, _NOTIFY_CHARS
 from custom_components.oclean_ble.const import (
     DATA_BATTERY,
     DATA_LAST_BRUSH_AREAS,
     DATA_LAST_BRUSH_DURATION,
-    DATA_LAST_BRUSH_PRESSURE,
     DATA_LAST_BRUSH_PNUM,
+    DATA_LAST_BRUSH_PRESSURE,
     DATA_LAST_BRUSH_SCORE,
     DATA_LAST_BRUSH_TIME,
 )
+
+# conftest.py stubs HA + bleak before these imports
+from custom_components.oclean_ble.coordinator import _NOTIFY_CHARS, OcleanCoordinator
 from custom_components.oclean_ble.models import OcleanDeviceData
-
 from tests.simulator import OcleanDeviceSimulator
-
 
 # ---------------------------------------------------------------------------
 # Shared helpers
@@ -62,18 +62,20 @@ async def _run_poll(coordinator: OcleanCoordinator, client: AsyncMock) -> dict:
     - _paginate_sessions: no-op to avoid the 2-second asyncio.wait_for timeout
     - _import_new_sessions: no-op (HA recorder not available in unit tests)
     """
-    with patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock, \
-         patch(
-             "custom_components.oclean_ble.coordinator.establish_connection",
-             new_callable=AsyncMock,
-             return_value=client,
-         ), \
-         patch(
-             "custom_components.oclean_ble.coordinator.asyncio.sleep",
-             new_callable=AsyncMock,
-         ), \
-         patch.object(coordinator, "_paginate_sessions", new_callable=AsyncMock), \
-         patch.object(coordinator, "_import_new_sessions", new_callable=AsyncMock):
+    with (
+        patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock,
+        patch(
+            "custom_components.oclean_ble.coordinator.establish_connection",
+            new_callable=AsyncMock,
+            return_value=client,
+        ),
+        patch(
+            "custom_components.oclean_ble.coordinator.asyncio.sleep",
+            new_callable=AsyncMock,
+        ),
+        patch.object(coordinator, "_paginate_sessions", new_callable=AsyncMock),
+        patch("custom_components.oclean_ble.coordinator.import_new_sessions", new_callable=AsyncMock, return_value=0),
+    ):
         bt_mock.async_last_service_info.return_value = _make_service_info()
         return await coordinator._poll_device()
 
@@ -212,21 +214,24 @@ class TestOcleanXScenarios:
 
         captured: list = []
 
-        async def fake_import(sessions):
+        async def fake_import(_hass, _mac_slug, _device_name, sessions, last_ts):
             captured.extend(sessions)
+            return last_ts
 
-        with patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock, \
-             patch(
-                 "custom_components.oclean_ble.coordinator.establish_connection",
-                 new_callable=AsyncMock,
-                 return_value=client,
-             ), \
-             patch(
-                 "custom_components.oclean_ble.coordinator.asyncio.sleep",
-                 new_callable=AsyncMock,
-             ), \
-             patch.object(coordinator, "_paginate_sessions", new_callable=AsyncMock), \
-             patch.object(coordinator, "_import_new_sessions", side_effect=fake_import):
+        with (
+            patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock,
+            patch(
+                "custom_components.oclean_ble.coordinator.establish_connection",
+                new_callable=AsyncMock,
+                return_value=client,
+            ),
+            patch(
+                "custom_components.oclean_ble.coordinator.asyncio.sleep",
+                new_callable=AsyncMock,
+            ),
+            patch.object(coordinator, "_paginate_sessions", new_callable=AsyncMock),
+            patch("custom_components.oclean_ble.coordinator.import_new_sessions", side_effect=fake_import),
+        ):
             bt_mock.async_last_service_info.return_value = _make_service_info()
             await coordinator._poll_device()
 
@@ -256,8 +261,15 @@ class TestOcleanXProScenarios:
             OcleanDeviceSimulator()
             .with_battery(65)
             .add_0308_extended_session(
-                2026, 2, 24, 7, 30, 0,
-                pnum=42, duration=120, score=88,
+                2026,
+                2,
+                24,
+                7,
+                30,
+                0,
+                pnum=42,
+                duration=120,
+                score=88,
                 area_pressures=areas,
             )
             .build_client()
@@ -280,30 +292,40 @@ class TestOcleanXProScenarios:
         client = (
             OcleanDeviceSimulator()
             .add_0308_extended_session(
-                2026, 2, 24, 7, 30, 0,
-                pnum=42, duration=120, score=42,   # score from 0308 = 42
+                2026,
+                2,
+                24,
+                7,
+                30,
+                0,
+                pnum=42,
+                duration=120,
+                score=42,  # score from 0308 = 42
             )
-            .add_score(99)   # 0000 tries to push score=99 – must be ignored
+            .add_score(99)  # 0000 tries to push score=99 – must be ignored
             .build_client()
         )
 
         captured: list = []
 
-        async def fake_import(sessions):
+        async def fake_import(_hass, _mac_slug, _device_name, sessions, last_ts):
             captured.extend(sessions)
+            return last_ts
 
-        with patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock, \
-             patch(
-                 "custom_components.oclean_ble.coordinator.establish_connection",
-                 new_callable=AsyncMock,
-                 return_value=client,
-             ), \
-             patch(
-                 "custom_components.oclean_ble.coordinator.asyncio.sleep",
-                 new_callable=AsyncMock,
-             ), \
-             patch.object(coordinator, "_paginate_sessions", new_callable=AsyncMock), \
-             patch.object(coordinator, "_import_new_sessions", side_effect=fake_import):
+        with (
+            patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock,
+            patch(
+                "custom_components.oclean_ble.coordinator.establish_connection",
+                new_callable=AsyncMock,
+                return_value=client,
+            ),
+            patch(
+                "custom_components.oclean_ble.coordinator.asyncio.sleep",
+                new_callable=AsyncMock,
+            ),
+            patch.object(coordinator, "_paginate_sessions", new_callable=AsyncMock),
+            patch("custom_components.oclean_ble.coordinator.import_new_sessions", side_effect=fake_import),
+        ):
             bt_mock.async_last_service_info.return_value = _make_service_info()
             await coordinator._poll_device()
 
@@ -320,8 +342,15 @@ class TestOcleanXProScenarios:
         client = (
             OcleanDeviceSimulator()
             .add_0308_extended_session(
-                2026, 2, 24, 7, 30, 0,
-                pnum=1, duration=90, score=127,  # out-of-range raw value
+                2026,
+                2,
+                24,
+                7,
+                30,
+                0,
+                pnum=1,
+                duration=90,
+                score=127,  # out-of-range raw value
             )
             .build_client()
         )
@@ -342,8 +371,15 @@ class TestOcleanXProScenarios:
             return (
                 OcleanDeviceSimulator()
                 .add_0308_extended_session(
-                    2026, 2, 24, 7, 30, 0,
-                    pnum=1, duration=90, score=80,
+                    2026,
+                    2,
+                    24,
+                    7,
+                    30,
+                    0,
+                    pnum=1,
+                    duration=90,
+                    score=80,
                     tz_offset_quarters=tz,
                 )
                 .build_client()
@@ -378,7 +414,7 @@ class TestSensorStateMapping:
         return coord
 
     def test_score_sensor_native_value(self):
-        from custom_components.oclean_ble.sensor import OcleanSensor, SENSOR_DESCRIPTIONS
+        from custom_components.oclean_ble.sensor import SENSOR_DESCRIPTIONS, OcleanSensor
 
         data = OcleanDeviceData(last_brush_score=88)
         coord = self._make_sensor_coordinator(data)
@@ -388,7 +424,7 @@ class TestSensorStateMapping:
         assert sensor.native_value == 88
 
     def test_duration_sensor_native_value(self):
-        from custom_components.oclean_ble.sensor import OcleanSensor, SENSOR_DESCRIPTIONS
+        from custom_components.oclean_ble.sensor import SENSOR_DESCRIPTIONS, OcleanSensor
 
         data = OcleanDeviceData(last_brush_duration=150)
         coord = self._make_sensor_coordinator(data)
@@ -399,7 +435,8 @@ class TestSensorStateMapping:
 
     def test_timestamp_sensor_returns_datetime(self):
         from datetime import datetime
-        from custom_components.oclean_ble.sensor import OcleanSensor, SENSOR_DESCRIPTIONS
+
+        from custom_components.oclean_ble.sensor import SENSOR_DESCRIPTIONS, OcleanSensor
 
         ts = 1740145339  # 2026-02-21 ~15:42 UTC
         data = OcleanDeviceData(last_brush_time=ts)
@@ -412,7 +449,7 @@ class TestSensorStateMapping:
         assert result.timestamp() == pytest.approx(ts, abs=1)
 
     def test_battery_sensor_native_value(self):
-        from custom_components.oclean_ble.sensor import OcleanSensor, SENSOR_DESCRIPTIONS
+        from custom_components.oclean_ble.sensor import SENSOR_DESCRIPTIONS, OcleanSensor
 
         data = OcleanDeviceData(battery=77)
         coord = self._make_sensor_coordinator(data)
@@ -422,8 +459,8 @@ class TestSensorStateMapping:
         assert sensor.native_value == 77
 
     def test_areas_sensor_counts_nonzero_zones(self):
-        from custom_components.oclean_ble.sensor import OcleanBrushAreasSensor
         from custom_components.oclean_ble.const import TOOTH_AREA_NAMES
+        from custom_components.oclean_ble.sensor import OcleanBrushAreasSensor
 
         areas = {name: (10 if i < 5 else 0) for i, name in enumerate(TOOTH_AREA_NAMES)}
         data = OcleanDeviceData(last_brush_areas=areas)
@@ -433,8 +470,8 @@ class TestSensorStateMapping:
         assert sensor.native_value == 5  # 5 zones with pressure > 0
 
     def test_areas_sensor_extra_attributes_are_per_zone_dict(self):
-        from custom_components.oclean_ble.sensor import OcleanBrushAreasSensor
         from custom_components.oclean_ble.const import TOOTH_AREA_NAMES
+        from custom_components.oclean_ble.sensor import OcleanBrushAreasSensor
 
         areas = {name: i * 10 for i, name in enumerate(TOOTH_AREA_NAMES)}
         data = OcleanDeviceData(last_brush_areas=areas)
@@ -446,8 +483,8 @@ class TestSensorStateMapping:
         assert set(attrs.keys()) == set(TOOTH_AREA_NAMES)
 
     def test_scheme_sensor_returns_known_name(self):
-        from custom_components.oclean_ble.sensor import OcleanSchemeSensor
         from custom_components.oclean_ble.const import SCHEME_NAMES
+        from custom_components.oclean_ble.sensor import OcleanSchemeSensor
 
         pnum = next(iter(SCHEME_NAMES))
         expected_name = SCHEME_NAMES[pnum]
@@ -458,8 +495,8 @@ class TestSensorStateMapping:
         assert sensor.native_value == expected_name
 
     def test_scheme_sensor_returns_pnum_string_for_unknown(self):
-        from custom_components.oclean_ble.sensor import OcleanSchemeSensor
         from custom_components.oclean_ble.const import SCHEME_NAMES
+        from custom_components.oclean_ble.sensor import OcleanSchemeSensor
 
         pnum = 9999
         assert pnum not in SCHEME_NAMES
@@ -471,7 +508,7 @@ class TestSensorStateMapping:
 
     def test_score_sensor_unavailable_when_session_received_but_no_score(self):
         """Session-derived field: available=False when time is set but score is None."""
-        from custom_components.oclean_ble.sensor import OcleanSensor, SENSOR_DESCRIPTIONS
+        from custom_components.oclean_ble.sensor import SENSOR_DESCRIPTIONS, OcleanSensor
 
         data = OcleanDeviceData(last_brush_time=1740145339, last_brush_score=None)
         coord = self._make_sensor_coordinator(data)
@@ -481,7 +518,7 @@ class TestSensorStateMapping:
         assert sensor.available is False
 
     def test_battery_sensor_always_available_when_data_present(self):
-        from custom_components.oclean_ble.sensor import OcleanSensor, SENSOR_DESCRIPTIONS
+        from custom_components.oclean_ble.sensor import SENSOR_DESCRIPTIONS, OcleanSensor
 
         data = OcleanDeviceData(battery=77)
         coord = self._make_sensor_coordinator(data)
@@ -491,7 +528,7 @@ class TestSensorStateMapping:
         assert sensor.available is True
 
     def test_score_sensor_none_when_coordinator_data_is_none(self):
-        from custom_components.oclean_ble.sensor import OcleanSensor, SENSOR_DESCRIPTIONS
+        from custom_components.oclean_ble.sensor import SENSOR_DESCRIPTIONS, OcleanSensor
 
         coord = MagicMock()
         coord.data = None

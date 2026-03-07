@@ -1,4 +1,5 @@
 """Parser for Oclean BLE notification data."""
+
 from __future__ import annotations
 
 import calendar
@@ -29,6 +30,10 @@ _LOGGER = logging.getLogger(__name__)
 
 # Earliest plausible session year for any Oclean device.
 _MIN_YEAR = 2015
+# Minimum payload sizes for each binary record format.
+_RUNNING_DATA_MIN_RECORD_SIZE = 18  # 0308 simple format (m5348m1)
+_T1_MIN_SIZE = 12  # 0307 Type-1 push (need through byte 11 for pNum)
+_EXT_MIN_SIZE = 32  # 0308 extended format (AbstractC0002b.m37y)
 
 
 def _parse_signed_byte(value: int) -> int:
@@ -55,9 +60,7 @@ def _build_area_stats(
     Returns:
         (area_dict, zones_cleaned, avg_pressure)
     """
-    area_dict: dict[str, int] = {
-        name: int(area_pressures[i]) for i, name in enumerate(TOOTH_AREA_NAMES)
-    }
+    area_dict: dict[str, int] = {name: int(area_pressures[i]) for i, name in enumerate(TOOTH_AREA_NAMES)}
     zones_cleaned = sum(1 for v in area_pressures if v > 0)
     avg_pressure = round(sum(area_pressures) / len(area_pressures))
     return area_dict, zones_cleaned, avg_pressure
@@ -146,18 +149,17 @@ def _parse_state_response(payload: bytes) -> dict[str, Any]:
 
     # Log unknown bytes to help identify their purpose over time.
     # Enable via:  logger: logs: custom_components.oclean_ble: debug
-    if len(payload) >= 1:
-        _LOGGER.debug(
-            "Oclean STATE unknown bytes –"
-            " b0=0x%02x (status? always 0x02 on OcleanX)"
-            " b1=0x%02x (unknown, varies)"
-            " b2=0x%02x (unknown, varies)"
-            " b4-5=%s (unknown, always 0x0000 so far)",
-            payload[0],
-            payload[1] if len(payload) > 1 else -1,
-            payload[2] if len(payload) > 2 else -1,
-            payload[4:6].hex() if len(payload) >= 6 else "n/a",
-        )
+    _LOGGER.debug(
+        "Oclean STATE unknown bytes –"
+        " b0=0x%02x (status? always 0x02 on OcleanX)"
+        " b1=0x%02x (unknown, varies)"
+        " b2=0x%02x (unknown, varies)"
+        " b4-5=%s (unknown, always 0x0000 so far)",
+        payload[0],
+        payload[1] if len(payload) > 1 else -1,
+        payload[2] if len(payload) > 2 else -1,
+        payload[4:6].hex() if len(payload) >= 6 else "n/a",
+    )
 
     return result
 
@@ -182,12 +184,7 @@ def _parse_info_response(payload: bytes) -> dict[str, Any]:
     # Extended format: byte 0 is the high byte of a BE uint16 record-length field.
     # For BLE payloads (MTU < 256 bytes) this is always 0; byte 1 is the actual length.
     # The simple format has byte 0 = year-2000 which is ≥ 24 for any current date.
-    if (
-        len(payload) >= 2
-        and payload[0] == 0
-        and payload[1] >= 32
-        and len(payload) >= payload[1]
-    ):
+    if len(payload) >= 2 and payload[0] == 0 and payload[1] >= 32 and len(payload) >= payload[1]:
         # Extended format confirmed – do NOT fall back to simple parser on failure.
         # Simple parser would misread the length header as year=2000, producing a
         # plausible-but-wrong timestamp while all richer fields remain empty.
@@ -243,7 +240,6 @@ def _parse_info_t1_response(payload: bytes) -> dict[str, Any]:
     """
     _LOGGER.debug("Oclean Type-1 INFO response raw: %s", payload.hex())
 
-    _T1_MIN_SIZE = 12  # need at least through byte 11 (pNum)
     if len(payload) < _T1_MIN_SIZE:
         _LOGGER.debug("Oclean Type-1 INFO: payload too short (%d bytes)", len(payload))
         return {}
@@ -264,9 +260,7 @@ def _parse_info_t1_response(payload: bytes) -> dict[str, Any]:
 
     try:
         # bytes 5-10: device local timestamp (confirmed)
-        device_dt = _device_datetime(
-            payload[5], payload[6], payload[7], payload[8], payload[9], payload[10]
-        )
+        device_dt = _device_datetime(payload[5], payload[6], payload[7], payload[8], payload[9], payload[10])
         # time.mktime() interprets the naive datetime in the system local timezone
         # (= HA configured timezone on HA OS) and returns a correct UTC Unix timestamp.
         timestamp_s = int(time.mktime(device_dt.timetuple()))
@@ -292,11 +286,12 @@ def _parse_info_t1_response(payload: bytes) -> dict[str, Any]:
         # Log remaining bytes for ongoing protocol analysis.
         if len(payload) >= 18:
             _LOGGER.debug(
-                "Oclean 0307 extra bytes –"
-                " validDuration=0x%02x%02x=%d s"
-                " pressureArea[0]=0x%02x pressureArea[1]=0x%02x",
-                payload[14], payload[15], (payload[14] << 8) | payload[15],
-                payload[16], payload[17],
+                "Oclean 0307 extra bytes – validDuration=0x%02x%02x=%d s pressureArea[0]=0x%02x pressureArea[1]=0x%02x",
+                payload[14],
+                payload[15],
+                (payload[14] << 8) | payload[15],
+                payload[16],
+                payload[17],
             )
 
         return result
@@ -304,10 +299,6 @@ def _parse_info_t1_response(payload: bytes) -> dict[str, Any]:
     except (IndexError, ValueError, OverflowError) as err:
         _LOGGER.debug("Oclean Type-1 record parse error: %s (raw: %s)", err, payload.hex())
         return {}
-
-
-# Minimum bytes per running-data record (from m5348m1 byte access pattern)
-_RUNNING_DATA_MIN_RECORD_SIZE = 18
 
 
 def _parse_running_data_record(data: bytes) -> dict[str, Any]:
@@ -343,7 +334,10 @@ def _parse_running_data_record(data: bytes) -> dict[str, Any]:
         }
         _LOGGER.debug(
             "Oclean 0308-simple parsed: %s (blunt_teeth=%d, pNum=%d, week=%d)",
-            result, blunt_teeth, p_num, week,
+            result,
+            blunt_teeth,
+            p_num,
+            week,
         )
 
         # Log unknown bytes to help identify their purpose over time.
@@ -352,8 +346,10 @@ def _parse_running_data_record(data: bytes) -> dict[str, Any]:
             " b7=0x%02x week=%d (weekday? 0-indexed?)"
             " b8=0x%02x pNum=%d (brush-scheme ID, not mapped to name here)"
             " b9-13=%s (unknown – 5 bytes)",
-            data[7], week,
-            data[8], p_num,
+            data[7],
+            week,
+            data[8],
+            p_num,
             data[9:14].hex(),
         )
 
@@ -388,7 +384,6 @@ def _parse_extended_running_data_record(data: bytes) -> dict[str, Any]:
       byte  31:    crossNumber (overPullNum)
       bytes 32+:   pressureProfile (variable)
     """
-    _EXT_MIN_SIZE = 32
     if len(data) < _EXT_MIN_SIZE:
         return {}
 
@@ -398,7 +393,7 @@ def _parse_extended_running_data_record(data: bytes) -> dict[str, Any]:
         duration = int.from_bytes(data[9:11], byteorder="big")
         # data[13:18]: 5 intermediate pressure zone values (not mapped to sensors)
         tz_offset_quarters = _parse_signed_byte(data[19])
-        area_pressures = data[20:28]   # 8 tooth area pressure bytes
+        area_pressures = data[20:28]  # 8 tooth area pressure bytes
         score = int(data[28])
         timestamp_s = _build_utc_timestamp(device_dt, tz_offset_quarters)
         area_dict, zones_cleaned, avg_pressure = _build_area_stats(area_pressures)
@@ -413,9 +408,13 @@ def _parse_extended_running_data_record(data: bytes) -> dict[str, Any]:
         }
 
         _LOGGER.debug(
-            "Oclean extended running-data: ts=%d score=%d duration=%ds pNum=%d "
-            "zones_cleaned=%d/8 avg_pressure=%d",
-            timestamp_s, score, duration, p_num, zones_cleaned, avg_pressure,
+            "Oclean extended running-data: ts=%d score=%d duration=%ds pNum=%d zones_cleaned=%d/8 avg_pressure=%d",
+            timestamp_s,
+            score,
+            duration,
+            p_num,
+            zones_cleaned,
+            avg_pressure,
         )
         return result
 
@@ -444,14 +443,16 @@ def _parse_k3guide_response(payload: bytes) -> dict[str, Any]:
         return {}
 
     zone_id = payload[4]
-    zone_name = (
-        TOOTH_AREA_NAMES[zone_id - 1] if 1 <= zone_id <= 8 else "stop"
-    )
+    zone_name = TOOTH_AREA_NAMES[zone_id - 1] if 1 <= zone_id <= 8 else "stop"
     _LOGGER.debug(
-        "Oclean K3GUIDE: liftUp=%d liftDown=%d rightUp=%d rightDown=%d "
-        "zone=%d(%s) workingState=%d",
-        payload[0], payload[1], payload[2], payload[3],
-        zone_id, zone_name, payload[5],
+        "Oclean K3GUIDE: liftUp=%d liftDown=%d rightUp=%d rightDown=%d zone=%d(%s) workingState=%d",
+        payload[0],
+        payload[1],
+        payload[2],
+        payload[3],
+        zone_id,
+        zone_name,
+        payload[5],
     )
     # Real-time data only – not stored as persistent sensor state
     return {}
@@ -516,8 +517,12 @@ def _parse_session_meta_t1_response(payload: bytes) -> dict[str, Any]:
 
     try:
         device_dt = _device_datetime(
-            payload[7], payload[8], payload[9],
-            payload[10], payload[11], payload[12],
+            payload[7],
+            payload[8],
+            payload[9],
+            payload[10],
+            payload[11],
+            payload[12],
         )
         timestamp_s = int(time.mktime(device_dt.timetuple()))
         duration = payload[15]
@@ -564,10 +569,13 @@ def _parse_brush_areas_t1_response(payload: bytes) -> dict[str, Any]:
     }
 
     _LOGGER.debug(
-        "Oclean 2604 areas: %s zones_cleaned=%d/8 avg_pressure=%d"
-        " b0=0x%02x b4=0x%02x (raw: %s)",
-        area_dict, zones_cleaned, avg_pressure,
-        payload[0], payload[4], payload.hex(),
+        "Oclean 2604 areas: %s zones_cleaned=%d/8 avg_pressure=%d b0=0x%02x b4=0x%02x (raw: %s)",
+        area_dict,
+        zones_cleaned,
+        avg_pressure,
+        payload[0],
+        payload[4],
+        payload.hex(),
     )
     return result
 
@@ -621,14 +629,14 @@ def _log_5400_response(payload: bytes) -> dict[str, Any]:
     # Log the two most likely area-byte windows so they appear side-by-side in
     # the log and can be matched against the Oclean app's per-area values.
     if len(payload) >= 12:
-        window_a = payload[4:12]   # hypothesis A: bytes 4-11
+        window_a = payload[4:12]  # hypothesis A: bytes 4-11
         _LOGGER.debug(
             "  5400 area-candidate A (bytes 4-11): %s → %s",
             window_a.hex(),
             list(window_a),
         )
     if len(payload) >= 14:
-        window_b = payload[6:14]   # hypothesis B: bytes 6-13 (same offset as 2604)
+        window_b = payload[6:14]  # hypothesis B: bytes 6-13 (same offset as 2604)
         _LOGGER.debug(
             "  5400 area-candidate B (bytes 6-13): %s → %s",
             window_b.hex(),
@@ -663,13 +671,15 @@ def _log_021f_response(payload: bytes) -> dict[str, Any]:
         window_a = payload[4:12]
         _LOGGER.debug(
             "  021f area-candidate A (bytes 4-11): %s → %s",
-            window_a.hex(), list(window_a),
+            window_a.hex(),
+            list(window_a),
         )
     if len(payload) >= 14:
         window_b = payload[6:14]
         _LOGGER.debug(
             "  021f area-candidate B (bytes 6-13): %s → %s",
-            window_b.hex(), list(window_b),
+            window_b.hex(),
+            list(window_b),
         )
     return {}
 
@@ -704,7 +714,11 @@ def _log_5100_response(payload: bytes) -> dict[str, Any]:
     if len(payload) >= 13:
         _LOGGER.debug(
             "  5100 apparent date: month=%d day=%d hour=%d min=%d sec=%d",
-            payload[8], payload[9], payload[10], payload[11], payload[12],
+            payload[8],
+            payload[9],
+            payload[10],
+            payload[11],
+            payload[12],
         )
     return {}
 
@@ -712,27 +726,27 @@ def _log_5100_response(payload: bytes) -> dict[str, Any]:
 # Strategy registry: 2-byte response-type prefix → handler function.
 # To add support for a new notification type, add one entry here.
 _PARSERS: dict[bytes, Callable[[bytes], dict[str, Any]]] = {
-    RESP_STATE:           _parse_state_response,
-    RESP_INFO:            _parse_info_response,
-    RESP_INFO_T1:         _parse_info_t1_response,
-    RESP_DEVICE_INFO:     _handle_device_info_ack,
-    RESP_K3GUIDE:         _parse_k3guide_response,
-    RESP_EXTENDED_T1:     _parse_0314_response,
-    RESP_SCORE_T1:        _parse_score_t1_response,
+    RESP_STATE: _parse_state_response,
+    RESP_INFO: _parse_info_response,
+    RESP_INFO_T1: _parse_info_t1_response,
+    RESP_DEVICE_INFO: _handle_device_info_ack,
+    RESP_K3GUIDE: _parse_k3guide_response,
+    RESP_EXTENDED_T1: _parse_0314_response,
+    RESP_SCORE_T1: _parse_score_t1_response,
     RESP_SESSION_META_T1: _parse_session_meta_t1_response,
-    RESP_BRUSH_AREAS_T1:  _parse_brush_areas_t1_response,
-    RESP_UNKNOWN_5400:    _log_5400_response,
-    RESP_UNKNOWN_021F:    _log_021f_response,
-    RESP_UNKNOWN_5100:    _log_5100_response,
+    RESP_BRUSH_AREAS_T1: _parse_brush_areas_t1_response,
+    RESP_UNKNOWN_5400: _log_5400_response,
+    RESP_UNKNOWN_021F: _log_021f_response,
+    RESP_UNKNOWN_5100: _log_5100_response,
 }
 
 
 _JSON_KEY_MAP: tuple[tuple[str, tuple[str, ...], bool], ...] = (
     # (result_key, candidate_keys, cast_to_int)
-    ("last_brush_score",    ("score", "brushScore", "brush_score", "totalScore"),        True),
-    ("last_brush_duration", ("duration", "brushDuration", "brush_duration", "time"),     True),
-    ("last_brush_pressure", ("pressure", "avgPressure", "avg_pressure"),                 True),
-    ("last_brush_time",     ("timestamp", "endTime", "end_time", "brushTime"),           False),
+    ("last_brush_score", ("score", "brushScore", "brush_score", "totalScore"), True),
+    ("last_brush_duration", ("duration", "brushDuration", "brush_duration", "time"), True),
+    ("last_brush_pressure", ("pressure", "avgPressure", "avg_pressure"), True),
+    ("last_brush_time", ("timestamp", "endTime", "end_time", "brushTime"), False),
 )
 
 
