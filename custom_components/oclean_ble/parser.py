@@ -20,6 +20,8 @@ from .const import (
     RESP_SCORE_T1,
     RESP_SESSION_META_T1,
     RESP_STATE,
+    RESP_UNKNOWN_021F,
+    RESP_UNKNOWN_5100,
     RESP_UNKNOWN_5400,
     TOOTH_AREA_NAMES,
 )
@@ -243,10 +245,15 @@ def _parse_info_t1_response(payload: bytes) -> dict[str, Any]:
         return {}
 
     # year_byte == 0 → device reports no inline session or uses paginated mode.
-    # This is normal for OCLEANY3P: session_count=1 but no inline timestamp yet.
+    # Observed on OCLEANY3P (sw=1.0.0.41): session_count=1 but year_byte=0x00.
+    # The device then pushes session data via 021f (zone data) and 5100 (session meta)
+    # notifications, which are the OCLEANY3P equivalents of 2604 and 5a00.
     if payload[5] == 0:
+        session_count = (payload[3] << 8) | payload[4] if len(payload) >= 5 else 0
         _LOGGER.debug(
-            "Oclean 0307: zero timestamp (year_byte=0x00) – no inline session data (raw: %s)",
+            "Oclean 0307: year_byte=0x00, session_count=%d – "
+            "device will push session data via 021f/5100 notifications (raw: %s)",
+            session_count,
             payload.hex(),
         )
         return {}
@@ -639,6 +646,83 @@ def _log_5400_response(payload: bytes) -> dict[str, Any]:
     return {}
 
 
+def _log_021f_response(payload: bytes) -> dict[str, Any]:
+    """Log a 021f notification for protocol research (OCLEANY3P).
+
+    Observed on Oclean X Pro Elite (OCLEANY3P, sw=1.0.0.41) in response to
+    CMD_QUERY_RUNNING_DATA_T1 (0307) sent to SEND_BRUSH_CMD_UUID.
+
+    Structural hypothesis: analogous to 2604 (tooth-area pressure data) on
+    OCLEANY3M.  Byte layout requires correlated brushing data to confirm.
+
+    Observed raw (2026-02-24, OCLEANY3P):
+      021f  00 00 0f 00 0f 21 11 23 01 0d 12 0f 01 0f 0f 12 00 00
+            ^--- payload starts here (18 bytes)
+
+    Candidate area-byte windows (to be verified):
+      bytes 4-11: 0f 21 11 23 01 0d 12 0f → 8 values (same offset as 2604)
+      bytes 6-13: 11 23 01 0d 12 0f 01 0f → 8 values (alternative window)
+    """
+    _LOGGER.debug("Oclean 021f raw: %s  len=%d", payload.hex(), len(payload))
+    for i, b in enumerate(payload):
+        _LOGGER.debug("  021f[%02d] = 0x%02X  (%3d)", i, b, b)
+    # Log the two most likely area-byte windows for side-by-side comparison.
+    if len(payload) >= 12:
+        window_a = payload[4:12]
+        _LOGGER.debug(
+            "  021f area-candidate A (bytes 4-11): %s → %s",
+            window_a.hex(),
+            list(window_a),
+        )
+    if len(payload) >= 14:
+        window_b = payload[6:14]
+        _LOGGER.debug(
+            "  021f area-candidate B (bytes 6-13): %s → %s",
+            window_b.hex(),
+            list(window_b),
+        )
+    return {}
+
+
+def _log_5100_response(payload: bytes) -> dict[str, Any]:
+    """Log a 5100 notification for protocol research (OCLEANY3P).
+
+    Observed on Oclean X Pro Elite (OCLEANY3P, sw=1.0.0.41) in response to
+    CMD_QUERY_RUNNING_DATA_T1 (0307) sent to SEND_BRUSH_CMD_UUID.
+
+    Structural hypothesis: analogous to 5a00 (session metadata) on OCLEANY3M.
+    The 7×0xFF prefix matches the 5a00 layout exactly.  Byte 7 appears to be
+    a type/version indicator (0x00) rather than year-2000, and the date fields
+    likely start at byte 8 (month) – but the year is absent or implicit.
+
+    Observed raw (2026-02-24, OCLEANY3P):
+      5100  ff ff ff ff ff ff ff 00 08 0d 00 38 32 00 00 78 00 78
+            ^--- payload starts here (18 bytes)
+
+    Apparent date fields (assuming year is implicit / device-year):
+      byte  7: 0x00  – version/type indicator (not year)
+      byte  8: 0x08  – month (August)
+      byte  9: 0x0d  – day (13)
+      byte 10: 0x00  – hour (0)
+      byte 11: 0x38  – minute (56)
+      byte 12: 0x32  – second (50)
+    """
+    _LOGGER.debug("Oclean 5100 raw: %s  len=%d", payload.hex(), len(payload))
+    for i, b in enumerate(payload):
+        _LOGGER.debug("  5100[%02d] = 0x%02X  (%3d)", i, b, b)
+    # Log the apparent date window (bytes 8-12) for side-by-side comparison with app.
+    if len(payload) >= 13:
+        _LOGGER.debug(
+            "  5100 apparent date: month=%d day=%d hour=%d min=%d sec=%d",
+            payload[8],
+            payload[9],
+            payload[10],
+            payload[11],
+            payload[12],
+        )
+    return {}
+
+
 # Strategy registry: 2-byte response-type prefix → handler function.
 # To add support for a new notification type, add one entry here.
 _PARSERS: dict[bytes, Callable[[bytes], dict[str, Any]]] = {
@@ -652,6 +736,8 @@ _PARSERS: dict[bytes, Callable[[bytes], dict[str, Any]]] = {
     RESP_SESSION_META_T1: _parse_session_meta_t1_response,
     RESP_BRUSH_AREAS_T1: _parse_brush_areas_t1_response,
     RESP_UNKNOWN_5400: _log_5400_response,
+    RESP_UNKNOWN_021F: _log_021f_response,
+    RESP_UNKNOWN_5100: _log_5100_response,
 }
 
 

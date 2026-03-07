@@ -129,15 +129,28 @@ grep -c "skipped, cached" oclean_ble.log
 grep -c "DIS read" oclean_ble.log
 ```
 
-### Device protocol mapping (confirmed empirically)
+### Device protocol mapping (confirmed via APK + empirical logs)
 
-| Device | Response prefix | Extended fields available |
-|--------|----------------|--------------------------|
-| Oclean X (OCLEANY3M) | **0307** only | No – timestamp only (byte 13 purpose unconfirmed; not parsed) |
-| Oclean X Pro (OCLEANY3) | 0308 expected | Yes – if extended format (payload[0]==0, len>=32) |
-| Oclean X Pro Elite (OCLEANY3P) | 0308 expected | Yes – if extended format |
+| Device | Model-ID | Session command | Session response | Extended fields |
+|--------|----------|----------------|-----------------|-----------------|
+| Oclean X | OCLEANY3M | 0307 → SEND_BRUSH_CMD_UUID | RECEIVE_BRUSH_UUID | Score via `0000`, areas via `2604` |
+| Oclean X Pro | OCLEANY3 | 0308 → WRITE_CHAR_UUID | READ_NOTIFY_CHAR_UUID | Extended 32-byte format inline |
+| Oclean X Pro Elite | OCLEANY3P | 0307 → SEND_BRUSH_CMD_UUID | RECEIVE_BRUSH_UUID | Score via `0000`, areas via `021f`, meta via `5100` |
+| Oclean Air 1 | OCLEANA1 | 0307 → SEND_BRUSH_CMD_UUID | fbb86 READ (no CCCD) | None |
 
-The Oclean X never sends 0308 – it only uses 0307. Extended fields (Areas, Pressure, Scheme, Clean) are therefore **structurally unavailable** on Oclean X and missing sensor values on this device are expected, not a bug.
+**OCLEANY3M**: Only uses 0307. Extended fields (Areas, Pressure, Scheme) are unavailable – expected, not a bug.
+
+**OCLEANY3P** (Oclean X Pro Elite): Uses 0307. When the device has stored sessions, it responds with session_count>0 and year_byte=0 (no inline data), then pushes session data via:
+- `021f` – candidate: zone/area pressure data (analogous to `2604` on OCLEANY3M)
+- `5100` – candidate: session metadata with M/D/H/Min/S at bytes 8-12 (analogous to `5a00`, but year field absent or encoded differently)
+
+Both `021f` and `5100` are logged for research. Format confirmed once correlated brushing data is available.
+
+**OCLEANA1** (Oclean Air 1): fbb86 characteristic exists but has no CCCD → cannot subscribe for notifications. Coordinator uses direct `read_gatt_char()` fallback after sending query commands.
+
+### OCLEANY3P APK References
+- `apk/oclean-project/sources/p352w/C5733b.java` – multi-packet reassembly for 0307 (header: "0307*B#" + RecordCount[2B] + RecordLen[1-2B] + data)
+- `apk/oclean-project/sources/p105g/C3376s.java` – Type-1 protocol handler
 
 ### Known recurring BleakErrors (harmless, every poll)
 
