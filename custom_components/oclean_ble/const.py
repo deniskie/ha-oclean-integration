@@ -51,10 +51,10 @@ RESP_UNKNOWN_5400 = bytes.fromhex(
 )  # Unknown push (Type-1, Oclean X); not in APK – empirical analysis in progress
 # OCLEANY3P-specific notification types (observed 2026-02-24, sw=1.0.0.41)
 # Sent by device in response to CMD_QUERY_RUNNING_DATA_T1 (0307) on SEND_BRUSH_CMD_UUID.
-# Structural role appears analogous to 2604 (area pressures) and 5a00 (session meta)
-# on OCLEANY3M, but the exact byte layout needs correlated brush-session data to confirm.
-RESP_UNKNOWN_021F = bytes.fromhex("021f")  # Candidate: zone/area data for OCLEANY3P
-RESP_UNKNOWN_5100 = bytes.fromhex("5100")  # Candidate: session metadata for OCLEANY3P (similar 7×0xFF header as 5a00)
+# Analogous to 2604 (area pressures) and 5a00 (session meta) on OCLEANY3M.
+# Byte layout confirmed from log analysis (2026-03-07) against APK C3352g fallback.
+RESP_BRUSH_AREAS_Y3P = bytes.fromhex("021f")  # Zone/area pressure data for OCLEANY3P (analog to 2604)
+RESP_SESSION_META_Y3P = bytes.fromhex("5100")  # Session metadata for OCLEANY3P (analog to 5a00)
 
 # Config entry keys
 CONF_MAC_ADDRESS = "mac_address"
@@ -91,6 +91,7 @@ DATA_HW_REVISION = "hw_revision"  # Hardware Revision from BLE DIS (e.g. "Rev.D"
 DATA_SW_VERSION = "sw_version"  # Software Revision from BLE DIS (e.g. "1.0.0.20")
 DATA_LAST_BRUSH_AREAS = "last_brush_areas"  # dict: zone_name → pressure (0-255)
 DATA_LAST_BRUSH_PNUM = "last_brush_pnum"  # int (brush-scheme ID; see SCHEME_NAMES below)
+DATA_IS_BRUSHING = "is_brushing"  # bool: True while brushing (from 0303 byte 0 bit 0)
 
 # Tooth area zone names in BrushAreaType enum order (value 1 → index 0 … value 8 → index 7)
 # Source: com/ocleanble/lib/device/BrushAreaType.java
