@@ -11,6 +11,7 @@ Goal: guard against regressions that break real-device compatibility.
 
 Capture procedure: tools/oclean_capture.py
 """
+
 from __future__ import annotations
 
 import datetime
@@ -24,6 +25,7 @@ from custom_components.oclean_ble.parser import parse_notification
 # the naive datetime in the system's local timezone (= HA timezone on HA OS).
 # ---------------------------------------------------------------------------
 
+
 def _local_ts(year: int, month: int, day: int, hour: int, minute: int, second: int) -> int:
     return int(time.mktime(datetime.datetime(year, month, day, hour, minute, second).timetuple()))
 
@@ -31,6 +33,7 @@ def _local_ts(year: int, month: int, day: int, hour: int, minute: int, second: i
 # ===========================================================================
 # Real 0303 STATE responses  (reply to CMD_QUERY_STATUS 0x0303)
 # ===========================================================================
+
 
 class TestReal0303StateResponse:
     """CMD_QUERY_STATUS reply from Oclean X while idle."""
@@ -84,7 +87,7 @@ class TestReal0303StateResponse:
 
     def test_only_battery_key_present(self):
         result = parse_notification(self.RAW_BATTERY_29)
-        assert set(result.keys()) == {"battery"}
+        assert set(result.keys()) == {"battery", "is_brushing"}
 
     def test_battery_is_int(self):
         result = parse_notification(self.RAW_BATTERY_29)
@@ -94,6 +97,7 @@ class TestReal0303StateResponse:
 # ===========================================================================
 # Real 0202 device-info ACK  (reply to CMD_DEVICE_INFO 0x0202)
 # ===========================================================================
+
 
 class TestReal0202DeviceInfoAck:
     """CMD_DEVICE_INFO reply is just an "OK" acknowledge, no sensor data."""
@@ -131,6 +135,7 @@ class TestReal0202DeviceInfoAck:
 #   16:   pressureArea[0]  (first of 5 pressure-zone bytes)
 #   17:   pressureArea[1]  (second of 5 pressure-zone bytes)
 # ===========================================================================
+
 
 class TestReal0307Session1_Score100:
     """
@@ -284,10 +289,10 @@ class TestReal0307Session4_ValidDurationDiffersFromDuration:
     def test_valid_duration_differs_from_duration(self):
         """validDuration (bytes 14-15 = 0x000b = 11 s) differs from duration (150 s)."""
         raw_bytes = bytearray(self.RAW)
-        duration_lsb = raw_bytes[2 + 13]   # payload[13] = LSB of duration = 0x96 = 150
+        duration_lsb = raw_bytes[2 + 13]  # payload[13] = LSB of duration = 0x96 = 150
         valid_dur_lsb = raw_bytes[2 + 15]  # payload[15] = LSB of validDuration = 0x0b = 11
         assert duration_lsb == 0x96
-        assert valid_dur_lsb == 0x0b
+        assert valid_dur_lsb == 0x0B
         assert duration_lsb != valid_dur_lsb
 
     def test_no_score_in_result(self):
@@ -302,6 +307,7 @@ class TestReal0307Session4_ValidDurationDiffersFromDuration:
 # Cross-session consistency  (all four sessions)
 # ===========================================================================
 
+
 class TestReal0307CrossSession:
     """Consistency checks across all four captured sessions."""
 
@@ -311,7 +317,7 @@ class TestReal0307CrossSession:
         ("03072a422300001a021510191fe7001e001e6400", 2026, 2, 21, 16, 25, 31, 231, 30),
         ("03072a422300001a0215102c1c00007800780201", 2026, 2, 21, 16, 44, 28, 0, 120),
         # Session 4: validDuration (0x000b=11 s) differs from duration (0x0096=150 s)
-        ("03072a422300001a0216012d274c0096000b0000", 2026, 2, 22,  1, 45, 39, 76, 150),
+        ("03072a422300001a0216012d274c0096000b0000", 2026, 2, 22, 1, 45, 39, 76, 150),
     ]
 
     def test_all_sessions_produce_no_score(self):
@@ -347,7 +353,7 @@ class TestReal0307CrossSession:
             result = parse_notification(bytes.fromhex(raw_hex))
             for key, value in result.items():
                 if isinstance(value, int):
-                    assert value != 0x2a42230000, f"Device constant leaked into {key}"
+                    assert value != 0x2A42230000, f"Device constant leaked into {key}"
 
 
 # ===========================================================================
@@ -357,6 +363,7 @@ class TestReal0307CrossSession:
 # Every poll the device sends a 0307 with session_count=1 but year_byte=0,
 # meaning "no inline session data".  The parser must return {} cleanly.
 # ===========================================================================
+
 
 class TestRealOCLEANY3PZeroTimestamp0307:
     """OCLEANY3P sends 0307 with year_byte=0 → no inline session (issue #3).
@@ -379,8 +386,14 @@ class TestRealOCLEANY3PZeroTimestamp0307:
     def test_no_crash_no_session_keys(self):
         """No session-related keys must appear in the result."""
         result = parse_notification(self.RAW)
-        for key in ("last_brush_time", "last_brush_pnum", "last_brush_duration",
-                    "last_brush_score", "last_brush_pressure", "last_brush_areas"):
+        for key in (
+            "last_brush_time",
+            "last_brush_pnum",
+            "last_brush_duration",
+            "last_brush_score",
+            "last_brush_pressure",
+            "last_brush_areas",
+        ):
             assert key not in result, f"Unexpected key in zero-year 0307: {key}"
 
 
@@ -391,33 +404,32 @@ class TestRealOCLEANY3PZeroTimestamp0307:
 # Both already return {} gracefully; these tests document and protect that.
 # ===========================================================================
 
+
 class TestRealOCLEANY3PUnknownNotifications:
-    """OCLEANY3P emits two unknown notification types every poll (issue #3).
+    """OCLEANY3P emits 021f (area pressures) and 5100 (session meta) every poll (issue #3).
 
-    021f: unrecognised format, not decodable yet
-    5100: unrecognised format, not decodable yet
-
-    Both must return {} without crashing.
+    Both are now parsed: 021f → last_brush_areas/last_brush_pressure (same offsets as 2604),
+    5100 → last_brush_time/last_brush_duration (same structure as 5a00 but without year byte).
     """
 
     RAW_021F = bytes.fromhex("021f00000f000f211123010d120f010f0f120000")
     RAW_5100 = bytes.fromhex("5100ffffffffffffff00080d0038320000780078")
 
-    def test_021f_returns_empty_dict(self):
-        assert parse_notification(self.RAW_021F) == {}
+    def test_021f_parses_area_pressures(self):
+        result = parse_notification(self.RAW_021F)
+        assert "last_brush_areas" in result
+        assert "last_brush_pressure" in result
+        areas = result["last_brush_areas"]
+        # bytes 6-13 of payload: 11 23 01 0d 12 0f 01 0f = [17, 35, 1, 13, 18, 15, 1, 15]
+        assert areas["upper_left_out"] == 0x11  # 17
+        assert areas["upper_left_in"] == 0x23  # 35
+        assert areas["lower_left_out"] == 0x01  # 1
+        assert areas["lower_left_in"] == 0x0D  # 13
 
-    def test_5100_returns_empty_dict(self):
-        assert parse_notification(self.RAW_5100) == {}
+    def test_5100_parses_session_meta(self):
+        result = parse_notification(self.RAW_5100)
+        assert "last_brush_time" in result
+        assert result["last_brush_duration"] == 120  # byte 15 = 0x78
 
-    def test_no_sensor_keys_in_unknown_types(self):
-        """Unknown notification types must not produce any sensor or session keys."""
-        sensor_keys = (
-            "battery", "last_brush_time", "last_brush_score",
-            "last_brush_duration", "last_brush_pressure", "last_brush_areas",
-        )
-        for raw in (self.RAW_021F, self.RAW_5100):
-            result = parse_notification(raw)
-            for key in sensor_keys:
-                assert key not in result, (
-                    f"Key {key!r} must not appear in unknown notification {raw[:2].hex()}"
-                )
+    def test_5100_no_crash_on_short_payload(self):
+        assert parse_notification(bytes.fromhex("5100ff")) == {}
