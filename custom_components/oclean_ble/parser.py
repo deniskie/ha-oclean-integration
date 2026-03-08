@@ -12,6 +12,7 @@ from typing import Any
 
 from .const import (
     RESP_BRUSH_AREAS_T1,
+    RESP_BRUSH_AREAS_Y3P,
     RESP_DEVICE_INFO,
     RESP_EXTENDED_T1,
     RESP_INFO,
@@ -19,9 +20,8 @@ from .const import (
     RESP_K3GUIDE,
     RESP_SCORE_T1,
     RESP_SESSION_META_T1,
+    RESP_SESSION_META_Y3P,
     RESP_STATE,
-    RESP_UNKNOWN_021F,
-    RESP_UNKNOWN_5100,
     RESP_UNKNOWN_5400,
     TOOTH_AREA_NAMES,
 )
@@ -139,6 +139,9 @@ def _parse_state_response(payload: bytes) -> dict[str, Any]:
         _LOGGER.debug("Oclean STATE response too short: %s", payload.hex())
         return result
 
+    # byte 0 bit 0: is_brushing (confirmed via APK C3385w0 analysis)
+    result["is_brushing"] = bool(payload[0] & 0x01)
+
     # byte 3 = battery level (confirmed: matches GATT Battery Characteristic read).
     if len(payload) >= 4:
         batt = int(payload[3])
@@ -151,7 +154,7 @@ def _parse_state_response(payload: bytes) -> dict[str, Any]:
     # Enable via:  logger: logs: custom_components.oclean_ble: debug
     _LOGGER.debug(
         "Oclean STATE unknown bytes –"
-        " b0=0x%02x (status? always 0x02 on OcleanX)"
+        " b0=0x%02x (bit0=is_brushing)"
         " b1=0x%02x (unknown, varies)"
         " b2=0x%02x (unknown, varies)"
         " b4-5=%s (unknown, always 0x0000 so far)",
@@ -646,81 +649,110 @@ def _log_5400_response(payload: bytes) -> dict[str, Any]:
     return {}
 
 
-def _log_021f_response(payload: bytes) -> dict[str, Any]:
-    """Log a 021f notification for protocol research (OCLEANY3P).
+def _parse_brush_areas_y3p_response(payload: bytes) -> dict[str, Any]:
+    """Parse 021f per-tooth-area pressure data (OCLEANY3P / Oclean X Pro Elite).
 
-    Observed on Oclean X Pro Elite (OCLEANY3P, sw=1.0.0.41) in response to
-    CMD_QUERY_RUNNING_DATA_T1 (0307) sent to SEND_BRUSH_CMD_UUID.
+    Analogous to 2604 on OCLEANY3M.  Byte layout confirmed 2026-03-07 from
+    APK C3352g fallback analysis and cross-referenced against log data.
 
-    Structural hypothesis: analogous to 2604 (tooth-area pressure data) on
-    OCLEANY3M.  Byte layout requires correlated brushing data to confirm.
-
-    Observed raw (2026-02-24, OCLEANY3P):
+    Observed raw (2026-02-24, OCLEANY3P sw=1.0.0.41):
       021f  00 00 0f 00 0f 21 11 23 01 0d 12 0f 01 0f 0f 12 00 00
-            ^--- payload starts here (18 bytes)
+            ^--- payload (18 bytes)
 
-    Candidate area-byte windows (to be verified):
-      bytes 4-11: 0f 21 11 23 01 0d 12 0f → 8 values (same offset as 2604)
-      bytes 6-13: 11 23 01 0d 12 0f 01 0f → 8 values (alternative window)
+    Byte layout (same offsets as 2604):
+      bytes 0-1: unknown header (0x00 0x00)
+      byte  2:   unknown (0x0f = 15; possibly session counter)
+      byte  3:   unknown (0x00)
+      byte  4:   unknown (0x0f = 15)
+      byte  5:   unknown (0x21 = 33)
+      bytes 6-13: 8 tooth-area pressure values, BrushAreaType order
+                  (AREA_LIFT_UP_OUT … AREA_RIGHT_DOWN_IN)
+      bytes 14+:  additional zone data
     """
-    _LOGGER.debug("Oclean 021f raw: %s  len=%d", payload.hex(), len(payload))
-    for i, b in enumerate(payload):
-        _LOGGER.debug("  021f[%02d] = 0x%02X  (%3d)", i, b, b)
-    # Log the two most likely area-byte windows for side-by-side comparison.
-    if len(payload) >= 12:
-        window_a = payload[4:12]
-        _LOGGER.debug(
-            "  021f area-candidate A (bytes 4-11): %s → %s",
-            window_a.hex(),
-            list(window_a),
-        )
-    if len(payload) >= 14:
-        window_b = payload[6:14]
-        _LOGGER.debug(
-            "  021f area-candidate B (bytes 6-13): %s → %s",
-            window_b.hex(),
-            list(window_b),
-        )
-    return {}
+    if len(payload) < 14:
+        _LOGGER.debug("Oclean 021f too short (%d bytes): %s", len(payload), payload.hex())
+        return {}
+
+    area_pressures = payload[6:14]
+    area_dict, zones_cleaned, avg_pressure = _build_area_stats(area_pressures)
+
+    result: dict[str, Any] = {
+        "last_brush_areas": area_dict,
+        "last_brush_pressure": avg_pressure,
+    }
+
+    _LOGGER.debug(
+        "Oclean 021f areas: %s zones_cleaned=%d/8 avg_pressure=%d (raw: %s)",
+        area_dict,
+        zones_cleaned,
+        avg_pressure,
+        payload.hex(),
+    )
+    return result
 
 
-def _log_5100_response(payload: bytes) -> dict[str, Any]:
-    """Log a 5100 notification for protocol research (OCLEANY3P).
+def _parse_session_meta_y3p_response(payload: bytes) -> dict[str, Any]:
+    """Parse 5100 session-metadata push (OCLEANY3P / Oclean X Pro Elite).
 
-    Observed on Oclean X Pro Elite (OCLEANY3P, sw=1.0.0.41) in response to
-    CMD_QUERY_RUNNING_DATA_T1 (0307) sent to SEND_BRUSH_CMD_UUID.
+    Analogous to 5a00 on OCLEANY3M but without an explicit year byte.
+    The year is inferred from the current year, walking back by one year if
+    the reconstructed datetime would lie in the future.
 
-    Structural hypothesis: analogous to 5a00 (session metadata) on OCLEANY3M.
-    The 7×0xFF prefix matches the 5a00 layout exactly.  Byte 7 appears to be
-    a type/version indicator (0x00) rather than year-2000, and the date fields
-    likely start at byte 8 (month) – but the year is absent or implicit.
-
-    Observed raw (2026-02-24, OCLEANY3P):
+    Observed raw (2026-02-24, OCLEANY3P sw=1.0.0.41):
       5100  ff ff ff ff ff ff ff 00 08 0d 00 38 32 00 00 78 00 78
-            ^--- payload starts here (18 bytes)
+            ^--- payload (18 bytes)
 
-    Apparent date fields (assuming year is implicit / device-year):
-      byte  7: 0x00  – version/type indicator (not year)
-      byte  8: 0x08  – month (August)
-      byte  9: 0x0d  – day (13)
-      byte 10: 0x00  – hour (0)
-      byte 11: 0x38  – minute (56)
-      byte 12: 0x32  – second (50)
+    Byte layout (confirmed 2026-03-07):
+      bytes 0-6:  7 × 0xFF = empty slots (no previous sessions stored)
+      byte  7:    0x00 – type/version indicator (not year)
+      byte  8:    month (1-12)
+      byte  9:    day   (1-31)
+      byte  10:   hour  (0-23)
+      byte  11:   minute (0-59)
+      byte  12:   second (0-59)
+      bytes 13-14: unknown (observed: 0x00 0x00)
+      byte  15:   session duration in seconds (observed: 0x78 = 120 s)
+      byte  16:   unknown
+      byte  17:   session duration duplicate
     """
-    _LOGGER.debug("Oclean 5100 raw: %s  len=%d", payload.hex(), len(payload))
-    for i, b in enumerate(payload):
-        _LOGGER.debug("  5100[%02d] = 0x%02X  (%3d)", i, b, b)
-    # Log the apparent date window (bytes 8-12) for side-by-side comparison with app.
-    if len(payload) >= 13:
+    if len(payload) < 16:
+        _LOGGER.debug("Oclean 5100 too short (%d bytes): %s", len(payload), payload.hex())
+        return {}
+
+    try:
+        month = payload[8]
+        day = payload[9]
+        hour = payload[10]
+        minute = payload[11]
+        second = payload[12]
+
+        # Year is not encoded; infer from current year, stepping back if the
+        # result would be in the future (e.g., session in August, poll in February).
+        now = datetime.datetime.now()
+        year = now.year
+        device_dt = datetime.datetime(year, month, day, hour, minute, second)
+        if device_dt > now:
+            year -= 1
+            device_dt = datetime.datetime(year, month, day, hour, minute, second)
+
+        timestamp_s = int(time.mktime(device_dt.timetuple()))
+        duration = payload[15]
+
         _LOGGER.debug(
-            "  5100 apparent date: month=%d day=%d hour=%d min=%d sec=%d",
-            payload[8],
-            payload[9],
-            payload[10],
-            payload[11],
-            payload[12],
+            "Oclean 5100 session: date=%s ts=%d duration=%ds b7=0x%02x (raw: %s)",
+            device_dt.strftime("%Y-%m-%d %H:%M:%S"),
+            timestamp_s,
+            duration,
+            payload[7],
+            payload.hex(),
         )
-    return {}
+        result: dict[str, Any] = {"last_brush_time": timestamp_s}
+        if duration > 0 and duration != 0xFF:
+            result["last_brush_duration"] = duration
+        return result
+    except (IndexError, ValueError, OverflowError) as err:
+        _LOGGER.debug("Oclean 5100 parse error: %s (raw: %s)", err, payload.hex())
+        return {}
 
 
 # Strategy registry: 2-byte response-type prefix → handler function.
@@ -736,8 +768,8 @@ _PARSERS: dict[bytes, Callable[[bytes], dict[str, Any]]] = {
     RESP_SESSION_META_T1: _parse_session_meta_t1_response,
     RESP_BRUSH_AREAS_T1: _parse_brush_areas_t1_response,
     RESP_UNKNOWN_5400: _log_5400_response,
-    RESP_UNKNOWN_021F: _log_021f_response,
-    RESP_UNKNOWN_5100: _log_5100_response,
+    RESP_BRUSH_AREAS_Y3P: _parse_brush_areas_y3p_response,
+    RESP_SESSION_META_Y3P: _parse_session_meta_y3p_response,
 }
 
 

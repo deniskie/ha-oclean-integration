@@ -221,13 +221,14 @@ class TestParseNotificationRouting:
         data = bytes([0x03, 0x03, 0x02, 0x0E, 0x4B, 0x1D, 0x00, 0x00])
         result = parse_notification(data)
         assert result["battery"] == 29
-        assert "is_brushing" not in result
+        assert result["is_brushing"] is False  # byte 0 = 0x02, bit 0 = 0
 
     def test_state_response_routed_minimal(self):
-        # 03 03 + short payload (< 4 bytes) → {} (no battery field available)
+        # 03 03 + short payload (< 4 bytes) → is_brushing present, no battery
         data = bytes([0x03, 0x03, 0x02])
         result = parse_notification(data)
-        assert result == {}
+        assert "is_brushing" in result
+        assert "battery" not in result
 
     def test_info_response_routed(self):
         # 03 08 → info response with short payload → {}
@@ -275,16 +276,28 @@ class TestParseStateResponse:
         result = _parse_state_response(payload)
         assert "battery" not in result
 
-    def test_no_is_brushing_in_result(self):
-        # byte 0 on Oclean X is always 0x02 regardless of brushing state → not reported
+    def test_is_brushing_false_when_bit0_clear(self):
+        # byte 0 = 0x02 → bit 0 = 0 → not brushing
         payload = bytes([0x02, 0x0E, 0x4B, 0x1D, 0x00, 0x00])
         result = _parse_state_response(payload)
-        assert "is_brushing" not in result
+        assert result["is_brushing"] is False
+
+    def test_is_brushing_true_when_bit0_set(self):
+        # byte 0 = 0x03 → bit 0 = 1 → brushing active
+        payload = bytes([0x03, 0x0E, 0x4B, 0x50, 0x00, 0x00])
+        result = _parse_state_response(payload)
+        assert result["is_brushing"] is True
+        assert result["battery"] == 0x50
 
     def test_short_payload_no_crash(self):
-        # Payloads shorter than 4 bytes → no battery (byte 3 absent), no crash
-        assert _parse_state_response(bytes([0x02])) == {}
-        assert _parse_state_response(bytes([0x02, 0x0E, 0x39])) == {}
+        # Payloads shorter than 1 byte → no is_brushing, no battery, no crash
+        assert _parse_state_response(b"") == {}
+        # 1-byte payload → is_brushing present, no battery
+        result = _parse_state_response(bytes([0x02]))
+        assert result == {"is_brushing": False}
+        # 3-byte payload → is_brushing present, no battery (byte 3 absent)
+        result = _parse_state_response(bytes([0x02, 0x0E, 0x39]))
+        assert result == {"is_brushing": False}
 
     def test_empty_payload_returns_empty(self):
         assert _parse_state_response(b"") == {}
