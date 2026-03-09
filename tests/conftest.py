@@ -3,6 +3,7 @@
 These tests run WITHOUT a full Home Assistant instance.
 A minimal stub of every homeassistant.* module is injected before imports.
 """
+
 from __future__ import annotations
 
 import sys
@@ -21,6 +22,7 @@ sys.path.insert(0, str(_ROOT))
 # Module stub helper – idempotent (returns existing module if already created)
 # ---------------------------------------------------------------------------
 
+
 def _stub(name: str) -> ModuleType:
     """Return the stub module for *name*, creating it if necessary."""
     if name not in sys.modules:
@@ -38,21 +40,25 @@ def _install_ha_stubs() -> None:
     # ---- homeassistant.core ----
     core = _stub("homeassistant.core")
     core.HomeAssistant = MagicMock
+    core.ServiceCall = MagicMock
     core.callback = lambda f: f
 
     # ---- homeassistant.const ----
     from enum import Enum, StrEnum
+
     const = _stub("homeassistant.const")
     const.Platform = Enum("Platform", ["SENSOR", "BINARY_SENSOR", "BUTTON"])
     const.PERCENTAGE = "%"
 
     class UnitOfTime:
         SECONDS = "s"
+
     const.UnitOfTime = UnitOfTime
 
     class EntityCategory(StrEnum):
         DIAGNOSTIC = "diagnostic"
         CONFIG = "config"
+
     const.EntityCategory = EntityCategory
 
     # ---- homeassistant.exceptions ----
@@ -138,6 +144,7 @@ def _install_ha_stubs() -> None:
             self.hass = hass
             self.data = None
             self.last_update_success = True
+            self.update_interval = update_interval
 
         async def async_config_entry_first_refresh(self):
             self.data = await self._async_update_data()
@@ -162,10 +169,13 @@ def _install_ha_stubs() -> None:
 
     class _StoreStub:
         """Minimal async-compatible Store stub (avoids Python 3.14 InvalidSpecError)."""
+
         def __init__(self, *args, **kwargs):
             pass
+
         async def async_load(self):
             return None
+
         async def async_save(self, data):
             pass
 
@@ -210,8 +220,17 @@ def _install_ha_stubs() -> None:
         MEASUREMENT = "measurement"
 
     class SensorEntityDescription:
-        def __init__(self, *, key, name="", device_class=None, state_class=None,
-                     native_unit_of_measurement=None, icon=None, **kwargs):
+        def __init__(
+            self,
+            *,
+            key,
+            name="",
+            device_class=None,
+            state_class=None,
+            native_unit_of_measurement=None,
+            icon=None,
+            **kwargs,
+        ):
             self.key = key
             self.name = name
             self.device_class = device_class

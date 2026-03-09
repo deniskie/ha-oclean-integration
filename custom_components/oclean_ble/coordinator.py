@@ -180,7 +180,7 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
             hass,
             _LOGGER,
             name=DOMAIN,
-            update_interval=timedelta(seconds=update_interval),
+            update_interval=timedelta(seconds=update_interval) if update_interval > 0 else None,
         )
         self._mac = mac_address
         self._device_name = device_name

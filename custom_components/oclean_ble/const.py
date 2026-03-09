@@ -6,6 +6,10 @@ MANUFACTURER = "Oclean"
 # Default polling interval in seconds
 DEFAULT_POLL_INTERVAL = 300  # 5 minutes
 MIN_POLL_INTERVAL = 60  # 1 minute
+POLL_INTERVAL_MANUAL = 0  # sentinel: disable automatic polling; only poll on-demand
+
+# Service names
+SERVICE_POLL = "poll"
 
 # BLE UUIDs
 OCLEAN_SERVICE_UUID = "8082caa8-41a6-4021-91c6-56f9b954cc18"

@@ -6,9 +6,10 @@ import logging
 import logging.handlers
 import pathlib
 
+import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import ConfigEntryNotReady
 
 from .const import (
@@ -20,6 +21,7 @@ from .const import (
     DEFAULT_POLL_INTERVAL,
     DEFAULT_POST_BRUSH_COOLDOWN,
     DOMAIN,
+    SERVICE_POLL,
 )
 from .coordinator import OcleanCoordinator
 
@@ -129,6 +131,29 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Listen for option updates (e.g. changed poll interval)
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
 
+    # Register the poll service once per domain (shared across all config entries)
+    if not hass.services.has_service(DOMAIN, SERVICE_POLL):
+
+        async def _handle_poll(call: ServiceCall) -> None:
+            """Trigger an immediate BLE poll for one or all Oclean devices."""
+            entry_id: str | None = call.data.get("entry_id")
+            domain_data = hass.data.get(DOMAIN, {})
+            if entry_id:
+                coordinator = domain_data.get(entry_id)
+                if coordinator and isinstance(coordinator, OcleanCoordinator):
+                    await coordinator.async_request_refresh()
+            else:
+                for key, value in domain_data.items():
+                    if not key.startswith("_") and isinstance(value, OcleanCoordinator):
+                        await value.async_request_refresh()
+
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_POLL,
+            _handle_poll,
+            schema=vol.Schema({vol.Optional("entry_id"): str}),
+        )
+
     return True
 
 
@@ -137,10 +162,11 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id, None)
-        # Remove file handler only when no more entries remain
+        # Remove file handler and poll service only when no more entries remain
         remaining = [k for k in hass.data.get(DOMAIN, {}) if not k.startswith("_")]
         if not remaining:
             await _detach_file_handler(hass)
+            hass.services.async_remove(DOMAIN, SERVICE_POLL)
     return unload_ok
 
 

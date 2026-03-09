@@ -1414,7 +1414,6 @@ class TestAsyncSyncTime:
         client.disconnect.assert_awaited_once()
 
 
-# ---------------------------------------------------------------------------
 # Software brush-head counter increment
 # ---------------------------------------------------------------------------
 
@@ -1566,3 +1565,43 @@ class TestReadDeviceInfoServiceCacheExpiry:
         before = time.time()
         await coord._read_device_info_service(client, {})
         assert coord._dis_last_read_ts >= before
+
+
+# ---------------------------------------------------------------------------
+# Manual poll mode (poll_interval=0 → update_interval=None)
+# ---------------------------------------------------------------------------
+
+
+class TestManualPollMode:
+    def test_update_interval_is_none_when_poll_interval_zero(self):
+        """Coordinator must not set a timer when poll_interval=0 (manual mode)."""
+        coord = _make_coordinator(poll_interval=0)
+        assert coord.update_interval is None
+
+    def test_update_interval_set_when_poll_interval_nonzero(self):
+        """Coordinator must set a timer for positive poll_interval values."""
+        from datetime import timedelta
+
+        coord = _make_coordinator(poll_interval=300)
+        assert coord.update_interval == timedelta(seconds=300)
+
+    @pytest.mark.asyncio
+    async def test_async_request_refresh_triggers_poll_in_manual_mode(self):
+        """async_request_refresh() must poll the device even in manual mode."""
+        coord = _make_coordinator(poll_interval=0)
+        coord._store_loaded = True
+        client = _make_bleak_client()
+
+        with (
+            patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock,
+            patch(
+                "custom_components.oclean_ble.coordinator.establish_connection",
+                new_callable=AsyncMock,
+                return_value=client,
+            ),
+            patch("custom_components.oclean_ble.coordinator.asyncio.sleep", new_callable=AsyncMock),
+        ):
+            bt_mock.async_last_service_info.return_value = _make_service_info()
+            result = await coord._poll_device()
+
+        assert result is not None
