@@ -1,4 +1,5 @@
 """Button entities for the Oclean Toothbrush integration."""
+
 from __future__ import annotations
 
 from homeassistant.components.button import ButtonEntity, ButtonEntityDescription
@@ -16,6 +17,11 @@ BUTTON_DESCRIPTIONS: tuple[ButtonEntityDescription, ...] = (
         name="Reset Brush Head",
         icon="mdi:toothbrush-paste",
     ),
+    ButtonEntityDescription(
+        key="sync_time",
+        name="Sync Time",
+        icon="mdi:clock-sync",
+    ),
 )
 
 
@@ -29,10 +35,7 @@ async def async_setup_entry(
     mac = entry.data[CONF_MAC_ADDRESS]
     device_name = entry.data.get(CONF_DEVICE_NAME, "Oclean")
 
-    async_add_entities(
-        OcleanButton(coordinator, description, mac, device_name)
-        for description in BUTTON_DESCRIPTIONS
-    )
+    async_add_entities(OcleanButton(coordinator, description, mac, device_name) for description in BUTTON_DESCRIPTIONS)
 
 
 class OcleanButton(OcleanEntity, ButtonEntity):
@@ -49,5 +52,8 @@ class OcleanButton(OcleanEntity, ButtonEntity):
         self.entity_description = description
 
     async def async_press(self) -> None:
-        """Handle button press – send the reset command via BLE."""
-        await self.coordinator.async_reset_brush_head()
+        """Handle button press."""
+        if self.entity_description.key == "reset_brush_head":
+            await self.coordinator.async_reset_brush_head()
+        elif self.entity_description.key == "sync_time":
+            await self.coordinator.async_sync_time()
