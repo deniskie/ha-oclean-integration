@@ -22,6 +22,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 
 from .const import (
     BATTERY_CHAR_UUID,
+    BLE_ENRICHMENT_WAIT,
     BLE_NOTIFICATION_WAIT,
     CMD_CALIBRATE_TIME_PREFIX,
     CMD_CLEAR_BRUSH_HEAD,
@@ -492,6 +493,12 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         if READ_NOTIFY_CHAR_UUID not in subscribed:
             await self._read_response_char_fallback(client, notification_handler)
         await self._paginate_sessions(client, all_sessions, session_received)
+        if all_sessions:
+            # Allow the device extra time to push enrichment notifications
+            # (0000 score, 2604 zone pressures) that arrive unsolicited after
+            # the session response.  Without this wait the BLE session ends
+            # before those pushes are received.
+            await asyncio.sleep(BLE_ENRICHMENT_WAIT)
         await self._read_battery_and_unsubscribe(client, collected)
 
         # Enrich the latest session snapshot with fields from enrichment notifications
