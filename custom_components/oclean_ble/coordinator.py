@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import datetime
 import logging
 import struct
@@ -289,6 +290,8 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         self._brush_head_sw_count = 0
         await self._save_store()
         _LOGGER.debug("Oclean brush head sw counter reset to 0")
+        if self.data is not None:
+            self.async_set_updated_data(dataclasses.replace(self.data, brush_head_usage=0))
 
     # ------------------------------------------------------------------
     # Internal helpers
