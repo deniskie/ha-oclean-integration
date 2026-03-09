@@ -293,6 +293,25 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         if self.data is not None:
             self.async_set_updated_data(dataclasses.replace(self.data, brush_head_usage=0))
 
+    async def async_sync_time(self) -> None:
+        """Connect to the device and sync the current time (020E + BE timestamp).
+
+        Called by the "Sync Time" button entity.
+        Raises BleakError if the device cannot be reached.
+        """
+        ble_device = self._resolve_ble_device()
+        client = await establish_connection(
+            BleakClient,
+            ble_device,
+            self._device_name,
+            max_attempts=3,
+        )
+        try:
+            await self._calibrate_time(client)
+        finally:
+            if client.is_connected:
+                await client.disconnect()
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------

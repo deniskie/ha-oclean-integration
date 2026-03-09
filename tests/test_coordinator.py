@@ -1359,3 +1359,56 @@ class TestPollDeviceHwBrushAndCooldown:
             await coord._poll_device()
 
         assert coord._cooldown_until > time.time()
+
+
+# ---------------------------------------------------------------------------
+# async_sync_time
+# ---------------------------------------------------------------------------
+
+
+class TestAsyncSyncTime:
+    @pytest.mark.asyncio
+    async def test_sends_calibrate_time_command(self):
+        """async_sync_time must write 020E + 4-byte timestamp and disconnect."""
+        coord = _make_coordinator()
+        client = _make_bleak_client()
+
+        with (
+            patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock,
+            patch(
+                "custom_components.oclean_ble.coordinator.establish_connection",
+                new_callable=AsyncMock,
+                return_value=client,
+            ),
+        ):
+            bt_mock.async_last_service_info.return_value = _make_service_info()
+            await coord.async_sync_time()
+
+        client.write_gatt_char.assert_awaited_once()
+        cmd_bytes = client.write_gatt_char.call_args[0][1]
+        assert cmd_bytes[:2] == bytes.fromhex("020E"), "Must send 020E time-calibration command"
+        assert len(cmd_bytes) == 6, "020E + 4-byte timestamp = 6 bytes"
+        client.disconnect.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_disconnects_on_write_failure(self):
+        """disconnect must be called even when _calibrate_time raises."""
+        from bleak import BleakError
+
+        coord = _make_coordinator()
+        client = _make_bleak_client()
+        client.write_gatt_char = AsyncMock(side_effect=BleakError("write failed"))
+
+        with (
+            patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock,
+            patch(
+                "custom_components.oclean_ble.coordinator.establish_connection",
+                new_callable=AsyncMock,
+                return_value=client,
+            ),
+        ):
+            bt_mock.async_last_service_info.return_value = _make_service_info()
+            # _calibrate_time swallows exceptions internally, so async_sync_time must not raise
+            await coord.async_sync_time()
+
+        client.disconnect.assert_awaited_once()
