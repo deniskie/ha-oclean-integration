@@ -33,6 +33,7 @@ _MIN_YEAR = 2015
 # Minimum payload sizes for each binary record format.
 _RUNNING_DATA_MIN_RECORD_SIZE = 18  # 0308 simple format (m5348m1)
 _T1_MIN_SIZE = 12  # 0307 Type-1 push (need through byte 11 for pNum)
+_T1_FULL_RECORD_SIZE = 42  # 0307 paginated m18f record (C3385w0_fallback.java)
 _EXT_MIN_SIZE = 32  # 0308 extended format (AbstractC0002b.m37y)
 
 
@@ -203,40 +204,98 @@ def _parse_info_response(payload: bytes) -> dict[str, Any]:
     return {}
 
 
+def _parse_m18f_record(record: bytes) -> dict[str, Any]:
+    """Parse one full 42-byte m18f session record (paginated 0307 response).
+
+    Byte layout confirmed from C3385w0_fallback.java (APK, DeviceType OCLEANY3M,
+    C3385w0 mode=1, lines 1558-1705).
+
+      byte  0:  year - 2000
+      byte  1:  month
+      byte  2:  day
+      byte  3:  hour
+      byte  4:  minute
+      byte  5:  second
+      byte  6:  pNum              (brush-scheme ID)
+      bytes 7-8:  duration        (2-byte BE, total session seconds)
+      bytes 9-10: validDuration   (2-byte BE, not stored as sensor)
+      bytes 11-16: area1..area6   (tooth-area pressure bytes 1-6)
+      byte 17:  reserved
+      bytes 18-19: area7..area8   (tooth-area pressure bytes 7-8)
+      bytes 20-32: gesture/power/pressure bitfield data
+      byte 33:  score             (brush coverage score 0-100)
+      byte 34:  point             (score rating, not used)
+      bytes 35-41: reserved
+    """
+    if len(record) < _T1_FULL_RECORD_SIZE:
+        return {}
+
+    try:
+        device_dt = _device_datetime(record[0], record[1], record[2], record[3], record[4], record[5])
+        timestamp_s = int(time.mktime(device_dt.timetuple()))
+
+        result: dict[str, Any] = {
+            "last_brush_time": timestamp_s,
+            "last_brush_pnum": int(record[6]),
+        }
+
+        duration_s = (record[7] << 8) | record[8]
+        if duration_s > 0:
+            result["last_brush_duration"] = duration_s
+
+        # Score at byte 33 (0xFF = no data)
+        score = record[33]
+        if 0 < score <= 100:
+            result["last_brush_score"] = score
+
+        # Area pressures: bytes 11-16 (area1-6) + bytes 18-19 (area7-8)
+        area_bytes = bytes(
+            [record[11], record[12], record[13], record[14], record[15], record[16], record[18], record[19]]
+        )
+        area_dict, _zones_cleaned, avg_pressure = _build_area_stats(area_bytes)
+        if any(v > 0 for v in area_bytes):
+            result["last_brush_areas"] = area_dict
+            result["last_brush_pressure"] = avg_pressure
+
+        _LOGGER.debug(
+            "Oclean 0307 m18f parsed: ts=%d pNum=%d duration=%s score=%s (raw: %s)",
+            timestamp_s,
+            result["last_brush_pnum"],
+            result.get("last_brush_duration", "n/a"),
+            result.get("last_brush_score", "n/a"),
+            record[:_T1_FULL_RECORD_SIZE].hex(),
+        )
+        return result
+
+    except (IndexError, ValueError, OverflowError) as err:
+        _LOGGER.debug(
+            "Oclean m18f record parse error: %s (raw: %s)",
+            err,
+            record[:_T1_FULL_RECORD_SIZE].hex() if len(record) >= _T1_FULL_RECORD_SIZE else record.hex(),
+        )
+        return {}
+
+
 def _parse_info_t1_response(payload: bytes) -> dict[str, Any]:
     """Parse a 0307 Type-1 running-data push payload (Oclean X / OCLEANY3M).
 
-    The 0307 response on RECEIVE_BRUSH_UUID is a single-BLE-packet push that
-    carries the beginning of an m18f-format record (AbstractC0002b.m18f in the
-    Oclean APK).  The full 42-byte m18f record is only sent for multi-packet
-    historical queries (via C5733b.m8524e); the push truncates at byte 17,
-    fitting one 20-byte BLE ATT notification with the 5-byte header.
+    The device responds in two modes depending on whether sessions are queued:
 
-    APK source: AbstractC0002b.m18f / C3385w0 / C5733b.m8524e (OCLEANY3M,
-    protocol 14, i12=1).
+    **Inline mode** (session_count == 0, payload = 18 bytes):
+      Header: "*B#" + 0x0000 + first 13 bytes of the most-recent m18f record.
+      Score is NOT included (record truncated at byte 12).
 
-    Full payload layout (18 bytes after stripping the 2-byte 0307 prefix):
+    **Paginated mode** (session_count > 0, payload = 5 + N×42 bytes):
+      Header: "*B#" + RecordCount[2B BE] + N × 42-byte m18f records.
+      Full m18f records include score (byte 33), area pressures (bytes 11-16, 18-19).
+      Multi-packet reassembly (C5733b.m8524e) handled by the BLE layer; the HA
+      integration receives the already-reassembled payload.
 
-      bytes  0-2:  magic "*B#"      (0x2a 0x42 0x23 – Oclean 0307 push header)
-      bytes  3-4:  session count    (0x0000 – inline-push mode, 0 queued sessions)
+    **OCLEANY3P special case** (session_count > 0 but year_byte == 0):
+      Device defers data; will push via 021f / 5100 notifications instead.
 
-      m18f record data (starts at byte 5, immediately after the 5-byte header):
-        byte  5:  year - 2000       (confirmed)
-        byte  6:  month             (confirmed)
-        byte  7:  day               (confirmed)
-        byte  8:  hour              (confirmed)
-        byte  9:  minute            (confirmed)
-        byte 10:  second            (confirmed)
-        byte 11:  pNum              (brush-scheme ID; m18f record offset +6;
-                                     confirmed by cross-referencing SCHEME_NAMES)
-        bytes 12-13: duration       (2-byte BE, total session seconds; m18f offset +7)
-        bytes 14-15: validDuration  (2-byte BE, seconds with valid pressure; logged only)
-        byte 16:  pressureArea[0]   (first of 5 pressure-zone bytes; logged only)
-        byte 17:  pressureArea[1]   (second of 5 pressure-zone bytes; logged only)
-
-    Note: score is NOT in this payload – it arrives via 0000 (RESP_SCORE_T1).
-    Timezone is not encoded; the device stores local time and time.mktime()
-    interprets it in the HA system timezone.
+    APK source: AbstractC0002b.m18f / C3385w0_fallback.java / C5733b.m8524e
+    (DeviceType OCLEANY3M, protocol 14, i12=1).
     """
     _LOGGER.debug("Oclean Type-1 INFO response raw: %s", payload.hex())
 
@@ -244,12 +303,24 @@ def _parse_info_t1_response(payload: bytes) -> dict[str, Any]:
         _LOGGER.debug("Oclean Type-1 INFO: payload too short (%d bytes)", len(payload))
         return {}
 
-    # year_byte == 0 → device reports no inline session or uses paginated mode.
-    # Observed on OCLEANY3P (sw=1.0.0.41): session_count=1 but year_byte=0x00.
-    # The device then pushes session data via 021f (zone data) and 5100 (session meta)
-    # notifications, which are the OCLEANY3P equivalents of 2604 and 5a00.
+    session_count = (payload[3] << 8) | payload[4]
+
+    # Paginated mode: session_count > 0, year_byte != 0, AND full 42-byte record fits.
+    # When payload is short (< 47 bytes), the device used inline format with count > 0
+    # (observed: session_count=1 with 18-byte payload).  Fall through to inline parse.
+    if session_count > 0 and payload[5] != 0 and len(payload) >= 5 + _T1_FULL_RECORD_SIZE:
+        result = _parse_m18f_record(payload[5 : 5 + _T1_FULL_RECORD_SIZE])
+        if result:
+            _LOGGER.debug(
+                "Oclean 0307 paginated: %d session(s), newest ts=%d score=%s",
+                session_count,
+                result.get("last_brush_time", 0),
+                result.get("last_brush_score", "n/a"),
+            )
+        return result
+
+    # year_byte == 0 → OCLEANY3P: device will push data via 021f/5100 notifications
     if payload[5] == 0:
-        session_count = (payload[3] << 8) | payload[4] if len(payload) >= 5 else 0
         _LOGGER.debug(
             "Oclean 0307: year_byte=0x00, session_count=%d – "
             "device will push session data via 021f/5100 notifications (raw: %s)",
@@ -258,42 +329,26 @@ def _parse_info_t1_response(payload: bytes) -> dict[str, Any]:
         )
         return {}
 
+    # Inline mode (session_count == 0): truncated 13-byte record, no score
     try:
-        # bytes 5-10: device local timestamp (confirmed)
         device_dt = _device_datetime(payload[5], payload[6], payload[7], payload[8], payload[9], payload[10])
-        # time.mktime() interprets the naive datetime in the system local timezone
-        # (= HA configured timezone on HA OS) and returns a correct UTC Unix timestamp.
         timestamp_s = int(time.mktime(device_dt.timetuple()))
 
-        result: dict[str, Any] = {
+        result = {
             "last_brush_time": timestamp_s,
             "last_brush_pnum": int(payload[11]),
         }
 
-        # byte 12-13: duration (2-byte big-endian, total session seconds)
         if len(payload) >= 14:
-            duration_s = (payload[12] << 8) | payload[13]
-            result["last_brush_duration"] = duration_s
+            result["last_brush_duration"] = (payload[12] << 8) | payload[13]
 
         _LOGGER.debug(
-            "Oclean 0307 parsed: ts=%d pNum=%d duration=%s s (raw: %s)",
+            "Oclean 0307 inline: ts=%d pNum=%d duration=%s s (raw: %s)",
             timestamp_s,
             result["last_brush_pnum"],
             result.get("last_brush_duration", "n/a"),
             payload.hex(),
         )
-
-        # Log remaining bytes for ongoing protocol analysis.
-        if len(payload) >= 18:
-            _LOGGER.debug(
-                "Oclean 0307 extra bytes – validDuration=0x%02x%02x=%d s pressureArea[0]=0x%02x pressureArea[1]=0x%02x",
-                payload[14],
-                payload[15],
-                (payload[14] << 8) | payload[15],
-                payload[16],
-                payload[17],
-            )
-
         return result
 
     except (IndexError, ValueError, OverflowError) as err:

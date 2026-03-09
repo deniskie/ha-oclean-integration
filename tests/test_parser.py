@@ -28,6 +28,7 @@ from custom_components.oclean_ble.parser import (
     _parse_info_response,
     _parse_info_t1_response,
     _parse_k3guide_response,
+    _parse_m18f_record,
     _parse_running_data_record,
     _parse_score_t1_response,
     _parse_session_meta_t1_response,
@@ -714,6 +715,120 @@ class TestParseInfoT1Response:
     def test_invalid_day_zero_returns_empty(self):
         rec = _make_t1_record(day=0)
         assert _parse_info_t1_response(rec) == {}
+
+
+# ---------------------------------------------------------------------------
+# _parse_m18f_record  (full 42-byte paginated records)
+# ---------------------------------------------------------------------------
+
+
+def _make_m18f_record(
+    *,
+    year: int = 2026,
+    month: int = 3,
+    day: int = 9,
+    hour: int = 7,
+    minute: int = 0,
+    second: int = 0,
+    pnum: int = 87,
+    duration: int = 180,
+    areas: tuple = (5, 14, 1, 8, 12, 10, 3, 7),
+    score: int = 82,
+) -> bytes:
+    """Build a full 42-byte m18f session record."""
+    record = bytearray(42)
+    record[0] = year - 2000
+    record[1] = month
+    record[2] = day
+    record[3] = hour
+    record[4] = minute
+    record[5] = second
+    record[6] = pnum
+    record[7] = (duration >> 8) & 0xFF
+    record[8] = duration & 0xFF
+    # bytes 9-10: validDuration (unused by parser)
+    record[9] = record[7]
+    record[10] = record[8]
+    # bytes 11-16: area1-6
+    for i, v in enumerate(areas[:6]):
+        record[11 + i] = v
+    # byte 17: reserved
+    # bytes 18-19: area7-8
+    for i, v in enumerate(areas[6:8]):
+        record[18 + i] = v
+    # byte 33: score
+    record[33] = score
+    return bytes(record)
+
+
+def _make_paginated_0307(session_count: int, records: list[bytes]) -> bytes:
+    """Build a 0307 paginated payload (5-byte header + N × 42-byte records)."""
+    header = bytearray(5)
+    header[0:3] = b"\x2a\x42\x23"  # *B#
+    header[3] = (session_count >> 8) & 0xFF
+    header[4] = session_count & 0xFF
+    return bytes(header) + b"".join(records)
+
+
+class TestParseM18fRecord:
+    def test_extracts_all_fields(self):
+        record = _make_m18f_record(score=75, duration=120, pnum=42)
+        result = _parse_m18f_record(record)
+        assert result["last_brush_pnum"] == 42
+        assert result["last_brush_duration"] == 120
+        assert result["last_brush_score"] == 75
+        assert "last_brush_areas" in result
+        assert "last_brush_pressure" in result
+
+    def test_score_0xff_not_stored(self):
+        record = _make_m18f_record(score=0xFF)
+        result = _parse_m18f_record(record)
+        assert "last_brush_score" not in result
+
+    def test_score_0_not_stored(self):
+        record = _make_m18f_record(score=0)
+        result = _parse_m18f_record(record)
+        assert "last_brush_score" not in result
+
+    def test_zero_areas_not_stored(self):
+        record = _make_m18f_record(areas=(0, 0, 0, 0, 0, 0, 0, 0))
+        result = _parse_m18f_record(record)
+        assert "last_brush_areas" not in result
+        assert "last_brush_pressure" not in result
+
+    def test_too_short_returns_empty(self):
+        assert _parse_m18f_record(bytes(41)) == {}
+
+    def test_invalid_year_returns_empty(self):
+        record = bytearray(_make_m18f_record())
+        record[0] = 0  # year 2000 < _MIN_YEAR
+        assert _parse_m18f_record(bytes(record)) == {}
+
+    def test_timestamp_correct(self):
+        record = _make_m18f_record(year=2026, month=3, day=9, hour=7, minute=0, second=0)
+        result = _parse_m18f_record(record)
+        expected = _expected_t1_ts(2026, 3, 9, 7, 0, 0)
+        assert result["last_brush_time"] == expected
+
+
+class TestParseInfoT1Paginated:
+    def test_paginated_score_extracted(self):
+        """session_count=3, full 42-byte record → score is parsed."""
+        record = _make_m18f_record(score=88, pnum=55, duration=150)
+        payload = _make_paginated_0307(3, [record, record, record])
+        result = _parse_info_t1_response(payload)
+        assert result["last_brush_score"] == 88
+        assert result["last_brush_pnum"] == 55
+        assert result["last_brush_duration"] == 150
+
+    def test_paginated_falls_through_when_short(self):
+        """session_count=1 but payload only 18 bytes → treated as inline (no score)."""
+        # This is the real-world case: session_count=1 but inline format
+        payload = bytes.fromhex("2a422300011a02181535134c009600960b03")
+        result = _parse_info_t1_response(payload)
+        assert result["last_brush_pnum"] == 76  # 0x4c
+        assert result["last_brush_duration"] == 150  # 0x0096
+        assert "last_brush_score" not in result
 
 
 # ---------------------------------------------------------------------------
