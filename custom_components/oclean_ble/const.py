@@ -80,6 +80,10 @@ DATA_LAST_BRUSH_TIME = "last_brush_time"
 BLE_CONNECT_TIMEOUT = 10
 # Time to wait for notifications after sending a command
 BLE_NOTIFICATION_WAIT = 3
+# Extra wait after receiving a session, allowing the device time to push
+# enrichment notifications (0000 score, 2604 zone pressures).  These are
+# unsolicited pushes the device sends shortly after the 0307 session response.
+BLE_ENRICHMENT_WAIT = 1.5
 
 # Brush head reset command
 CMD_CLEAR_BRUSH_HEAD = bytes.fromhex("020F")
