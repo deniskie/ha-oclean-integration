@@ -1412,3 +1412,157 @@ class TestAsyncSyncTime:
             await coord.async_sync_time()
 
         client.disconnect.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
+# Software brush-head counter increment
+# ---------------------------------------------------------------------------
+
+
+class TestSoftwareBrushHeadCounter:
+    def _make_poll_patch(self, coord, new_sessions: list, import_return: int):
+        async def fake_setup_and_read(_client, _collected):
+            return new_sessions
+
+        async def fake_import(_h, _m, _d, sessions, last_ts):
+            return import_return
+
+        return fake_setup_and_read, fake_import
+
+    @pytest.mark.asyncio
+    async def test_sw_counter_increments_when_new_sessions(self):
+        """_brush_head_sw_count must increase by the number of new sessions."""
+        coord = _make_coordinator()
+        coord._store_loaded = True
+        coord._last_session_ts = 0
+        coord._brush_head_hw_supported = False
+        client = _make_bleak_client()
+
+        fake_setup, fake_import = self._make_poll_patch(
+            coord,
+            new_sessions=[{"last_brush_time": 1_700_000_001}, {"last_brush_time": 1_700_000_002}],
+            import_return=1_700_000_002,
+        )
+
+        with (
+            patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock,
+            patch(
+                "custom_components.oclean_ble.coordinator.establish_connection",
+                new_callable=AsyncMock,
+                return_value=client,
+            ),
+            patch("custom_components.oclean_ble.coordinator.asyncio.sleep", new_callable=AsyncMock),
+            patch("custom_components.oclean_ble.coordinator.import_new_sessions", side_effect=fake_import),
+            patch.object(coord, "_setup_and_read", side_effect=fake_setup),
+        ):
+            bt_mock.async_last_service_info.return_value = _make_service_info()
+            await coord._poll_device()
+
+        assert coord._brush_head_sw_count == 2
+
+    @pytest.mark.asyncio
+    async def test_sw_counter_unchanged_when_no_new_sessions(self):
+        """_brush_head_sw_count must not change when all sessions are already known."""
+        coord = _make_coordinator()
+        coord._store_loaded = True
+        coord._last_session_ts = 1_700_000_001
+        coord._brush_head_sw_count = 5
+        coord._brush_head_hw_supported = False
+        client = _make_bleak_client()
+
+        async def fake_setup(_client, _collected):
+            return [{"last_brush_time": 1_700_000_001}]  # already known
+
+        async def fake_import(_h, _m, _d, sessions, last_ts):
+            return last_ts  # no change
+
+        with (
+            patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock,
+            patch(
+                "custom_components.oclean_ble.coordinator.establish_connection",
+                new_callable=AsyncMock,
+                return_value=client,
+            ),
+            patch("custom_components.oclean_ble.coordinator.asyncio.sleep", new_callable=AsyncMock),
+            patch("custom_components.oclean_ble.coordinator.import_new_sessions", side_effect=fake_import),
+            patch.object(coord, "_setup_and_read", side_effect=fake_setup),
+        ):
+            bt_mock.async_last_service_info.return_value = _make_service_info()
+            await coord._poll_device()
+
+        assert coord._brush_head_sw_count == 5
+
+    @pytest.mark.asyncio
+    async def test_sw_counter_not_used_when_hw_supported(self):
+        """When hw brush-head counter is supported, DATA_BRUSH_HEAD_USAGE comes from collected."""
+        from custom_components.oclean_ble.const import DATA_BRUSH_HEAD_USAGE
+
+        coord = _make_coordinator()
+        coord._store_loaded = True
+        coord._brush_head_hw_supported = True
+        client = _make_bleak_client()
+
+        async def fake_setup(_client, collected):
+            collected[DATA_BRUSH_HEAD_USAGE] = 42
+            return []
+
+        async def fake_import(_h, _m, _d, sessions, last_ts):
+            return last_ts
+
+        with (
+            patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock,
+            patch(
+                "custom_components.oclean_ble.coordinator.establish_connection",
+                new_callable=AsyncMock,
+                return_value=client,
+            ),
+            patch("custom_components.oclean_ble.coordinator.asyncio.sleep", new_callable=AsyncMock),
+            patch("custom_components.oclean_ble.coordinator.import_new_sessions", side_effect=fake_import),
+            patch.object(coord, "_setup_and_read", side_effect=fake_setup),
+        ):
+            bt_mock.async_last_service_info.return_value = _make_service_info()
+            result = await coord._poll_device()
+
+        assert result[DATA_BRUSH_HEAD_USAGE] == 42
+
+
+# ---------------------------------------------------------------------------
+# DIS cache – fresh read when never read or expired (> 24 h)
+# ---------------------------------------------------------------------------
+
+
+class TestReadDeviceInfoServiceCacheExpiry:
+    @pytest.mark.asyncio
+    async def test_dis_never_read_triggers_fresh_read(self):
+        """_dis_last_read_ts == 0 must always trigger a fresh DIS read."""
+        coord = _make_coordinator()
+        client = _make_bleak_client()
+        client.read_gatt_char = AsyncMock(return_value=bytearray(b"OCLEANY3M"))
+        collected: dict = {}
+        await coord._read_device_info_service(client, collected)
+        client.read_gatt_char.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_dis_expired_triggers_fresh_read(self):
+        """_dis_last_read_ts older than 24 h must trigger a fresh DIS read."""
+        import time
+
+        coord = _make_coordinator()
+        coord._dis_last_read_ts = time.time() - 90_000  # 25 h ago
+        client = _make_bleak_client()
+        client.read_gatt_char = AsyncMock(return_value=bytearray(b"OCLEANY3M"))
+        collected: dict = {}
+        await coord._read_device_info_service(client, collected)
+        client.read_gatt_char.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_dis_fresh_updates_last_read_ts(self):
+        """After a successful DIS read _dis_last_read_ts must be set to ~now."""
+        import time
+
+        coord = _make_coordinator()
+        client = _make_bleak_client()
+        client.read_gatt_char = AsyncMock(return_value=bytearray(b"OCLEANY3M"))
+        before = time.time()
+        await coord._read_device_info_service(client, {})
+        assert coord._dis_last_read_ts >= before

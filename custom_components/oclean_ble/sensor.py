@@ -37,6 +37,15 @@ from .const import (
 from .coordinator import OcleanCoordinator
 from .entity import OcleanEntity
 
+
+def _get_areas(coordinator_data: dict | None) -> dict[str, int] | None:
+    """Return the last_brush_areas dict, or None if unavailable or wrong type."""
+    if coordinator_data is None:
+        return None
+    areas = coordinator_data.get(DATA_LAST_BRUSH_AREAS)
+    return areas if isinstance(areas, dict) else None
+
+
 # Session-derived keys: only populated from parsed brush session notifications.
 # After the first session is received (DATA_LAST_BRUSH_TIME is set), any of
 # these keys that remain None are structurally unsupported by the device protocol.
@@ -208,16 +217,10 @@ class OcleanBrushAreasSensor(OcleanEntity, SensorEntity):
     ) -> None:
         super().__init__(coordinator, mac, device_name, DATA_LAST_BRUSH_AREAS)
 
-    def _get_areas(self) -> dict[str, int] | None:
-        if self.coordinator.data is None:
-            return None
-        areas = self.coordinator.data.get(DATA_LAST_BRUSH_AREAS)
-        return areas if isinstance(areas, dict) else None
-
     @property
     def native_value(self) -> int | None:
         """Return the number of zones with non-zero pressure."""
-        areas = self._get_areas()
+        areas = _get_areas(self.coordinator.data)
         if areas is None:
             return None
         return sum(1 for v in areas.values() if v > 0)
@@ -225,12 +228,12 @@ class OcleanBrushAreasSensor(OcleanEntity, SensorEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any] | None:
         """Return per-zone pressure values as state attributes."""
-        return self._get_areas()
+        return _get_areas(self.coordinator.data)
 
     @property
     def available(self) -> bool:
         """Return True if coordinator is available or we have stale area data."""
-        return self._session_field_available(self._get_areas())
+        return self._session_field_available(_get_areas(self.coordinator.data))
 
 
 class OcleanSchemeSensor(OcleanEntity, SensorEntity):
@@ -293,16 +296,10 @@ class OcleanToothAreaSensor(OcleanEntity, SensorEntity):
         self._zone_name = zone_name
         self._attr_name = "Tooth Area " + zone_name.replace("_", " ").title()
 
-    def _get_areas(self) -> dict[str, int] | None:
-        if self.coordinator.data is None:
-            return None
-        areas = self.coordinator.data.get(DATA_LAST_BRUSH_AREAS)
-        return areas if isinstance(areas, dict) else None
-
     @property
     def native_value(self) -> int | None:
         """Return the pressure value for this zone, or None if unavailable."""
-        areas = self._get_areas()
+        areas = _get_areas(self.coordinator.data)
         if areas is None:
             return None
         return areas.get(self._zone_name)
@@ -310,4 +307,4 @@ class OcleanToothAreaSensor(OcleanEntity, SensorEntity):
     @property
     def available(self) -> bool:
         """Return True if coordinator is available or we have stale area data."""
-        return self._session_field_available(self._get_areas())
+        return self._session_field_available(_get_areas(self.coordinator.data))

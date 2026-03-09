@@ -10,12 +10,14 @@ import pytest
 
 from custom_components.oclean_ble.const import (
     RESP_BRUSH_AREAS_T1,
+    RESP_BRUSH_AREAS_Y3P,
     RESP_EXTENDED_T1,
     RESP_INFO,
     RESP_INFO_T1,
     RESP_K3GUIDE,
     RESP_SCORE_T1,
     RESP_SESSION_META_T1,
+    RESP_SESSION_META_Y3P,
     TOOTH_AREA_NAMES,
 )
 from custom_components.oclean_ble.parser import (
@@ -24,6 +26,7 @@ from custom_components.oclean_ble.parser import (
     _map_json_brush_data,
     _parse_0314_response,
     _parse_brush_areas_t1_response,
+    _parse_brush_areas_y3p_response,
     _parse_extended_running_data_record,
     _parse_info_response,
     _parse_info_t1_response,
@@ -32,6 +35,7 @@ from custom_components.oclean_ble.parser import (
     _parse_running_data_record,
     _parse_score_t1_response,
     _parse_session_meta_t1_response,
+    _parse_session_meta_y3p_response,
     _parse_state_response,
     parse_battery,
     parse_notification,
@@ -1491,4 +1495,47 @@ class TestParse0314Response:
     def test_routed_via_parse_notification(self):
         payload = RESP_EXTENDED_T1 + bytes([0x01, 0x02, 0x03])
         result = parse_notification(payload)
+        assert result == {}
+
+
+# ---------------------------------------------------------------------------
+# _parse_brush_areas_y3p_response – short-payload guard (021f / OCLEANY3P)
+# ---------------------------------------------------------------------------
+
+
+class TestParseBrushAreasY3pResponse:
+    def test_short_payload_returns_empty(self):
+        """Payload shorter than 14 bytes must return {} without raising."""
+        assert _parse_brush_areas_y3p_response(bytes(13)) == {}
+        assert _parse_brush_areas_y3p_response(b"") == {}
+
+    def test_routed_via_parse_notification_short(self):
+        """parse_notification with a short 021f payload must return {}."""
+        result = parse_notification(RESP_BRUSH_AREAS_Y3P + bytes(5))
+        assert result == {}
+
+    def test_valid_payload_returns_areas(self):
+        """14+ byte payload must be parsed without raising."""
+        # Observed layout: bytes 0-5 header, bytes 6-13 area pressures
+        payload = bytes([0x00, 0x00, 0x0F, 0x00, 0x0F, 0x21]) + bytes([10, 20, 30, 40, 50, 60, 70, 80])
+        result = _parse_brush_areas_y3p_response(payload)
+        assert "last_brush_areas" in result
+        areas = result["last_brush_areas"]
+        assert len(areas) == 8
+
+
+# ---------------------------------------------------------------------------
+# _parse_session_meta_y3p_response – short-payload guard (5100 / OCLEANY3P)
+# ---------------------------------------------------------------------------
+
+
+class TestParseSessionMetaY3pResponse:
+    def test_short_payload_returns_empty(self):
+        """Payload shorter than 16 bytes must return {} without raising."""
+        assert _parse_session_meta_y3p_response(bytes(15)) == {}
+        assert _parse_session_meta_y3p_response(b"") == {}
+
+    def test_routed_via_parse_notification_short(self):
+        """parse_notification with a short 5100 payload must return {}."""
+        result = parse_notification(RESP_SESSION_META_Y3P + bytes(5))
         assert result == {}

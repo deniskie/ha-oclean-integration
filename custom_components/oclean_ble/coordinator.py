@@ -25,6 +25,9 @@ from .const import (
     BATTERY_CHAR_UUID,
     BLE_ENRICHMENT_WAIT,
     BLE_NOTIFICATION_WAIT,
+    BLE_PAGINATION_TIMEOUT,
+    BLE_POST_CONNECT_DELAY,
+    BLE_READ_FALLBACK_DELAY,
     CMD_CALIBRATE_TIME_PREFIX,
     CMD_CLEAR_BRUSH_HEAD,
     CMD_QUERY_RUNNING_DATA_NEXT,
@@ -279,7 +282,7 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
             max_attempts=3,
         )
         try:
-            await asyncio.sleep(2.0)
+            await asyncio.sleep(BLE_POST_CONNECT_DELAY)
             await client.write_gatt_char(WRITE_CHAR_UUID, CMD_CLEAR_BRUSH_HEAD, response=True)
             _LOGGER.info("Oclean brush head counter reset sent to %s", self._mac)
         finally:
@@ -483,7 +486,7 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
 
         # Delay after connect: gives habluetooth's proxy backend time to finish
         # processing the GATT service table before we start issuing commands.
-        await asyncio.sleep(2.0)
+        await asyncio.sleep(BLE_POST_CONNECT_DELAY)
 
         all_sessions: list[dict[str, Any]] = []
         _seen_ts: set[int] = set()
@@ -683,7 +686,7 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         poll the characteristic after a short delay and feed the result through
         the same notification_handler as if it had arrived as a notify event.
         """
-        await asyncio.sleep(1.5)
+        await asyncio.sleep(BLE_READ_FALLBACK_DELAY)
         try:
             raw = await client.read_gatt_char(READ_NOTIFY_CHAR_UUID)
             data = bytes(raw)
@@ -752,7 +755,7 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
                 break
 
             try:
-                await asyncio.wait_for(session_received.wait(), timeout=2.0)
+                await asyncio.wait_for(session_received.wait(), timeout=BLE_PAGINATION_TIMEOUT)
             except asyncio.TimeoutError:
                 _LOGGER.debug("Oclean no more sessions after page %d", page)
                 break
