@@ -235,6 +235,13 @@ class TestParseNotificationRouting:
         result = parse_notification(data)
         assert result == {}
 
+    def test_info_response_short_status_packet(self):
+        # 0308 with payload[0]==0, payload[1]==12 < 32 – "no-session" ack from
+        # OCLEANY3MH device (observed in issue #19 logs).  Should return {} silently.
+        data = bytes.fromhex("0308000c021c173bc7f97dd34f4b")
+        result = parse_notification(data)
+        assert result == {}
+
     def test_device_info_ack_routed(self):
         # 02 02 4F 4B → device-info ACK ("OK"), no sensor data
         data = bytes([0x02, 0x02, 0x4F, 0x4B])

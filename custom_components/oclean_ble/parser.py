@@ -194,6 +194,14 @@ def _parse_info_response(payload: bytes) -> dict[str, Any]:
         _LOGGER.debug("Oclean INFO: extended format detected but parsing failed, raw: %s", payload.hex())
         return {}
 
+    if len(payload) >= 2 and payload[0] == 0:
+        # Byte 0 == 0 marks the extended-format header but payload[1] < 32 means
+        # the device sent a short status/ack packet (no session record embedded).
+        # Cannot be interpreted as simple format (simple format has year ≥ 24 at
+        # byte 0).  Return silently – not an error.
+        _LOGGER.debug("Oclean INFO: short status packet (%d bytes), no session data", len(payload))
+        return {}
+
     # Simple 18-byte format
     record = _parse_running_data_record(payload)
     if record:
