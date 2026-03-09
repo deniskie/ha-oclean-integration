@@ -78,12 +78,19 @@ DATA_LAST_BRUSH_TIME = "last_brush_time"
 
 # BLE connection timeout in seconds
 BLE_CONNECT_TIMEOUT = 10
+# Post-connect pause before issuing GATT commands (proxy backend needs time to
+# finish processing the GATT service table after establish_connection returns).
+BLE_POST_CONNECT_DELAY = 2.0
 # Time to wait for notifications after sending a command
 BLE_NOTIFICATION_WAIT = 3
 # Extra wait after receiving a session, allowing the device time to push
 # enrichment notifications (0000 score, 2604 zone pressures).  These are
 # unsolicited pushes the device sends shortly after the 0307 session response.
 BLE_ENRICHMENT_WAIT = 1.5
+# Wait before READ fallback poll for devices without CCCD (e.g. OCLEANA1).
+BLE_READ_FALLBACK_DELAY = 1.5
+# Per-page notification timeout used during 0309 session pagination.
+BLE_PAGINATION_TIMEOUT = 2.0
 
 # Brush head reset command
 CMD_CLEAR_BRUSH_HEAD = bytes.fromhex("020F")
