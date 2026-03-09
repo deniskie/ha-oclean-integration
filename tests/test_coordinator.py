@@ -771,18 +771,76 @@ class TestAsyncUpdateDataSkip:
         assert result.battery == 80
 
     @pytest.mark.asyncio
-    async def test_skip_without_stale_data_returns_empty_device_data(self):
+    async def test_skip_without_stale_data_bypasses_restriction_and_polls(self):
+        # When no cached data exists, poll restrictions are bypassed so the
+        # initial setup always reaches the device.  With no BLE device available
+        # the poll raises UpdateFailed (not a silent empty result).
         import time
 
-        from custom_components.oclean_ble.models import OcleanDeviceData
+        from homeassistant.helpers.update_coordinator import UpdateFailed
 
         coord = _make_coordinator()
         coord._store_loaded = True
         coord._cooldown_until = time.time() + 3600
         coord._last_raw = {}
-        result = await coord._async_update_data()
-        assert isinstance(result, OcleanDeviceData)
-        assert result.battery is None
+        with pytest.raises(UpdateFailed):
+            await coord._async_update_data()
+
+    @pytest.mark.asyncio
+    async def test_skip_without_stale_data_returns_data_when_ble_available(self):
+        # When no cached data exists and a poll window restriction would apply,
+        # the bypass polls the device.  If BLE succeeds, data is returned normally.
+        import time
+
+        coord = _make_coordinator()
+        coord._store_loaded = True
+        coord._cooldown_until = time.time() + 3600
+        coord._last_raw = {}
+        client = _make_bleak_client(battery_value=91)
+
+        with (
+            patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock,
+            patch(
+                "custom_components.oclean_ble.coordinator.establish_connection",
+                new_callable=AsyncMock,
+                return_value=client,
+            ),
+            patch("custom_components.oclean_ble.coordinator.asyncio.sleep", new_callable=AsyncMock),
+        ):
+            bt_mock.async_last_service_info.return_value = _make_service_info()
+            result = await coord._async_update_data()
+
+        assert result.battery == 91
+
+    @pytest.mark.asyncio
+    async def test_save_store_called_after_poll_without_new_sessions(self):
+        # _save_store() must be called after every successful poll so that
+        # battery and model data survive an HA restart even when no new
+        # brush sessions were detected.
+        coord = _make_coordinator()
+        coord._store_loaded = True
+        client = _make_bleak_client(battery_value=60)
+        saved: list[dict] = []
+
+        async def _fake_save(data):
+            saved.append(data)
+
+        coord._store.async_save = _fake_save
+
+        with (
+            patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock,
+            patch(
+                "custom_components.oclean_ble.coordinator.establish_connection",
+                new_callable=AsyncMock,
+                return_value=client,
+            ),
+            patch("custom_components.oclean_ble.coordinator.asyncio.sleep", new_callable=AsyncMock),
+        ):
+            bt_mock.async_last_service_info.return_value = _make_service_info()
+            await coord._async_update_data()
+
+        assert len(saved) >= 1, "_save_store must be called after every successful poll"
+        assert saved[-1]["last_session"].get(DATA_BATTERY) == 60
 
 
 # ---------------------------------------------------------------------------
