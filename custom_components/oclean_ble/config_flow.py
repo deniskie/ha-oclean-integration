@@ -27,6 +27,7 @@ from .const import (
     DOMAIN,
     MIN_POLL_INTERVAL,
     OCLEAN_SERVICE_UUID,
+    POLL_INTERVAL_MANUAL,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -238,7 +239,7 @@ class OcleanOptionsFlow(config_entries.OptionsFlow):
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> FlowResult:
         if user_input is not None:
-            self._poll_interval = user_input[CONF_POLL_INTERVAL]
+            self._poll_interval = int(user_input[CONF_POLL_INTERVAL])
             self._cooldown = int(user_input.get(CONF_POST_BRUSH_COOLDOWN, DEFAULT_POST_BRUSH_COOLDOWN))
             self._window_count = int(user_input.get(CONF_WINDOW_COUNT, 0))
             self._collected_windows = []
@@ -265,8 +266,14 @@ class OcleanOptionsFlow(config_entries.OptionsFlow):
             step_id="init",
             data_schema=vol.Schema(
                 {
-                    vol.Required(CONF_POLL_INTERVAL, default=current_interval): vol.All(
-                        int, vol.Range(min=MIN_POLL_INTERVAL)
+                    vol.Required(CONF_POLL_INTERVAL, default=current_interval): selector.NumberSelector(
+                        selector.NumberSelectorConfig(
+                            min=POLL_INTERVAL_MANUAL,
+                            max=86400,
+                            step=1,
+                            unit_of_measurement="s",
+                            mode=selector.NumberSelectorMode.BOX,
+                        )
                     ),
                     vol.Optional(CONF_POST_BRUSH_COOLDOWN, default=current_cooldown): selector.NumberSelector(
                         selector.NumberSelectorConfig(

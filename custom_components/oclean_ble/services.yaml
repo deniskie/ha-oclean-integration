@@ -1,0 +1,14 @@
+poll:
+  name: Poll device
+  description: >
+    Trigger an immediate BLE poll for one or all Oclean devices.
+    Useful for manual polling mode or event-driven automations.
+  fields:
+    entry_id:
+      name: Config Entry ID
+      description: >
+        Optional. The config entry ID of the device to poll.
+        If omitted, all configured Oclean devices are polled.
+      required: false
+      selector:
+        text:
