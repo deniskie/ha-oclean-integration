@@ -9,6 +9,7 @@ import logging
 import struct
 import time
 import traceback
+from collections.abc import Callable
 from datetime import time as _dtime
 from datetime import timedelta
 from typing import Any
@@ -414,7 +415,7 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
             self._brush_head_hw_supported = True
 
         # Count new sessions before _import_new_sessions updates _last_session_ts
-        new_session_count = sum(1 for s in all_sessions if s.get("last_brush_time", 0) > self._last_session_ts)
+        new_session_count = sum(1 for s in all_sessions if s.get(DATA_LAST_BRUSH_TIME, 0) > self._last_session_ts)
 
         # Import new sessions into HA long-term statistics
         if all_sessions:
@@ -490,7 +491,7 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         all_sessions: list[dict[str, Any]],
         seen_ts: set[int],
         session_received: asyncio.Event,
-    ) -> Any:
+    ) -> Callable[[Any, bytearray], None]:
         """Return a BLE notification callback that accumulates session data.
 
         The returned handler parses each notification, applies the "newer
@@ -506,11 +507,11 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
             _LOGGER.debug("Oclean notification parsed: %s", parsed)
             if not parsed:
                 return
-            incoming_ts = parsed.get("last_brush_time")
-            if incoming_ts is not None and incoming_ts < collected.get("last_brush_time", 0):
-                parsed = {k: v for k, v in parsed.items() if k not in ("last_brush_time", "last_brush_duration")}
+            incoming_ts = parsed.get(DATA_LAST_BRUSH_TIME)
+            if incoming_ts is not None and incoming_ts < collected.get(DATA_LAST_BRUSH_TIME, 0):
+                parsed = {k: v for k, v in parsed.items() if k not in (DATA_LAST_BRUSH_TIME, DATA_LAST_BRUSH_DURATION)}
             collected.update(parsed)
-            ts = parsed.get("last_brush_time")
+            ts = parsed.get(DATA_LAST_BRUSH_TIME)
             if ts and ts not in seen_ts:
                 seen_ts.add(ts)
                 all_sessions.append(dict(parsed))
@@ -524,7 +525,7 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         collected: dict[str, Any],
         all_sessions: list[dict[str, Any]],
         session_received: asyncio.Event,
-        handler: Any,
+        handler: Callable[[Any, bytearray], None],
     ) -> None:
         """Execute the full GATT operation sequence for one poll.
 
@@ -566,7 +567,7 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         We merge them into the newest session so stats import receives complete data.
         """
         if all_sessions:
-            latest = max(all_sessions, key=lambda s: s.get("last_brush_time", 0))
+            latest = max(all_sessions, key=lambda s: s.get(DATA_LAST_BRUSH_TIME, 0))
             enriched = {k: collected[k] for k in _ENRICHMENT_KEYS if k in collected and k not in latest}
             if enriched:
                 latest.update(enriched)
@@ -578,7 +579,7 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
             self._last_session_ts,
         )
         for i, s in enumerate(all_sessions):
-            ts = s.get("last_brush_time", 0)
+            ts = s.get(DATA_LAST_BRUSH_TIME, 0)
             status = "NEW" if ts > self._last_session_ts else "known"
             _LOGGER.debug(
                 "Oclean  session[%d]: ts=%d (%s)  %s",
@@ -677,7 +678,9 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("Oclean time calibration failed: %s (%s)", err, type(err).__name__)
 
-    async def _subscribe_notifications(self, client: BleakClient, handler: Any) -> frozenset[str]:
+    async def _subscribe_notifications(
+        self, client: BleakClient, handler: Callable[[Any, bytearray], None]
+    ) -> frozenset[str]:
         """Subscribe to notification characteristics for the active device protocol.
 
         Returns the set of UUIDs successfully subscribed.  Callers use this to
@@ -699,7 +702,9 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
                 )
         return frozenset(subscribed)
 
-    async def _read_response_char_fallback(self, client: BleakClient, handler: Any) -> None:
+    async def _read_response_char_fallback(
+        self, client: BleakClient, handler: Callable[[Any, bytearray], None]
+    ) -> None:
         """Directly READ READ_NOTIFY_CHAR_UUID for devices without CCCD support.
 
         Devices like OCLEANA1 (Protocol 6) place their response data in
@@ -760,7 +765,7 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         for page in range(MAX_SESSION_PAGES - 1):
             if not all_sessions:
                 break
-            last_ts = all_sessions[-1].get("last_brush_time", 0)
+            last_ts = all_sessions[-1].get(DATA_LAST_BRUSH_TIME, 0)
             if last_ts and last_ts <= self._last_session_ts:
                 _LOGGER.debug(
                     "Oclean pagination stopped: reached already-known session (ts=%d) at page %d",
