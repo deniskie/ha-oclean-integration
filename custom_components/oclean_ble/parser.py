@@ -11,6 +11,15 @@ from collections.abc import Callable
 from typing import Any
 
 from .const import (
+    DATA_BATTERY,
+    DATA_BRUSH_HEAD_USAGE,
+    DATA_IS_BRUSHING,
+    DATA_LAST_BRUSH_AREAS,
+    DATA_LAST_BRUSH_DURATION,
+    DATA_LAST_BRUSH_PNUM,
+    DATA_LAST_BRUSH_PRESSURE,
+    DATA_LAST_BRUSH_SCORE,
+    DATA_LAST_BRUSH_TIME,
     RESP_BRUSH_AREAS_T1,
     RESP_BRUSH_AREAS_Y3P,
     RESP_DEVICE_INFO,
@@ -141,13 +150,13 @@ def _parse_state_response(payload: bytes) -> dict[str, Any]:
         return result
 
     # byte 0 bit 0: is_brushing (confirmed via APK C3385w0 analysis)
-    result["is_brushing"] = bool(payload[0] & 0x01)
+    result[DATA_IS_BRUSHING] = bool(payload[0] & 0x01)
 
     # byte 3 = battery level (confirmed: matches GATT Battery Characteristic read).
     if len(payload) >= 4:
         batt = int(payload[3])
         if 0 <= batt <= 100:
-            result["battery"] = batt
+            result[DATA_BATTERY] = batt
 
     _LOGGER.debug("Oclean STATE parsed: %s (raw: %s)", result, payload.hex())
 
@@ -246,18 +255,18 @@ def _parse_m18f_record(record: bytes) -> dict[str, Any]:
         timestamp_s = int(time.mktime(device_dt.timetuple()))
 
         result: dict[str, Any] = {
-            "last_brush_time": timestamp_s,
-            "last_brush_pnum": int(record[6]),
+            DATA_LAST_BRUSH_TIME: timestamp_s,
+            DATA_LAST_BRUSH_PNUM: int(record[6]),
         }
 
         duration_s = (record[7] << 8) | record[8]
         if duration_s > 0:
-            result["last_brush_duration"] = duration_s
+            result[DATA_LAST_BRUSH_DURATION] = duration_s
 
         # Score at byte 33 (0xFF = no data)
         score = record[33]
         if 0 < score <= 100:
-            result["last_brush_score"] = score
+            result[DATA_LAST_BRUSH_SCORE] = score
 
         # Area pressures: bytes 11-16 (area1-6) + bytes 18-19 (area7-8)
         area_bytes = bytes(
@@ -265,15 +274,15 @@ def _parse_m18f_record(record: bytes) -> dict[str, Any]:
         )
         area_dict, _zones_cleaned, avg_pressure = _build_area_stats(area_bytes)
         if any(v > 0 for v in area_bytes):
-            result["last_brush_areas"] = area_dict
-            result["last_brush_pressure"] = avg_pressure
+            result[DATA_LAST_BRUSH_AREAS] = area_dict
+            result[DATA_LAST_BRUSH_PRESSURE] = avg_pressure
 
         _LOGGER.debug(
             "Oclean 0307 m18f parsed: ts=%d pNum=%d duration=%s score=%s (raw: %s)",
             timestamp_s,
-            result["last_brush_pnum"],
-            result.get("last_brush_duration", "n/a"),
-            result.get("last_brush_score", "n/a"),
+            result[DATA_LAST_BRUSH_PNUM],
+            result.get(DATA_LAST_BRUSH_DURATION, "n/a"),
+            result.get(DATA_LAST_BRUSH_SCORE, "n/a"),
             record[:_T1_FULL_RECORD_SIZE].hex(),
         )
         return result
@@ -325,8 +334,8 @@ def _parse_info_t1_response(payload: bytes) -> dict[str, Any]:
             _LOGGER.debug(
                 "Oclean 0307 paginated: %d session(s), newest ts=%d score=%s",
                 session_count,
-                result.get("last_brush_time", 0),
-                result.get("last_brush_score", "n/a"),
+                result.get(DATA_LAST_BRUSH_TIME, 0),
+                result.get(DATA_LAST_BRUSH_SCORE, "n/a"),
             )
         return result
 
@@ -346,18 +355,18 @@ def _parse_info_t1_response(payload: bytes) -> dict[str, Any]:
         timestamp_s = int(time.mktime(device_dt.timetuple()))
 
         result = {
-            "last_brush_time": timestamp_s,
-            "last_brush_pnum": int(payload[11]),
+            DATA_LAST_BRUSH_TIME: timestamp_s,
+            DATA_LAST_BRUSH_PNUM: int(payload[11]),
         }
 
         if len(payload) >= 14:
-            result["last_brush_duration"] = (payload[12] << 8) | payload[13]
+            result[DATA_LAST_BRUSH_DURATION] = (payload[12] << 8) | payload[13]
 
         _LOGGER.debug(
             "Oclean 0307 inline: ts=%d pNum=%d duration=%s s (raw: %s)",
             timestamp_s,
-            result["last_brush_pnum"],
-            result.get("last_brush_duration", "n/a"),
+            result[DATA_LAST_BRUSH_PNUM],
+            result.get(DATA_LAST_BRUSH_DURATION, "n/a"),
             payload.hex(),
         )
         return result
@@ -394,9 +403,9 @@ def _parse_running_data_record(data: bytes) -> dict[str, Any]:
         timestamp_s = _build_utc_timestamp(device_dt, tz_offset_quarters)
 
         result: dict[str, Any] = {
-            "last_brush_time": timestamp_s,
-            "last_brush_pressure": pressure,
-            "brush_head_usage": blunt_teeth,
+            DATA_LAST_BRUSH_TIME: timestamp_s,
+            DATA_LAST_BRUSH_PRESSURE: pressure,
+            DATA_BRUSH_HEAD_USAGE: blunt_teeth,
         }
         _LOGGER.debug(
             "Oclean 0308-simple parsed: %s (blunt_teeth=%d, pNum=%d, week=%d)",
@@ -465,12 +474,12 @@ def _parse_extended_running_data_record(data: bytes) -> dict[str, Any]:
         area_dict, zones_cleaned, avg_pressure = _build_area_stats(area_pressures)
 
         result: dict[str, Any] = {
-            "last_brush_time": timestamp_s,
-            "last_brush_duration": duration,
-            "last_brush_score": max(0, min(100, score)),
-            "last_brush_pressure": avg_pressure,
-            "last_brush_areas": area_dict,
-            "last_brush_pnum": p_num,
+            DATA_LAST_BRUSH_TIME: timestamp_s,
+            DATA_LAST_BRUSH_DURATION: duration,
+            DATA_LAST_BRUSH_SCORE: max(0, min(100, score)),
+            DATA_LAST_BRUSH_PRESSURE: avg_pressure,
+            DATA_LAST_BRUSH_AREAS: area_dict,
+            DATA_LAST_BRUSH_PNUM: p_num,
         }
 
         _LOGGER.debug(
@@ -552,7 +561,7 @@ def _parse_score_t1_response(payload: bytes) -> dict[str, Any]:
         return {}
     score_clamped = max(0, min(100, score))
     _LOGGER.debug("Oclean 0000 score=%d (raw: %s)", score_clamped, payload.hex())
-    return {"last_brush_score": score_clamped}
+    return {DATA_LAST_BRUSH_SCORE: score_clamped}
 
 
 def _parse_session_meta_t1_response(payload: bytes) -> dict[str, Any]:
@@ -601,9 +610,9 @@ def _parse_session_meta_t1_response(payload: bytes) -> dict[str, Any]:
             payload[16],
             payload.hex(),
         )
-        result: dict[str, Any] = {"last_brush_time": timestamp_s}
+        result: dict[str, Any] = {DATA_LAST_BRUSH_TIME: timestamp_s}
         if duration > 0 and duration != 0xFF:
-            result["last_brush_duration"] = duration
+            result[DATA_LAST_BRUSH_DURATION] = duration
         return result
     except (IndexError, ValueError, OverflowError) as err:
         _LOGGER.debug("Oclean 5a00 parse error: %s (raw: %s)", err, payload.hex())
@@ -630,8 +639,8 @@ def _parse_brush_areas_t1_response(payload: bytes) -> dict[str, Any]:
     area_dict, zones_cleaned, avg_pressure = _build_area_stats(area_pressures)
 
     result: dict[str, Any] = {
-        "last_brush_areas": area_dict,
-        "last_brush_pressure": avg_pressure,
+        DATA_LAST_BRUSH_AREAS: area_dict,
+        DATA_LAST_BRUSH_PRESSURE: avg_pressure,
     }
 
     _LOGGER.debug(
@@ -740,8 +749,8 @@ def _parse_brush_areas_y3p_response(payload: bytes) -> dict[str, Any]:
     area_dict, zones_cleaned, avg_pressure = _build_area_stats(area_pressures)
 
     result: dict[str, Any] = {
-        "last_brush_areas": area_dict,
-        "last_brush_pressure": avg_pressure,
+        DATA_LAST_BRUSH_AREAS: area_dict,
+        DATA_LAST_BRUSH_PRESSURE: avg_pressure,
     }
 
     _LOGGER.debug(
@@ -809,9 +818,9 @@ def _parse_session_meta_y3p_response(payload: bytes) -> dict[str, Any]:
             payload[7],
             payload.hex(),
         )
-        result: dict[str, Any] = {"last_brush_time": timestamp_s}
+        result: dict[str, Any] = {DATA_LAST_BRUSH_TIME: timestamp_s}
         if duration > 0 and duration != 0xFF:
-            result["last_brush_duration"] = duration
+            result[DATA_LAST_BRUSH_DURATION] = duration
         return result
     except (IndexError, ValueError, OverflowError) as err:
         _LOGGER.debug("Oclean 5100 parse error: %s (raw: %s)", err, payload.hex())
@@ -838,10 +847,10 @@ _PARSERS: dict[bytes, Callable[[bytes], dict[str, Any]]] = {
 
 _JSON_KEY_MAP: tuple[tuple[str, tuple[str, ...], bool], ...] = (
     # (result_key, candidate_keys, cast_to_int)
-    ("last_brush_score", ("score", "brushScore", "brush_score", "totalScore"), True),
-    ("last_brush_duration", ("duration", "brushDuration", "brush_duration", "time"), True),
-    ("last_brush_pressure", ("pressure", "avgPressure", "avg_pressure"), True),
-    ("last_brush_time", ("timestamp", "endTime", "end_time", "brushTime"), False),
+    (DATA_LAST_BRUSH_SCORE, ("score", "brushScore", "brush_score", "totalScore"), True),
+    (DATA_LAST_BRUSH_DURATION, ("duration", "brushDuration", "brush_duration", "time"), True),
+    (DATA_LAST_BRUSH_PRESSURE, ("pressure", "avgPressure", "avg_pressure"), True),
+    (DATA_LAST_BRUSH_TIME, ("timestamp", "endTime", "end_time", "brushTime"), False),
 )
 
 
