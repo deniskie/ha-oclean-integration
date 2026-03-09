@@ -1,0 +1,126 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Cepillo Oclean (no oficial)",
+        "description": "Configura tu Cepillo Oclean Inteligente. Los dispositivos cercanos se mostrarán automáticamente si el Bluetooth está activado."
+      },
+      "pick_device": {
+        "title": "Selecciona el dispositivo Oclean",
+        "description": "Selecciona el dispositivo Oclean para integrar.",
+        "data": {
+          "mac_address": "Dispositivo",
+          "poll_interval": "Intervalo de sondeo (segundos)"
+        }
+      },
+      "manual": {
+        "title": "Configuración manual",
+        "description": "No se han encontrado dispositivos Oclean cerca. Introduce la dirección MAC de tu cepillo Oclean manualmente. Puedes encontrarla en la aplicación oficial Oclean en los ajustes del dispositivo.",
+        "data": {
+          "mac_address": "Dirección MAC (ej. AA:BB:CC:DD:EE:FF)",
+          "device_name": "Nombre del dispositivo",
+          "poll_interval": "Intervalo de sondeo (segundos)"
+        },
+        "data_description": {
+          "mac_address": "La dirección MAC Bluetooth de tu cepillo Oclean.",
+          "poll_interval": "Cada cuánto (en segundos) se sondea el dispositivo. Mínimo 60 s. Predeterminado: 300 s (5 min)."
+        }
+      },
+      "confirm": {
+        "title": "Confirmar dispositivo Oclean",
+        "description": "Se ha encontrado el dispositivo Oclean **{name}** ({mac}). Confírmalo para añadirlo.",
+        "data": {
+          "poll_interval": "Intervalo de sondeo (segundos)"
+        }
+      }
+    },
+    "error": {
+      "invalid_mac": "Formato de dirección MAC no válido. Usa AA:BB:CC:DD:EE:FF.",
+      "cannot_connect": "No se pudo conectar con el dispositivo. Asegúrate de que está cargado y cerca."
+    },
+    "abort": {
+      "already_configured": "Este dispositivo Oclean ya está configurado.",
+      "no_devices_found": "No se han encontrado dispositivos Oclean."
+    }
+  },
+  "entity": {
+    "button": {
+      "reset_brush_head": {
+        "name": "Reiniciar cabezal"
+      }
+    },
+    "sensor": {
+      "battery": {
+        "name": "Batería"
+      },
+      "last_brush_score": {
+        "name": "Puntuación del último cepillado"
+      },
+      "last_brush_duration": {
+        "name": "Duración del último cepillado"
+      },
+      "last_brush_pressure": {
+        "name": "Presión del último cepillado"
+      },
+      "last_brush_time": {
+        "name": "Hora del último cepillado"
+      },
+      "brush_head_usage": {
+        "name": "Usos del cabezal"
+      },
+      "sw_version": {
+        "name": "Versión del firmware"
+      },
+      "model_id": {
+        "name": "Modelo"
+      },
+      "hw_revision": {
+        "name": "Revisión de hardware"
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Opciones de Oclean",
+        "data": {
+          "poll_interval": "Intervalo de sondeo (segundos)",
+          "post_brush_cooldown": "Tiempo de espera tras cepillado (horas)",
+          "window_count": "Número de ventanas horarias de cepillado"
+        },
+        "data_description": {
+          "poll_interval": "Con qué frecuencia sondear el cepillo por Bluetooth. Mínimo 60 s.",
+          "post_brush_cooldown": "Detener el sondeo durante estas horas tras detectar un nuevo cepillado. 0 para desactivar.",
+          "window_count": "Restringir el sondeo a ventanas horarias concretas (ej. mañana y noche). 0 para sondear siempre."
+        }
+      },
+      "window_1": {
+        "title": "Ventana de cepillado 1",
+        "description": "Define la primera ventana horaria durante la cual se sondeará el cepillo.",
+        "data": {
+          "window_start": "Desde",
+          "window_end": "Hasta"
+        }
+      },
+      "window_2": {
+        "title": "Ventana de cepillado 2",
+        "description": "Define la segunda ventana horaria durante la cual se sondeará el cepillo.",
+        "data": {
+          "window_start": "Desde",
+          "window_end": "Hasta"
+        }
+      },
+      "window_3": {
+        "title": "Ventana de cepillado 3",
+        "description": "Define la tercera ventana horaria durante la cual se sondeará el cepillo.",
+        "data": {
+          "window_start": "Desde",
+          "window_end": "Hasta"
+        }
+      }
+    },
+    "error": {
+      "window_incomplete": "Debes establecer tanto la hora de inicio como la de fin."
+    }
+  }
+}
