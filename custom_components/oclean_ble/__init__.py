@@ -1,4 +1,5 @@
 """Oclean Smart Toothbrush Home Assistant integration."""
+
 from __future__ import annotations
 
 import logging
@@ -35,14 +36,16 @@ def _build_file_handler(log_path: pathlib.Path) -> logging.handlers.RotatingFile
     handler = logging.handlers.RotatingFileHandler(
         log_path,
         maxBytes=1 * 1024 * 1024,  # 1 MB per file
-        backupCount=2,              # keep oclean_ble.log + .1 + .2
+        backupCount=2,  # keep oclean_ble.log + .1 + .2
         encoding="utf-8",
     )
     handler.setLevel(logging.DEBUG)
-    handler.setFormatter(logging.Formatter(
-        fmt="%(asctime)s  %(levelname)-8s  [%(name)s]  %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    ))
+    handler.setFormatter(
+        logging.Formatter(
+            fmt="%(asctime)s  %(levelname)-8s  [%(name)s]  %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
+    )
     return handler
 
 
@@ -58,7 +61,11 @@ async def _attach_file_handler(hass: HomeAssistant) -> None:
     """
     domain_data = hass.data.setdefault(DOMAIN, {})
     if _FILE_HANDLER_KEY in domain_data:
-        return  # already attached
+        return  # already attached (or attachment in progress)
+
+    # Set sentinel *before* the async gap so that a second config entry being
+    # set up concurrently also sees the key and skips duplicate attachment.
+    domain_data[_FILE_HANDLER_KEY] = None
 
     log_path = pathlib.Path(hass.config.config_dir) / "oclean_ble.log"
     # open() is blocking – run in the default executor to avoid loop warnings
@@ -95,12 +102,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
 
     poll_windows = entry.options.get(CONF_POLL_WINDOWS, "")
-    post_brush_cooldown_h = int(
-        entry.options.get(CONF_POST_BRUSH_COOLDOWN, DEFAULT_POST_BRUSH_COOLDOWN)
-    )
+    post_brush_cooldown_h = int(entry.options.get(CONF_POST_BRUSH_COOLDOWN, DEFAULT_POST_BRUSH_COOLDOWN))
 
     coordinator = OcleanCoordinator(
-        hass, mac, device_name, poll_interval,
+        hass,
+        mac,
+        device_name,
+        poll_interval,
         poll_windows=poll_windows,
         post_brush_cooldown_h=post_brush_cooldown_h,
     )
@@ -111,9 +119,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await coordinator.async_config_entry_first_refresh()
     except Exception as err:
         # Device may be sleeping; don't block setup entirely – HA will retry.
-        _LOGGER.warning(
-            "Oclean initial poll failed (%s) – integration will retry", err
-        )
+        _LOGGER.warning("Oclean initial poll failed (%s) – integration will retry", err)
         raise ConfigEntryNotReady(f"Oclean not reachable on startup: {err}") from err
 
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
@@ -132,10 +138,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id, None)
         # Remove file handler only when no more entries remain
-        remaining = [
-            k for k in hass.data.get(DOMAIN, {})
-            if not k.startswith("_")
-        ]
+        remaining = [k for k in hass.data.get(DOMAIN, {}) if not k.startswith("_")]
         if not remaining:
             await _detach_file_handler(hass)
     return unload_ok
