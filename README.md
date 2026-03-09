@@ -69,6 +69,7 @@ After restart, go to **Settings → Integrations → Add Integration** and searc
 | Entity | Description | Status |
 |--------|-------------|--------|
 | `button.oclean_reset_brush_head` | Resets the brush head wear counter | ⚠️ Unconfirmed |
+| `button.oclean_sync_time` | Syncs the current time to the device clock | ✅ Tested |
 
 **Legend:**
 - ✅ **Tested** – confirmed working on real hardware with multiple sessions
@@ -89,8 +90,8 @@ After restart, go to **Settings → Integrations → Add Integration** and searc
 | Last brush timestamp | Device local time, confirmed across multiple sessions |
 | Last brush duration | Session length in seconds; confirmed on Oclean X (0307 format, APK-verified via AbstractC0002b.m18f) |
 | Last brush scheme type | Brush programme name/ID (pNum); confirmed on Oclean X via 0307 (APK-verified) |
-| Time calibration | Device clock synced on every poll |
-| Poll interval | Configurable 60–N seconds (default: 300 s) |
+| Time calibration | Device clock synced on every poll and on demand via the *Sync Time* button |
+| Poll interval | Configurable 60–86400 seconds (default: 300 s), or set to `0` for manual-only mode |
 | Stale data persistence | Sensors keep last known value when device is unreachable |
 | Config flow | Manual MAC address entry with validation |
 | Duplicate prevention | Sessions deduplicated by timestamp; no double-import |
@@ -122,6 +123,40 @@ After restart, go to **Settings → Integrations → Add Integration** and searc
 ## Configuration
 
 The poll interval and other options can be changed after setup via **Settings → Integrations → Oclean → Configure**.
+
+### Manual Polling Mode
+
+Set the poll interval to `0` in **Settings → Integrations → Oclean → Configure** to disable automatic polling entirely. In this mode the device is only contacted when you explicitly trigger a poll.
+
+Use the built-in `oclean_ble.poll` action to trigger a poll on demand – from automations, scripts, or the HA Developer Tools:
+
+```yaml
+action: oclean_ble.poll
+data: {}             # polls all Oclean devices
+```
+
+To target a single device when you have multiple brushes, pass its `entry_id` (found under **Settings → Integrations → Oclean → ⋮ → System Information**):
+
+```yaml
+action: oclean_ble.poll
+data:
+  entry_id: "abc123def456..."
+```
+
+This is useful for event-driven automations, for example polling immediately after a bed-occupancy sensor detects you went to sleep:
+
+```yaml
+automation:
+  trigger:
+    - platform: state
+      entity_id: binary_sensor.bed_occupancy
+      to: "on"
+  action:
+    - action: oclean_ble.poll
+      data: {}
+```
+
+The `oclean_ble.poll` action is also available when automatic polling is active – it simply triggers an immediate poll in addition to the regular schedule.
 
 ### Post-Brush Cooldown
 
@@ -178,6 +213,7 @@ Unknown notification types are logged as hex – this helps extend the parser.
 - [ ] Confirm brush area / pressure / scheme fields on Oclean X Pro (OCLEANY3) and X Pro Elite (OCLEANY3P)
 - [ ] Validate real-time zone guidance on K3-series devices
 - [x] Configurable poll windows with native time picker
+- [x] Manual polling mode with `oclean_ble.poll` action
 - [ ] Publish to HACS default repository
 - [ ] Decode remaining unknown fields in session data
 
