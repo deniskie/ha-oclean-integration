@@ -5,6 +5,7 @@ commands to send for one device family.  The coordinator selects the correct
 profile after reading the Model Number from the BLE Device Information Service
 (DIS) and uses it for every subsequent step of the poll.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -73,9 +74,7 @@ TYPE1 = DeviceProtocol(
 LEGACY = DeviceProtocol(
     name="Legacy",
     notify_chars=(),
-    query_commands=(
-        (WRITE_CHAR_UUID, CMD_QUERY_STATUS),
-    ),
+    query_commands=((WRITE_CHAR_UUID, CMD_QUERY_STATUS),),
     supports_pagination=False,
 )
 
@@ -105,13 +104,48 @@ UNKNOWN = DeviceProtocol(
 # ---------------------------------------------------------------------------
 
 _MODEL_MAP: dict[str, DeviceProtocol] = {
-    # Type-1 devices (0307 push, RECEIVE_BRUSH_UUID, no CHANGE_INFO_UUID)
-    "OCLEANY3M": TYPE1,   # Oclean X           – confirmed (logs 2026-02-21)
-    "OCLEANY3P": TYPE1,   # Oclean X Pro Elite – confirmed (logs 2026-02-25, issue #3)
-    # Type-0 devices (0308 extended, CHANGE_INFO_UUID)
-    "OCLEANY3":  TYPE0,   # Oclean X Pro       – confirmed (MEMORY.md, APK analysis)
-    # Legacy devices (battery-only; no functional notify characteristics)
-    "OCLEANA1":  LEGACY,  # Oclean Air 1       – confirmed (logs 2026-02-27, issue #7)
+    # ------------------------------------------------------------------
+    # Type-1 – 0307 push via RECEIVE_BRUSH_UUID / SEND_BRUSH_CMD_UUID
+    # APK handler: C3385w0 mode=1
+    # ------------------------------------------------------------------
+    "OCLEANY3M": TYPE1,  # Oclean X              – confirmed (logs 2026-02-21)
+    "OCLEANY3MH": TYPE1,  # Oclean X (HW variant) – confirmed (logs 2026-03-09, issue #19)
+    "OCLEANY3MT": TYPE1,  # Oclean X (T)          – APK DeviceType 25
+    "OCLEANY3MTN": TYPE1,  # Oclean X (TN)         – APK DeviceType 26
+    "OCLEANY3MN": TYPE1,  # Oclean X (N)          – APK DeviceType 27
+    "OCLEANY3N": TYPE1,  # Oclean X (N model)    – APK DeviceType 28
+    "OCLEANY3MD": TYPE1,  # Oclean X (MD)         – APK DeviceType 30
+    "OCLEANY3D": TYPE1,  # Oclean X (D)          – APK DeviceType 32
+    "OCLEANY3D1": TYPE1,  # Oclean X (D1)         – APK DeviceType 33
+    "OCLEANY3D2": TYPE1,  # Oclean X (D2)         – APK DeviceType 43
+    "OCLEANR3L": TYPE1,  # Oclean R3L            – APK DeviceType 38
+    # APK handler: C3352g mode=0  (same BLE structure as OCLEANY3P)
+    "OCLEANY3P": TYPE1,  # Oclean X Pro Elite    – confirmed (logs 2026-02-25, issue #3)
+    "OCLEANY3PD": TYPE1,  # Oclean X Pro Elite D  – APK DeviceType 29
+    # ------------------------------------------------------------------
+    # Type-0 – 0308 extended records, CHANGE_INFO_UUID
+    # APK handler: C3385w0 mode=0
+    # ------------------------------------------------------------------
+    "OCLEANY3": TYPE0,  # Oclean X Pro          – confirmed (APK analysis)
+    "OCLEANY3S": TYPE0,  # Oclean X Pro (S)      – APK DeviceType 9
+    "OCLEANY3T": TYPE0,  # Oclean X Pro (T)      – APK DeviceType 10
+    # ------------------------------------------------------------------
+    # Legacy – fbb86 has no CCCD; battery read via direct characteristic read
+    # APK handler: C3385w0 mode=0 (Air 1 family)
+    # ------------------------------------------------------------------
+    "OCLEANA1": LEGACY,  # Oclean Air 1          – confirmed (logs 2026-02-27, issue #7)
+    "OCLEANA1a": LEGACY,  # Oclean Air 1a         – APK DeviceType 7
+    "OCLEANA1b": LEGACY,  # Oclean Air 1b         – APK DeviceType 15
+    "OCLEANA1c": LEGACY,  # Oclean Air 1c         – APK DeviceType 17
+    "OCLEANA1d": LEGACY,  # Oclean Air 1d         – APK DeviceType 18
+    # ------------------------------------------------------------------
+    # Not mapped → UNKNOWN fallback (tries all chars/commands, logs everything):
+    #   OCLEANX1/OCLEANY2/OCLEANX1+/OCLEANY2+/OCLEANK1 – older Dialog handler classes
+    #   OCLEANW1/W1a/W1b/W1d – Wone serial protocol, unrelated BLE stack
+    #   OCLEANC1 – WiFi only, no BLE session data
+    #   OCLEANA1e/A1f – C3352g mode=3, protocol not yet confirmed
+    #   0001..000F generic model IDs – handler confirmed but protocol untested via BLE
+    # ------------------------------------------------------------------
 }
 
 
