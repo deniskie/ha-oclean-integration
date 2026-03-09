@@ -287,23 +287,67 @@ def _parse_m18f_record(record: bytes) -> dict[str, Any]:
         return {}
 
 
+def _parse_t1_ocleanx20_inline(payload: bytes) -> dict[str, Any]:
+    """Parse OCLEANX20 extended-offset inline 0307 payload.
+
+    session_count==0 AND year_byte==0: 4-byte extended header at bytes 5–8 shifts
+    the session record to offset 9. Byte 8 is unconfirmed (observed 0x8d).
+    Confirmed via debug logs 2026-03-09 (issue #37).
+    """
+    if len(payload) < 18:
+        return {}
+    try:
+        device_dt = _device_datetime(payload[9], payload[10], payload[11], payload[12], payload[13], payload[14])
+        timestamp_s = int(time.mktime(device_dt.timetuple()))
+        result: dict[str, Any] = {
+            "last_brush_time": timestamp_s,
+            "last_brush_pnum": int(payload[15]),
+        }
+        duration = (payload[16] << 8) | payload[17]
+        if duration > 0:
+            result["last_brush_duration"] = duration
+        _LOGGER.debug(
+            "Oclean 0307 extended-offset inline: ts=%d pNum=%d duration=%s s byte8=0x%02x (raw: %s)",
+            timestamp_s,
+            result["last_brush_pnum"],
+            result.get("last_brush_duration", "n/a"),
+            payload[8],
+            payload.hex(),
+        )
+        return result
+    except (IndexError, ValueError, OverflowError) as err:
+        _LOGGER.debug(
+            "Oclean 0307 extended-offset inline parse failed: %s (raw: %s)",
+            err,
+            payload.hex(),
+        )
+        return {}
+
+
 def _parse_info_t1_response(payload: bytes) -> dict[str, Any]:
     """Parse a 0307 Type-1 running-data push payload (Oclean X / OCLEANY3M).
 
-    The device responds in two modes depending on whether sessions are queued:
+    The device responds in several modes depending on model and session state:
 
-    **Inline mode** (session_count == 0, payload = 18 bytes):
+    **Inline mode** (session_count == 0, year_byte != 0, payload = 18 bytes):
       Header: "*B#" + 0x0000 + first 13 bytes of the most-recent m18f record.
       Score is NOT included (record truncated at byte 12).
 
-    **Paginated mode** (session_count > 0, payload = 5 + N×42 bytes):
+    **Paginated mode** (session_count > 0, year_byte != 0, payload = 5 + N×42 bytes):
       Header: "*B#" + RecordCount[2B BE] + N × 42-byte m18f records.
       Full m18f records include score (byte 33), area pressures (bytes 11-16, 18-19).
       Multi-packet reassembly (C5733b.m8524e) handled by the BLE layer; the HA
       integration receives the already-reassembled payload.
 
-    **OCLEANY3P special case** (session_count > 0 but year_byte == 0):
+    **OCLEANY3P deferred push** (session_count > 0, year_byte == 0):
       Device defers data; will push via 021f / 5100 notifications instead.
+
+    **OCLEANX20 extended-offset inline** (session_count == 0, year_byte == 0,
+      payload = 18 bytes):
+      Header: "*B#" + 0x0000 + 4-byte extended header (bytes 5–8) + session record.
+      Session record starts at byte 9: year/month/day/hour/min/sec/pNum + duration[2B].
+      Byte 8 is an unconfirmed device-specific byte (observed: 0x8d on OCLEANX20).
+      Discriminated from OCLEANY3P by session_count == 0.
 
     APK source: AbstractC0002b.m18f / C3385w0_fallback.java / C5733b.m8524e
     (DeviceType OCLEANY3M, protocol 14, i12=1).
@@ -330,15 +374,20 @@ def _parse_info_t1_response(payload: bytes) -> dict[str, Any]:
             )
         return result
 
-    # year_byte == 0 → OCLEANY3P: device will push data via 021f/5100 notifications
     if payload[5] == 0:
-        _LOGGER.debug(
-            "Oclean 0307: year_byte=0x00, session_count=%d – "
-            "device will push session data via 021f/5100 notifications (raw: %s)",
-            session_count,
-            payload.hex(),
-        )
-        return {}
+        if session_count > 0:
+            # OCLEANY3P: device has sessions but defers data via 021f/5100 notifications.
+            _LOGGER.debug(
+                "Oclean 0307: year_byte=0x00, session_count=%d – "
+                "device will push session data via 021f/5100 notifications (raw: %s)",
+                session_count,
+                payload.hex(),
+            )
+            return {}
+
+        # OCLEANX20 extended-offset inline: session_count == 0, year_byte == 0.
+        # The 4-byte extended header (bytes 5–8) shifts the session record to offset 9.
+        return _parse_t1_ocleanx20_inline(payload)
 
     # Inline mode (session_count == 0): truncated 13-byte record, no score
     try:
