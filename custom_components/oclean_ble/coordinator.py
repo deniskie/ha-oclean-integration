@@ -615,6 +615,16 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
                 model_id,
             )
             self._protocol = new_protocol
+        if new_protocol is UNKNOWN and model_id:
+            _LOGGER.warning(
+                "Oclean: unrecognised model ID '%s' on %s – using generic fallback protocol. "
+                "Basic sensors (battery, last brush time) may work, but session details "
+                "(score, duration, areas) may be missing. "
+                "Please open an issue at https://github.com/deniskie/ha-oclean-integration "
+                "with this model ID so full support can be added.",
+                model_id,
+                self._mac,
+            )
 
         # Mirror model/firmware into the HA device registry so the device
         # info panel shows the values without requiring a dedicated sensor.
