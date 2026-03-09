@@ -461,19 +461,7 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         client: BleakClient,
         collected: dict[str, Any],
     ) -> list[dict[str, Any]]:
-        """Perform GATT operations and return all fetched brush session records.
-
-        Operation order mirrors the Java SDK (C3335a / C3340b1):
-          1. Time calibration  (020E + BE timestamp)   – mo5289B
-          2. Subscribe to all notification characteristics
-          3. Status query      (0303)                  – mo5295Q0
-          4. Device-info query (0202)                  – mo5310r0
-          5. Running-data req  (0308) + pagination (0309) until no new sessions
-          6. Battery read      (standard GATT char)
-          7. Unsubscribe / disconnect
-        """
-        # Select protocol from cached model_id (known from a previous poll).
-        # _read_device_info_service() may update this if a fresh DIS read occurs.
+        """Perform GATT operations and return all fetched brush session records."""
         cached_model = self._last_raw.get(DATA_MODEL_ID)
         self._protocol = protocol_for_model(cached_model)
         _LOGGER.debug(
@@ -483,63 +471,100 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
             self._protocol.name,
             cached_model or "unknown",
         )
-
         # Delay after connect: gives habluetooth's proxy backend time to finish
         # processing the GATT service table before we start issuing commands.
         await asyncio.sleep(BLE_POST_CONNECT_DELAY)
 
         all_sessions: list[dict[str, Any]] = []
-        _seen_ts: set[int] = set()
+        seen_ts: set[int] = set()
         session_received = asyncio.Event()
+        handler = self._make_notification_handler(collected, all_sessions, seen_ts, session_received)
 
-        def notification_handler(_sender: Any, raw: bytearray) -> None:
+        await self._run_ble_queries(client, collected, all_sessions, session_received, handler)
+        self._finalize_sessions(collected, all_sessions)
+        return all_sessions
+
+    def _make_notification_handler(
+        self,
+        collected: dict[str, Any],
+        all_sessions: list[dict[str, Any]],
+        seen_ts: set[int],
+        session_received: asyncio.Event,
+    ) -> Any:
+        """Return a BLE notification callback that accumulates session data.
+
+        The returned handler parses each notification, applies the "newer
+        timestamp wins" policy to prevent a stale 5a00 push from overwriting
+        a more-recent 0307 timestamp, merges fields into *collected*, and
+        appends new sessions to *all_sessions*.
+        """
+
+        def handler(_sender: Any, raw: bytearray) -> None:
             data = bytes(raw)
             _LOGGER.debug("Oclean notification raw: %s", data.hex())
             parsed = parse_notification(data)
             _LOGGER.debug("Oclean notification parsed: %s", parsed)
-            if parsed:
-                # "Newer timestamp wins": if this notification carries a
-                # last_brush_time that is older than what we already have,
-                # drop the time-dependent fields so a stale 5a00 push never
-                # overwrites a more recent timestamp + duration from 0307.
-                incoming_ts = parsed.get("last_brush_time")
-                if incoming_ts is not None:
-                    current_ts = collected.get("last_brush_time", 0)
-                    if incoming_ts < current_ts:
-                        parsed = {
-                            k: v for k, v in parsed.items() if k not in ("last_brush_time", "last_brush_duration")
-                        }
-                collected.update(parsed)
-                # If this notification contains a brush session, accumulate it
-                ts = parsed.get("last_brush_time")
-                if ts and ts not in _seen_ts:
-                    _seen_ts.add(ts)
-                    all_sessions.append(dict(parsed))
-                    session_received.set()
+            if not parsed:
+                return
+            incoming_ts = parsed.get("last_brush_time")
+            if incoming_ts is not None and incoming_ts < collected.get("last_brush_time", 0):
+                parsed = {k: v for k, v in parsed.items() if k not in ("last_brush_time", "last_brush_duration")}
+            collected.update(parsed)
+            ts = parsed.get("last_brush_time")
+            if ts and ts not in seen_ts:
+                seen_ts.add(ts)
+                all_sessions.append(dict(parsed))
+                session_received.set()
 
+        return handler
+
+    async def _run_ble_queries(
+        self,
+        client: BleakClient,
+        collected: dict[str, Any],
+        all_sessions: list[dict[str, Any]],
+        session_received: asyncio.Event,
+        handler: Any,
+    ) -> None:
+        """Execute the full GATT operation sequence for one poll.
+
+        Mirrors the Java SDK order (C3335a / C3340b1):
+          1. Time calibration  (020E + BE timestamp)   – mo5289B
+          2. DIS read / cache
+          3. Subscribe to notification characteristics
+          4. Status + running-data query commands
+          5. READ fallback for devices without CCCD (e.g. OCLEANA1)
+          6. Session pagination (0309)
+          7. Enrichment wait if sessions were received
+          8. Battery read
+        """
         await self._calibrate_time(client)
         await self._read_device_info_service(client, collected)
-        subscribed = await self._subscribe_notifications(client, notification_handler)
+        subscribed = await self._subscribe_notifications(client, handler)
         await self._send_query_commands(client, session_received)
-        # Fallback for devices (e.g. OCLEANA1) where READ_NOTIFY_CHAR_UUID has no CCCD
-        # and therefore cannot be subscribed.  The device updates the characteristic value
-        # in-place; we poll it directly after sending query commands.
+        # Fallback for devices (e.g. OCLEANA1) where READ_NOTIFY_CHAR_UUID has no
+        # CCCD and cannot be subscribed; poll the characteristic directly instead.
         if READ_NOTIFY_CHAR_UUID not in subscribed:
-            await self._read_response_char_fallback(client, notification_handler)
+            await self._read_response_char_fallback(client, handler)
         await self._paginate_sessions(client, all_sessions, session_received)
         if all_sessions:
             # Allow the device extra time to push enrichment notifications
             # (0000 score, 2604 zone pressures) that arrive unsolicited after
-            # the session response.  Without this wait the BLE session ends
-            # before those pushes are received.
+            # the session response.
             await asyncio.sleep(BLE_ENRICHMENT_WAIT)
         await self._read_battery_and_unsubscribe(client, collected)
 
-        # Enrich the latest session snapshot with fields from enrichment notifications
-        # (0000 → score, 2604 → areas/pressure/clean).  These notifications carry no
-        # timestamp so they update `collected` but are not captured in all_sessions.
-        # We merge them into the snapshot of the newest session so that stats import
-        # receives complete session data.
+    def _finalize_sessions(
+        self,
+        collected: dict[str, Any],
+        all_sessions: list[dict[str, Any]],
+    ) -> None:
+        """Merge enrichment fields into the newest session and log session summary.
+
+        Enrichment notifications (0000 → score, 2604 → areas/pressure) carry no
+        timestamp so they land in *collected* but are not captured in all_sessions.
+        We merge them into the newest session so stats import receives complete data.
+        """
         if all_sessions:
             latest = max(all_sessions, key=lambda s: s.get("last_brush_time", 0))
             enriched = {k: collected[k] for k in _ENRICHMENT_KEYS if k in collected and k not in latest}
@@ -552,8 +577,6 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
             len(all_sessions),
             self._last_session_ts,
         )
-        # Log each session timestamp so we can check across polls whether the
-        # device deletes sessions after retrieval or keeps them.
         for i, s in enumerate(all_sessions):
             ts = s.get("last_brush_time", 0)
             status = "NEW" if ts > self._last_session_ts else "known"
@@ -564,7 +587,6 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
                 datetime.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S") if ts else "n/a",
                 status,
             )
-        return all_sessions
 
     async def _read_device_info_service(self, client: BleakClient, collected: dict[str, Any]) -> None:
         """Read BLE Device Information Service (0x180A) characteristics.
@@ -750,7 +772,7 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
             session_received.clear()
             try:
                 await client.write_gatt_char(WRITE_CHAR_UUID, CMD_QUERY_RUNNING_DATA_NEXT, response=True)
-            except BaseException as err:  # noqa: BLE001
+            except BaseException as err:  # noqa: BLE001  # must catch CancelledError (issue #9)
                 _LOGGER.debug("Oclean 0309 write failed at page %d: %s", page, err)
                 break
 
