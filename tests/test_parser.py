@@ -892,6 +892,32 @@ class TestParseNotificationInfoT1Routing:
         expected = _expected_t1_ts(2026, 1, 10, 7, 30, 0)
         assert result["last_brush_time"] == expected
 
+    def test_0307_ocleanx20_extended_offset_inline(self):
+        """OCLEANX20: session_count=0 + year_byte=0 → parse at offset 9 (real log payload)."""
+        import datetime
+
+        raw = bytes.fromhex("03072a422300000000008d1a03090739260300b4")
+        result = parse_notification(raw)
+
+        assert "last_brush_time" in result
+        dt = datetime.datetime.fromtimestamp(result["last_brush_time"])
+        assert dt.year == 2026
+        assert dt.month == 3
+        assert dt.day == 9
+        assert dt.hour == 7
+        assert dt.minute == 57
+        assert dt.second == 38
+        assert result["last_brush_pnum"] == 3
+        assert result["last_brush_duration"] == 180
+
+    def test_0307_ocleany3p_session_count_gt0_year_byte_0_still_deferred(self):
+        """OCLEANY3P: session_count>0 + year_byte=0 → deferred push, return {}."""
+        # session_count=1 (bytes 3-4 = 0x0001), year_byte=0 (byte 5 = 0x00)
+        payload = bytes.fromhex("2a4223") + bytes([0x00, 0x01, 0x00]) + bytes(12)
+        raw = bytes.fromhex("0307") + payload
+        result = parse_notification(raw)
+        assert result == {}
+
     def test_0307_and_0308_handled_independently(self):
         """0307 and 0308 route to different parsers and produce independent results."""
         t1_raw = bytes.fromhex("03072a422300001a0215102c1c00007800780201")
