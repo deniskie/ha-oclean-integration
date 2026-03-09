@@ -227,12 +227,18 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
 
         # Smart polling: skip BLE connection when outside a configured time window
         # or while the post-brush cooldown is active.
+        # Exception: always poll when no cached data exists so that the initial
+        # setup (or first poll after a restart with no persisted store) completes
+        # regardless of configured windows.
         skip_reason = self._poll_skip_reason()
-        if skip_reason:
+        if skip_reason and self._last_raw:
             _LOGGER.debug("Oclean poll skipped: %s", skip_reason)
-            if self._last_raw:
-                return OcleanDeviceData.from_dict(self._last_raw)
-            return OcleanDeviceData()
+            return OcleanDeviceData.from_dict(self._last_raw)
+        if skip_reason:
+            _LOGGER.debug(
+                "Oclean poll restriction '%s' bypassed – no cached data, polling anyway",
+                skip_reason,
+            )
 
         try:
             raw = await self._poll_device()
@@ -393,7 +399,6 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
             )
             if new_ts > self._last_session_ts:
                 self._last_session_ts = new_ts
-                await self._save_store()
                 _LOGGER.debug("Oclean updated last_session_ts to %d", self._last_session_ts)
 
         # Post-brush cooldown: pause polling for N hours after a new session
@@ -409,7 +414,6 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         if not self._brush_head_hw_supported:
             if new_session_count > 0:
                 self._brush_head_sw_count += new_session_count
-                await self._save_store()
                 _LOGGER.debug(
                     "Oclean brush head sw counter: +%d → %d",
                     new_session_count,
@@ -420,6 +424,11 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         # Merge with last known persistent data, then overwrite with fresh values
         merged = {**{k: self._last_raw.get(k) for k in _PERSISTENT_KEYS}, **collected}
         self._last_raw = merged
+
+        # Persist after every successful poll so that battery, model, and session
+        # fields survive an HA restart even when no new sessions were imported.
+        await self._save_store()
+
         return merged
 
     async def _setup_and_read(

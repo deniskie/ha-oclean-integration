@@ -771,18 +771,20 @@ class TestAsyncUpdateDataSkip:
         assert result.battery == 80
 
     @pytest.mark.asyncio
-    async def test_skip_without_stale_data_returns_empty_device_data(self):
+    async def test_skip_without_stale_data_bypasses_restriction_and_polls(self):
+        # When no cached data exists, poll restrictions are bypassed so the
+        # initial setup always reaches the device.  With no BLE device available
+        # the poll raises UpdateFailed (not a silent empty result).
         import time
 
-        from custom_components.oclean_ble.models import OcleanDeviceData
+        from homeassistant.helpers.update_coordinator import UpdateFailed
 
         coord = _make_coordinator()
         coord._store_loaded = True
         coord._cooldown_until = time.time() + 3600
         coord._last_raw = {}
-        result = await coord._async_update_data()
-        assert isinstance(result, OcleanDeviceData)
-        assert result.battery is None
+        with pytest.raises(UpdateFailed):
+            await coord._async_update_data()
 
 
 # ---------------------------------------------------------------------------
