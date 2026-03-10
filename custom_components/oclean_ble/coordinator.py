@@ -619,15 +619,26 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
             DATA_HW_REVISION: DIS_HW_REV_UUID,
             DATA_SW_VERSION: DIS_SW_REV_UUID,
         }
+        got_fresh_dis = False
         for key, uuid in dis_chars.items():
             try:
                 raw = await client.read_gatt_char(uuid)
                 collected[key] = raw.decode("utf-8").strip("\x00").strip()
                 _LOGGER.debug("Oclean DIS %s: %s", key, collected[key])
+                got_fresh_dis = True
             except Exception as err:  # noqa: BLE001
                 _LOGGER.debug("Oclean DIS read skipped for %s: %s", uuid[-8:], err)
+                # Fall back to cached value so a transient BLE error (e.g.
+                # "Insufficient authorization") does not reset the protocol
+                # profile to UNKNOWN and break the rest of the poll.
+                cached = self._last_raw.get(key)
+                if cached:
+                    collected[key] = cached
 
-        if any(collected.get(k) for k in dis_keys):
+        # Only advance the refresh timestamp when we actually read fresh data.
+        # If all reads failed we leave _dis_last_read_ts unchanged so the next
+        # poll will retry the DIS read rather than waiting another 24 h.
+        if got_fresh_dis:
             self._dis_last_read_ts = time.time()
 
         # Update protocol profile based on the freshly read model ID.
