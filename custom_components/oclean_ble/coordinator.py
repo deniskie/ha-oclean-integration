@@ -546,13 +546,13 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
             if not parsed:
                 return
             incoming_ts = parsed.get(DATA_LAST_BRUSH_TIME)
-            if incoming_ts is not None and incoming_ts < collected.get(DATA_LAST_BRUSH_TIME, 0):
-                # Don't let an older session overwrite the newest timestamp in
-                # collected, but still add the session to all_sessions for import.
-                collected.update(
-                    {k: v for k, v in parsed.items() if k not in (DATA_LAST_BRUSH_TIME, DATA_LAST_BRUSH_DURATION)}
-                )
-            else:
+            # Only update collected when the incoming data is at least as new as
+            # what we already have.  Older timestamped sessions (e.g. from *B#
+            # pagination) are appended to all_sessions for stats import but must
+            # not overwrite score/areas/pressure of the most-recent session in
+            # collected.  Enrichment notifications (0000, 2604) never carry a
+            # timestamp (incoming_ts = None) so they always update collected.
+            if incoming_ts is None or incoming_ts >= collected.get(DATA_LAST_BRUSH_TIME, 0):
                 collected.update(parsed)
             if incoming_ts and incoming_ts not in seen_ts:
                 seen_ts.add(incoming_ts)
