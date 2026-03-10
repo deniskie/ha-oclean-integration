@@ -1576,6 +1576,7 @@ class TestParseSessionMetaY3pResponse:
 
 def _make_c3352g_record(
     *,
+    year: int = 2026,
     month: int = 3,
     day: int = 9,
     hour: int = 7,
@@ -1586,9 +1587,9 @@ def _make_c3352g_record(
     areas: tuple = (5, 14, 1, 8, 12, 10, 3, 7),
     score: int = 82,
 ) -> bytes:
-    """Build a full 42-byte C3352g session record (no year byte)."""
+    """Build a full 42-byte C3352g session record (year_base at byte 0)."""
     record = bytearray(42)
-    record[0] = 0x00  # type indicator (not a year byte)
+    record[0] = year - 2000  # year_base byte (year − 2000)
     record[1] = month
     record[2] = day
     record[3] = hour
@@ -1612,10 +1613,10 @@ class TestParseT1C3352gRecord:
         assert T1_C3352G_RECORD_SIZE == 42
 
     def test_extracts_timestamp(self):
-        record = _make_c3352g_record(month=3, day=9, hour=7, minute=0, second=0)
+        record = _make_c3352g_record(year=2026, month=3, day=9, hour=7, minute=0, second=0)
         result = parse_t1_c3352g_record(record)
         assert "last_brush_time" in result
-        expected = _expected_t1_ts(datetime.datetime.now().year, 3, 9, 7, 0, 0)
+        expected = _expected_t1_ts(2026, 3, 9, 7, 0, 0)
         assert result["last_brush_time"] == expected
 
     def test_extracts_pnum_duration_score_areas(self):
@@ -1657,53 +1658,42 @@ class TestParseT1C3352gRecord:
         assert parse_t1_c3352g_record(bytes(41)) == {}
         assert parse_t1_c3352g_record(b"") == {}
 
-    def test_non_zero_type_byte_returns_empty(self):
-        """Byte 0 != 0x00 means this is a C3385w0 record, not C3352g – reject it."""
+    def test_year_base_zero_returns_empty(self):
+        """year_base=0 → year 2000 < _MIN_YEAR → record rejected (OCLEANY3P placeholder)."""
         record = bytearray(_make_c3352g_record())
-        record[0] = 0x1A  # year 2026 in C3385w0 format
+        record[0] = 0x00  # year 2000
         assert parse_t1_c3352g_record(bytes(record)) == {}
 
-    def test_year_inference_past_keeps_current_year(self):
-        """Session in January of current year → year is current year."""
-        now = datetime.datetime.now()
-        record = _make_c3352g_record(month=1, day=1, hour=0, minute=0, second=0)
+    def test_year_extracted_from_byte0(self):
+        """Year comes from byte 0 (+ 2000), not from wall-clock inference."""
+        record = _make_c3352g_record(year=2024, month=6, day=15, hour=9, minute=0, second=0)
         result = parse_t1_c3352g_record(record)
-        import time
-
         dt = datetime.datetime.fromtimestamp(result["last_brush_time"])
-        assert dt.year == now.year
-
-    def test_year_inference_future_steps_back(self):
-        """Session timestamp in future (e.g. next month) → year stepped back by 1."""
-        now = datetime.datetime.now()
-        future = now + datetime.timedelta(days=32)
-        record = _make_c3352g_record(
-            month=future.month,
-            day=future.day,
-            hour=future.hour,
-            minute=future.minute,
-            second=future.second,
-        )
-        result = parse_t1_c3352g_record(record)
-        import time
-
-        dt = datetime.datetime.fromtimestamp(result["last_brush_time"])
-        assert dt.year == now.year - 1
+        assert dt.year == 2024
+        assert dt.month == 6
+        assert dt.day == 15
 
     def test_real_observed_bytes(self):
-        """Decode the inline bytes from the real OCLEANY3P/OCLEANY3 log packet.
+        """Decode a realistic 42-byte *B# record: year_base=26 (2026), Aug 27 00:33:40, 120 s.
 
-        Raw *B# header: 03072a4223000100081b00212800007800780000
-        Inline record bytes (payload[5:]): 00 08 1b 00 21 28 00 00 78 00 78 00 00
-        = type=0x00, month=8, day=27, hour=0, min=33, sec=40, pnum=0, duration=120
+        This mirrors the byte layout confirmed from the APK:
+          byte 0 = 0x1A (26 + 2000 = 2026), bytes 1-5 = M/D/H/Min/S,
+          bytes 7-8 = duration BE = 0x0078 = 120 s.
         """
-        inline = bytes.fromhex("00081b002128000078007800000000000000000000000000000000000000000000000000000000000000")
-        assert len(inline) == 42
-        result = parse_t1_c3352g_record(inline)
+        record = bytearray(42)
+        record[0] = 0x1A  # year_base = 26 → 2026
+        record[1] = 8  # month
+        record[2] = 27  # day
+        record[3] = 0  # hour
+        record[4] = 33  # minute
+        record[5] = 40  # second
+        record[7] = 0x00  # duration high byte
+        record[8] = 0x78  # duration low byte = 120
+        assert len(record) == 42
+        result = parse_t1_c3352g_record(bytes(record))
         assert result.get("last_brush_duration") == 120
-        import time
-
         dt = datetime.datetime.fromtimestamp(result["last_brush_time"])
+        assert dt.year == 2026
         assert dt.month == 8
         assert dt.day == 27
         assert dt.hour == 0

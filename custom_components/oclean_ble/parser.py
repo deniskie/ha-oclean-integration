@@ -338,39 +338,41 @@ def parse_t1_c3352g_record(record: bytes) -> dict[str, Any]:
     coordinator reassembles the continuation packets from a ``0307 *B# count``
     notification sequence.
 
-    Differs from ``_parse_m18f_record`` (C3385w0 / OCLEANY3M) in that byte 0 is a
-    type indicator (always 0x00), not a year byte.  Year is inferred from the current
-    wall-clock year, stepping back one year if the reconstructed datetime is in the
-    future (same logic as ``_parse_session_meta_y3p_response``).
+    Uses the same 42-byte layout as C3385w0 (confirmed via APK source comparison of
+    C3352g_fallback.java and C3385w0_fallback.java). Byte 0 is a **year base** byte
+    (add 2000 to obtain the full year), identical to the C3385w0 / OCLEANY3M format.
 
-    Byte layout (C3352g / APK handler, confirmed bytes marked ✓, uncertain marked ?):
-      byte  0:   type indicator = 0x00          ✓ (discriminator vs C3385w0 format)
-      byte  1:   month (1-12)                   ✓ (via 5100 analogy + log data)
+    Byte layout (confirmed ✓ from APK, uncertain ?):
+      byte  0:   year_base (full_year − 2000)   ✓ same as C3385w0
+      byte  1:   month (1-12)                   ✓
       byte  2:   day   (1-31)                   ✓
       byte  3:   hour  (0-23)                   ✓
       byte  4:   minute (0-59)                  ✓
       byte  5:   second (0-59)                  ✓
-      byte  6:   pNum (brush-scheme ID)         ? positional, unconfirmed
-      bytes 7-8: duration BE uint16 (seconds)   ? positional, unconfirmed
-      bytes 9-10: validDuration                 ? may not exist
-      bytes 11-16: area1..area6 pressures       ? same offset as C3385w0
-      byte 17:   reserved                       ?
-      bytes 18-19: area7..area8 pressures       ? same offset as C3385w0
-      bytes 20-32: bitfield data                ?
-      byte 33:   score (0-100, 0xFF = absent)   ? same offset as C3385w0
+      byte  6:   pNum (brush-scheme ID)         ✓ confirmed in APK
+      bytes 7-8: duration BE uint16 (seconds)   ✓ confirmed in APK
+      bytes 9-10: validDuration BE              ✓ confirmed in APK
+      bytes 11-16: area1..area6 pressures       ✓ confirmed in APK
+      byte 17:   unused/padding                 ✓
+      bytes 18-19: area7..area8 pressures       ✓ confirmed in APK
+      bytes 20-32: gesture/power bitfield data  ?
+      byte 33:   score (0-100, 0xFF = absent)   ✓ confirmed in APK
       bytes 34-41: reserved                     ?
 
-    All uncertain fields are extracted defensively: out-of-range values are silently
-    omitted from the result rather than failing the whole record.
+    All out-of-range values are silently omitted from the result.
     """
     if len(record) < T1_C3352G_RECORD_SIZE:
         _LOGGER.debug("Oclean C3352g record too short (%d bytes): %s", len(record), record.hex())
         return {}
 
-    if record[0] != 0x00:
+    year_base = record[0]
+    year = year_base + 2000
+    if year < _MIN_YEAR:
         _LOGGER.debug(
-            "Oclean C3352g record: unexpected type byte 0x%02x (not C3352g format, raw: %s)",
-            record[0],
+            "Oclean C3352g record: implausible year_base 0x%02x (year %d < %d), raw: %s",
+            year_base,
+            year,
+            _MIN_YEAR,
             record[:T1_C3352G_RECORD_SIZE].hex(),
         )
         return {}
@@ -382,14 +384,7 @@ def parse_t1_c3352g_record(record: bytes) -> dict[str, Any]:
         minute = record[4]
         second = record[5]
 
-        # Year is absent from the record; infer from current year, stepping back
-        # if the resulting datetime would be in the future.
-        now = datetime.datetime.now()
-        year = now.year
         device_dt = datetime.datetime(year, month, day, hour, minute, second)
-        if device_dt > now:
-            year -= 1
-            device_dt = datetime.datetime(year, month, day, hour, minute, second)
 
         timestamp_s = int(time.mktime(device_dt.timetuple()))
         result: dict[str, Any] = {DATA_LAST_BRUSH_TIME: timestamp_s}
