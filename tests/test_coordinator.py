@@ -1566,6 +1566,74 @@ class TestReadDeviceInfoServiceCacheExpiry:
         await coord._read_device_info_service(client, {})
         assert coord._dis_last_read_ts >= before
 
+    @pytest.mark.asyncio
+    async def test_dis_all_reads_fail_does_not_advance_ts(self):
+        """If all DIS reads fail, _dis_last_read_ts must not be updated so the
+        next poll retries rather than waiting 24 h."""
+        import time
+
+        from custom_components.oclean_ble.const import DATA_MODEL_ID
+
+        coord = _make_coordinator()
+        ts_before = coord._dis_last_read_ts  # 0.0
+        client = _make_bleak_client()
+        client.read_gatt_char = AsyncMock(side_effect=Exception("Insufficient authorization"))
+        await coord._read_device_info_service(client, {})
+        assert coord._dis_last_read_ts == ts_before
+
+    @pytest.mark.asyncio
+    async def test_dis_read_failure_falls_back_to_cached_model_id(self):
+        """When DIS reads fail, cached model_id from _last_raw must be injected
+        into collected so the protocol profile is not reset to UNKNOWN."""
+        from custom_components.oclean_ble.const import DATA_MODEL_ID
+        from custom_components.oclean_ble.protocol import LEGACY
+
+        coord = _make_coordinator()
+        # Simulate a previous successful poll that cached model_id
+        coord._last_raw = {DATA_MODEL_ID: "OCLEANA1"}
+        coord._protocol = LEGACY
+
+        client = _make_bleak_client()
+        client.read_gatt_char = AsyncMock(side_effect=Exception("Insufficient authorization"))
+        collected: dict = {}
+        await coord._read_device_info_service(client, collected)
+
+        assert collected.get(DATA_MODEL_ID) == "OCLEANA1"
+        assert coord._protocol is LEGACY  # must not be reset to UNKNOWN
+
+    @pytest.mark.asyncio
+    async def test_dis_partial_read_failure_uses_cache_for_missing_keys(self):
+        """If only some DIS reads fail, cached values must fill the gaps."""
+        from custom_components.oclean_ble.const import (
+            DATA_HW_REVISION,
+            DATA_MODEL_ID,
+            DATA_SW_VERSION,
+            DIS_HW_REV_UUID,
+            DIS_MODEL_UUID,
+            DIS_SW_REV_UUID,
+        )
+
+        coord = _make_coordinator()
+        coord._last_raw = {
+            DATA_MODEL_ID: "OCLEANA1",
+            DATA_HW_REVISION: "Rev.D",
+            DATA_SW_VERSION: "1.0.0.4",
+        }
+
+        def _side_effect(uuid):
+            if uuid == DIS_MODEL_UUID:
+                return bytearray(b"OCLEANA1")
+            raise Exception("Insufficient authorization")
+
+        client = _make_bleak_client()
+        client.read_gatt_char = AsyncMock(side_effect=_side_effect)
+        collected: dict = {}
+        await coord._read_device_info_service(client, collected)
+
+        assert collected[DATA_MODEL_ID] == "OCLEANA1"
+        assert collected[DATA_HW_REVISION] == "Rev.D"  # from cache
+        assert collected[DATA_SW_VERSION] == "1.0.0.4"  # from cache
+
 
 # ---------------------------------------------------------------------------
 # Manual poll mode (poll_interval=0 → update_interval=None)
