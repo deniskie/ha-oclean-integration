@@ -31,6 +31,7 @@ from .const import (
     RESP_SESSION_META_T1,
     RESP_SESSION_META_Y3P,
     RESP_STATE,
+    RESP_UNKNOWN_4B00,
     RESP_UNKNOWN_5400,
     TOOTH_AREA_NAMES,
 )
@@ -119,6 +120,36 @@ def parse_notification(data: bytes) -> dict[str, Any]:
             return _map_json_brush_data(parsed)
     except (UnicodeDecodeError, json.JSONDecodeError):
         pass
+
+    # Research: OCLEANY3MH appears to send a notification where byte 0 carries
+    # the brushing score and byte 1 is 0x03.  Because byte 0 varies with the
+    # score value the prefix is not static and cannot be registered in _PARSERS.
+    # Detect by structural fingerprint and log verbosely for protocol analysis.
+    if len(data) >= 18 and data[1] == 0x03 and data[2] == 0x03 and data[3] == 0x03 and data[4:8] == b"\xff\xff\xff\xff":
+        score_candidate = data[0]
+        ts_bytes = data[8:14]  # Y M D H Min S  (year + 2000)
+        pnum_candidate = data[14]
+        duration_candidate = (data[15] << 8) | data[16]
+        try:
+            ts_str = (
+                f"{ts_bytes[0] + 2000:04d}-{ts_bytes[1]:02d}-{ts_bytes[2]:02d} "
+                f"{ts_bytes[3]:02d}:{ts_bytes[4]:02d}:{ts_bytes[5]:02d}"
+            )
+        except (IndexError, ValueError):
+            ts_str = ts_bytes.hex()
+        _LOGGER.debug(
+            "Oclean 0x%s – possible score+session record (OCLEANY3MH research): "
+            "score_candidate=%d (0x%02X)  ts_candidate=%s  "
+            "pNum_candidate=%d  duration_candidate=%d s  raw: %s",
+            data[:2].hex().upper(),
+            score_candidate,
+            score_candidate,
+            ts_str,
+            pnum_candidate,
+            duration_candidate,
+            data.hex(),
+        )
+        return {}
 
     # Unknown format – log raw hex for debugging/empirical analysis
     _LOGGER.debug(
@@ -770,6 +801,29 @@ def _log_5400_response(payload: bytes) -> dict[str, Any]:
     return {}
 
 
+def _log_4b00_response(payload: bytes) -> dict[str, Any]:
+    """Log all bytes of a 0x4B00 push notification for empirical protocol analysis.
+
+    Observed on OCLEANY3MH (issue #19, 2026-03-10, sw=1.0.0.3).
+    Appears after the 0307 session response; may be a session index or list header.
+
+    Observed raw (single data point):
+      4b 00  00 00 1f 00 00 00 00 00 28 03 42 33 07 00 03 01 00 00
+             ^--- payload starts here (18 bytes)
+
+    Candidate hypotheses (unconfirmed):
+      - byte   2: unknown (0x1f = 31; record count? buffer size?)
+      - bytes  8- 9: unknown (0x28 0x03 = 40, 3)
+      - bytes 10-12: unknown (0x42 0x33 0x07; possible internal address or CRC)
+      - byte  14: unknown (0x03)
+      - byte  15: unknown (0x01; could be page / record index)
+    """
+    _LOGGER.debug("Oclean 4b00 raw: %s  len=%d", payload.hex(), len(payload))
+    for i, b in enumerate(payload):
+        _LOGGER.debug("  4b00[%02d] = 0x%02X  (%3d)", i, b, b)
+    return {}
+
+
 def _parse_brush_areas_y3p_response(payload: bytes) -> dict[str, Any]:
     """Parse 021f per-tooth-area pressure data (OCLEANY3P / Oclean X Pro Elite).
 
@@ -889,6 +943,7 @@ _PARSERS: dict[bytes, Callable[[bytes], dict[str, Any]]] = {
     RESP_SESSION_META_T1: _parse_session_meta_t1_response,
     RESP_BRUSH_AREAS_T1: _parse_brush_areas_t1_response,
     RESP_UNKNOWN_5400: _log_5400_response,
+    RESP_UNKNOWN_4B00: _log_4b00_response,
     RESP_BRUSH_AREAS_Y3P: _parse_brush_areas_y3p_response,
     RESP_SESSION_META_Y3P: _parse_session_meta_y3p_response,
 }
