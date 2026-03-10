@@ -59,6 +59,12 @@ RESP_UNKNOWN_5400 = bytes.fromhex(
 # Byte layout confirmed from log analysis (2026-03-07) against APK C3352g fallback.
 RESP_BRUSH_AREAS_Y3P = bytes.fromhex("021f")  # Zone/area pressure data for OCLEANY3P (analog to 2604)
 RESP_SESSION_META_Y3P = bytes.fromhex("5100")  # Session metadata for OCLEANY3P (analog to 5a00)
+# OCLEANY3MH-specific notification types (observed 2026-03-10, issue #19).
+# Format not yet confirmed; logged verbosely for research.
+RESP_UNKNOWN_4B00 = bytes.fromhex("4b00")  # Unknown push on OCLEANY3MH; may be session index/list
+# Note: 0x3A03 is NOT registered here because byte 0 appears to vary with the
+# brushing score (0x3a = 58 in one observed session). The unknown-notification
+# fallback in parser.py detects this pattern and logs it verbosely.
 
 # Config entry keys
 CONF_MAC_ADDRESS = "mac_address"
