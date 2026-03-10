@@ -1685,6 +1685,7 @@ class TestManualPollMode:
 
 def _make_c3352g_record_bytes(
     *,
+    year: int = 2026,
     month: int = 3,
     day: int = 9,
     hour: int = 8,
@@ -1694,9 +1695,9 @@ def _make_c3352g_record_bytes(
     duration: int = 120,
     score: int = 80,
 ) -> bytes:
-    """Build a single 42-byte C3352g session record (no year byte)."""
+    """Build a single 42-byte C3352g session record (year_base at byte 0)."""
     record = bytearray(42)
-    record[0] = 0x00
+    record[0] = year - 2000  # year_base byte
     record[1] = month
     record[2] = day
     record[3] = hour

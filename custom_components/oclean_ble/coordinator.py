@@ -523,15 +523,15 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         appends new sessions to *all_sessions*.
 
         Multi-packet reassembly (*B# format):
-        OCLEANY3 / OCLEANY3P send session records split across multiple BLE
-        packets: a 0307 *B# header packet with record_count + inline data,
-        followed by raw continuation packets (no protocol prefix) until all
-        record_count × 42 bytes are received.  The handler detects the header,
-        accumulates continuation chunks, and flushes complete records through
-        ``parse_t1_c3352g_record`` when the buffer is full.
-        Real notifications (021f, 5100, 0000 …) that arrive while reassembly
-        is active have known 2-byte prefixes and are dispatched normally;
-        only prefix-less continuation chunks are fed to the reassembly buffer.
+        OCLEANY3 sends session records split across multiple BLE packets: a
+        0307 *B# header packet with record_count + inline data, followed by
+        raw continuation packets until all record_count × 42 bytes are received.
+        The handler detects the header (payload[5] = year_base != 0 means real
+        data), accumulates continuation chunks, and flushes complete records
+        through ``parse_t1_c3352g_record`` when the buffer is full.
+        OCLEANY3P sends the same *B# header but with year_base=0 (placeholder);
+        its actual session data arrives separately via 021f/5100 notifications
+        and is handled by the normal dispatch path.
         """
         _log = self._log  # capture for use in the closure
 
@@ -597,14 +597,15 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
             _log.debug("notification parsed: %s", parsed)
 
             # --- Check for *B# multi-packet header (0307 + *B# magic + count) ---
-            # payload[3:5] = record_count (2-byte BE), payload[5] == 0x00 signals
-            # C3352g format (no year byte).  Only start reassembly for count > 0
-            # in C3352g format; the OCLEANY3M paginated path (payload[5] != 0) is
-            # already handled inside _parse_info_t1_response.
+            # payload[3:5] = record_count (2-byte BE).
+            # payload[5] = year_base of the first record (year − 2000).
+            # year_base != 0 → real session records from OCLEANY3 → start reassembly.
+            # year_base == 0 → OCLEANY3P placeholder (no inline data; sessions arrive
+            #   via 021f/5100); let _accept() handle the already-parsed result.
             if len(data) >= 8 and data[2:5] == _T1_MAGIC:
                 payload = data[2:]  # strip 0307 prefix
                 record_count = (payload[3] << 8) | payload[4]
-                if record_count > 0 and payload[5] == 0x00:
+                if record_count > 0 and payload[5] != 0x00:
                     total_expected = record_count * T1_C3352G_RECORD_SIZE
                     inline = bytearray(payload[5:])  # bytes already in this packet (from record byte 0)
                     _t1["buf"] = inline
