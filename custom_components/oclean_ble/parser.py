@@ -486,17 +486,17 @@ def _parse_t1_ocleanx20_inline(payload: bytes) -> dict[str, Any]:
         device_dt = _device_datetime(payload[9], payload[10], payload[11], payload[12], payload[13], payload[14])
         timestamp_s = int(time.mktime(device_dt.timetuple()))
         result: dict[str, Any] = {
-            "last_brush_time": timestamp_s,
-            "last_brush_pnum": int(payload[15]),
+            DATA_LAST_BRUSH_TIME: timestamp_s,
+            DATA_LAST_BRUSH_PNUM: int(payload[15]),
         }
         duration = (payload[16] << 8) | payload[17]
         if duration > 0:
-            result["last_brush_duration"] = duration
+            result[DATA_LAST_BRUSH_DURATION] = duration
         _LOGGER.debug(
             "Oclean 0307 extended-offset inline: ts=%d pNum=%d duration=%s s byte8=0x%02x (raw: %s)",
             timestamp_s,
-            result["last_brush_pnum"],
-            result.get("last_brush_duration", "n/a"),
+            result[DATA_LAST_BRUSH_PNUM],
+            result.get(DATA_LAST_BRUSH_DURATION, "n/a"),
             payload[8],
             payload.hex(),
         )
@@ -1096,9 +1096,8 @@ _PARSERS: dict[bytes, Callable[[bytes], dict[str, Any]]] = {
 
 
 # Public set of all 2-byte prefixes recognised by parse_notification().
-# Used by the coordinator to distinguish real notification packets (which always
-# start with a known prefix) from raw continuation chunks in a *B# multi-packet
-# reassembly sequence (which carry no protocol header).
+# Available for external callers (e.g. tests, diagnostic tools) that need to
+# inspect which notification types this parser handles.
 KNOWN_NOTIFICATION_PREFIXES: frozenset[bytes] = frozenset(_PARSERS.keys())
 
 
