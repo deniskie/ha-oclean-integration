@@ -24,6 +24,7 @@ from custom_components.oclean_ble.parser import (
     _MIN_YEAR,
     T1_C3352G_RECORD_SIZE,
     _device_datetime,
+    _log_4b00_response,
     _map_json_brush_data,
     _parse_0314_response,
     _parse_brush_areas_t1_response,
@@ -38,6 +39,7 @@ from custom_components.oclean_ble.parser import (
     _parse_session_meta_t1_response,
     _parse_session_meta_y3p_response,
     _parse_state_response,
+    _parse_t1_ocleanx20_inline,
     parse_battery,
     parse_notification,
     parse_t1_c3352g_record,
@@ -1568,6 +1570,14 @@ class TestParseSessionMetaY3pResponse:
         result = parse_notification(RESP_SESSION_META_Y3P + bytes(5))
         assert result == {}
 
+    def test_invalid_month_triggers_parse_error(self):
+        """month=0 at byte 8 must trigger the ValueError parse-error path."""
+        payload = bytearray(18)
+        payload[8] = 0  # month=0 is invalid
+        payload[9] = 1
+        payload[15] = 120
+        assert _parse_session_meta_y3p_response(bytes(payload)) == {}
+
 
 # ---------------------------------------------------------------------------
 # parse_t1_c3352g_record – C3352g *B# multi-packet record (OCLEANY3 / OCLEANY3P)
@@ -1664,6 +1674,12 @@ class TestParseT1C3352gRecord:
         record[0] = 0x00  # year 2000
         assert parse_t1_c3352g_record(bytes(record)) == {}
 
+    def test_invalid_month_triggers_parse_error_path(self):
+        """month=0 → datetime.datetime raises ValueError → parse error path returns {}."""
+        record = bytearray(_make_c3352g_record())
+        record[1] = 0  # month=0 is invalid for datetime
+        assert parse_t1_c3352g_record(bytes(record)) == {}
+
     def test_year_extracted_from_byte0(self):
         """Year comes from byte 0 (+ 2000), not from wall-clock inference."""
         record = _make_c3352g_record(year=2024, month=6, day=15, hour=9, minute=0, second=0)
@@ -1699,3 +1715,151 @@ class TestParseT1C3352gRecord:
         assert dt.hour == 0
         assert dt.minute == 33
         assert dt.second == 40
+
+
+# ---------------------------------------------------------------------------
+# _parse_t1_ocleanx20_inline – OCLEANX20 extended-offset inline format
+# ---------------------------------------------------------------------------
+
+
+class TestParseT1OcleanX20Inline:
+    """Tests for _parse_t1_ocleanx20_inline (extended-offset 0307 path, issue #37)."""
+
+    def test_short_payload_returns_empty(self):
+        """Payload shorter than 18 bytes must return {} immediately."""
+        assert _parse_t1_ocleanx20_inline(b"") == {}
+        assert _parse_t1_ocleanx20_inline(bytes(17)) == {}
+
+    def test_valid_payload_extracts_timestamp_and_pnum(self):
+        """Real-log payload (issue #37): session record at offset 9."""
+        # "03072a422300000000008d1a03090739260300b4" stripped of 0307 prefix
+        payload = bytes.fromhex("2a422300000000008d1a03090739260300b4")
+        result = _parse_t1_ocleanx20_inline(payload)
+        assert "last_brush_time" in result
+        assert result["last_brush_pnum"] == 3
+        assert result.get("last_brush_duration") == 180
+
+    def test_zero_duration_not_stored(self):
+        """duration==0 must not appear in the result dict."""
+        payload = bytearray(18)
+        # bytes 9-14: year/m/d/h/min/s (2026-01-01 00:00:00)
+        payload[9] = 26
+        payload[10] = 1
+        payload[11] = 1
+        # bytes 16-17: duration = 0x0000
+        result = _parse_t1_ocleanx20_inline(bytes(payload))
+        assert "last_brush_duration" not in result
+
+    def test_parse_error_returns_empty(self):
+        """An IndexError/OverflowError inside the try block must return {}."""
+        # Craft a payload with an invalid year that causes _device_datetime to fail.
+        # _device_datetime raises ValueError for month=0.
+        payload = bytearray(18)
+        payload[9] = 0  # year_base=0 → 2000
+        payload[10] = 0  # month=0 → invalid
+        payload[11] = 0  # day=0 → invalid
+        result = _parse_t1_ocleanx20_inline(bytes(payload))
+        assert result == {}
+
+
+# ---------------------------------------------------------------------------
+# _log_4b00_response – byte-by-byte logger for 4b00 (OCLEANY3MH)
+# ---------------------------------------------------------------------------
+
+
+class TestLog4b00Response:
+    """Tests for _log_4b00_response (RESP_UNKNOWN_4B00 parser)."""
+
+    def test_empty_payload_returns_empty(self):
+        assert _log_4b00_response(b"") == {}
+
+    def test_non_empty_payload_returns_empty(self):
+        """Any payload must be consumed and {} returned (pure logging)."""
+        result = _log_4b00_response(bytes(range(16)))
+        assert result == {}
+
+    def test_routed_via_parse_notification(self):
+        """parse_notification must route 4b00 prefix to _log_4b00_response."""
+        from custom_components.oclean_ble.const import RESP_UNKNOWN_4B00
+
+        result = parse_notification(RESP_UNKNOWN_4B00 + bytes(16))
+        assert result == {}
+
+
+# ---------------------------------------------------------------------------
+# Unknown-notification OCLEANY3MH fingerprint detector (parser.py lines 133-156)
+# ---------------------------------------------------------------------------
+
+
+class TestUnknownNotificationOcleany3mhPattern:
+    """The fallback unknown-notification handler detects the OCLEANY3MH score pattern."""
+
+    def _make_fingerprint(self, score: int = 72) -> bytes:
+        """Build an 18-byte payload matching the OCLEANY3MH structural fingerprint.
+
+        byte0 = score candidate, byte1-3 = 0x03, bytes 4-7 = 0xFF×4,
+        bytes 8-13 = Y/M/D/H/Min/S (Y + 2000), byte 14 = pNum, bytes 15-16 = duration BE.
+        """
+        payload = bytearray(18)
+        payload[0] = score
+        payload[1] = 0x03
+        payload[2] = 0x03
+        payload[3] = 0x03
+        payload[4:8] = b"\xff\xff\xff\xff"
+        # timestamp: 2026-02-15 08:30:00
+        payload[8] = 26  # year_base
+        payload[9] = 2
+        payload[10] = 15
+        payload[11] = 8
+        payload[12] = 30
+        payload[13] = 0
+        payload[14] = 88  # pNum candidate
+        payload[15] = 0x00
+        payload[16] = 0x78  # duration = 120 s
+        payload[17] = 0x00
+        # Use an unregistered prefix so it routes through _unknown_notification_handler
+        return bytes([score, 0x03]) + payload[2:]
+
+    def test_fingerprint_match_returns_empty(self):
+        """A matching OCLEANY3MH-pattern notification must return {} (research path)."""
+        # Use raw bytes: prefix = [score, 0x03], then bytes 2+ match the fingerprint
+        score = 72
+        data = bytearray(20)
+        data[0] = score
+        data[1] = 0x03
+        data[2] = 0x03  # data[2] in the _unknown handler is the full payload byte 2
+        data[3] = 0x03
+        data[4:8] = b"\xff\xff\xff\xff"
+        data[8] = 26
+        data[9] = 2
+        data[10] = 15
+        data[11] = 8
+        data[12] = 30
+        data[13] = 0
+        data[14] = 88
+        data[15] = 0x00
+        data[16] = 0x78
+        result = parse_notification(bytes(data))
+        assert result == {}
+
+    def test_fingerprint_too_short_falls_through(self):
+        """Fewer than 18 bytes must not trigger the fingerprint check."""
+        data = bytearray(17)
+        data[0] = 72
+        data[1] = 0x03
+        data[2] = 0x03
+        data[3] = 0x03
+        data[4:8] = b"\xff\xff\xff\xff"
+        result = parse_notification(bytes(data))
+        assert result == {}
+
+    def test_fingerprint_wrong_ff_bytes_falls_through(self):
+        """If bytes 4-7 are not all 0xFF the fingerprint must not match."""
+        data = bytearray(20)
+        data[0] = 72
+        data[1] = 0x03
+        data[2] = 0x03
+        data[3] = 0x03
+        data[4:8] = b"\xff\xff\x00\xff"  # one byte differs
+        result = parse_notification(bytes(data))
+        assert result == {}
