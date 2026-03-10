@@ -22,6 +22,7 @@ from custom_components.oclean_ble.const import (
 )
 from custom_components.oclean_ble.parser import (
     _MIN_YEAR,
+    T1_C3352G_RECORD_SIZE,
     _device_datetime,
     _map_json_brush_data,
     _parse_0314_response,
@@ -39,6 +40,7 @@ from custom_components.oclean_ble.parser import (
     _parse_state_response,
     parse_battery,
     parse_notification,
+    parse_t1_c3352g_record,
 )
 
 # ---------------------------------------------------------------------------
@@ -1565,3 +1567,145 @@ class TestParseSessionMetaY3pResponse:
         """parse_notification with a short 5100 payload must return {}."""
         result = parse_notification(RESP_SESSION_META_Y3P + bytes(5))
         assert result == {}
+
+
+# ---------------------------------------------------------------------------
+# parse_t1_c3352g_record – C3352g *B# multi-packet record (OCLEANY3 / OCLEANY3P)
+# ---------------------------------------------------------------------------
+
+
+def _make_c3352g_record(
+    *,
+    month: int = 3,
+    day: int = 9,
+    hour: int = 7,
+    minute: int = 0,
+    second: int = 0,
+    pnum: int = 42,
+    duration: int = 120,
+    areas: tuple = (5, 14, 1, 8, 12, 10, 3, 7),
+    score: int = 82,
+) -> bytes:
+    """Build a full 42-byte C3352g session record (no year byte)."""
+    record = bytearray(42)
+    record[0] = 0x00  # type indicator (not a year byte)
+    record[1] = month
+    record[2] = day
+    record[3] = hour
+    record[4] = minute
+    record[5] = second
+    record[6] = pnum
+    record[7] = (duration >> 8) & 0xFF
+    record[8] = duration & 0xFF
+    for i, v in enumerate(areas[:6]):
+        record[11 + i] = v
+    for i, v in enumerate(areas[6:8]):
+        record[18 + i] = v
+    record[33] = score
+    return bytes(record)
+
+
+class TestParseT1C3352gRecord:
+    """Tests for parse_t1_c3352g_record (C3352g *B# multi-packet, OCLEANY3/OCLEANY3P)."""
+
+    def test_constant_is_42(self):
+        assert T1_C3352G_RECORD_SIZE == 42
+
+    def test_extracts_timestamp(self):
+        record = _make_c3352g_record(month=3, day=9, hour=7, minute=0, second=0)
+        result = parse_t1_c3352g_record(record)
+        assert "last_brush_time" in result
+        expected = _expected_t1_ts(datetime.datetime.now().year, 3, 9, 7, 0, 0)
+        assert result["last_brush_time"] == expected
+
+    def test_extracts_pnum_duration_score_areas(self):
+        record = _make_c3352g_record(pnum=55, duration=150, score=75)
+        result = parse_t1_c3352g_record(record)
+        assert result["last_brush_pnum"] == 55
+        assert result["last_brush_duration"] == 150
+        assert result["last_brush_score"] == 75
+        assert "last_brush_areas" in result
+        assert "last_brush_pressure" in result
+
+    def test_score_0xff_not_stored(self):
+        record = _make_c3352g_record(score=0xFF)
+        result = parse_t1_c3352g_record(record)
+        assert "last_brush_score" not in result
+
+    def test_score_0_not_stored(self):
+        record = _make_c3352g_record(score=0)
+        result = parse_t1_c3352g_record(record)
+        assert "last_brush_score" not in result
+
+    def test_score_101_not_stored(self):
+        record = _make_c3352g_record(score=101)
+        result = parse_t1_c3352g_record(record)
+        assert "last_brush_score" not in result
+
+    def test_zero_areas_not_stored(self):
+        record = _make_c3352g_record(areas=(0, 0, 0, 0, 0, 0, 0, 0))
+        result = parse_t1_c3352g_record(record)
+        assert "last_brush_areas" not in result
+        assert "last_brush_pressure" not in result
+
+    def test_zero_duration_not_stored(self):
+        record = _make_c3352g_record(duration=0)
+        result = parse_t1_c3352g_record(record)
+        assert "last_brush_duration" not in result
+
+    def test_too_short_returns_empty(self):
+        assert parse_t1_c3352g_record(bytes(41)) == {}
+        assert parse_t1_c3352g_record(b"") == {}
+
+    def test_non_zero_type_byte_returns_empty(self):
+        """Byte 0 != 0x00 means this is a C3385w0 record, not C3352g – reject it."""
+        record = bytearray(_make_c3352g_record())
+        record[0] = 0x1A  # year 2026 in C3385w0 format
+        assert parse_t1_c3352g_record(bytes(record)) == {}
+
+    def test_year_inference_past_keeps_current_year(self):
+        """Session in January of current year → year is current year."""
+        now = datetime.datetime.now()
+        record = _make_c3352g_record(month=1, day=1, hour=0, minute=0, second=0)
+        result = parse_t1_c3352g_record(record)
+        import time
+
+        dt = datetime.datetime.fromtimestamp(result["last_brush_time"])
+        assert dt.year == now.year
+
+    def test_year_inference_future_steps_back(self):
+        """Session timestamp in future (e.g. next month) → year stepped back by 1."""
+        now = datetime.datetime.now()
+        future = now + datetime.timedelta(days=32)
+        record = _make_c3352g_record(
+            month=future.month,
+            day=future.day,
+            hour=future.hour,
+            minute=future.minute,
+            second=future.second,
+        )
+        result = parse_t1_c3352g_record(record)
+        import time
+
+        dt = datetime.datetime.fromtimestamp(result["last_brush_time"])
+        assert dt.year == now.year - 1
+
+    def test_real_observed_bytes(self):
+        """Decode the inline bytes from the real OCLEANY3P/OCLEANY3 log packet.
+
+        Raw *B# header: 03072a4223000100081b00212800007800780000
+        Inline record bytes (payload[5:]): 00 08 1b 00 21 28 00 00 78 00 78 00 00
+        = type=0x00, month=8, day=27, hour=0, min=33, sec=40, pnum=0, duration=120
+        """
+        inline = bytes.fromhex("00081b002128000078007800000000000000000000000000000000000000000000000000000000000000")
+        assert len(inline) == 42
+        result = parse_t1_c3352g_record(inline)
+        assert result.get("last_brush_duration") == 120
+        import time
+
+        dt = datetime.datetime.fromtimestamp(result["last_brush_time"])
+        assert dt.month == 8
+        assert dt.day == 27
+        assert dt.hour == 0
+        assert dt.minute == 33
+        assert dt.second == 40

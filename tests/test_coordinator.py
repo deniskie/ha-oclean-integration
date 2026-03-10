@@ -11,8 +11,10 @@ import pytest
 from custom_components.oclean_ble.const import (
     DATA_BATTERY,
     DATA_LAST_BRUSH_AREAS,
+    DATA_LAST_BRUSH_DURATION,
     DATA_LAST_BRUSH_PRESSURE,
     DATA_LAST_BRUSH_SCORE,
+    DATA_LAST_BRUSH_TIME,
     DATA_MODEL_ID,
     DATA_SW_VERSION,
 )
@@ -23,6 +25,7 @@ from custom_components.oclean_ble.coordinator import (
     _in_window,
     _parse_poll_windows,
 )
+from custom_components.oclean_ble.parser import T1_C3352G_RECORD_SIZE
 
 
 def _make_service_info(mac="AA:BB:CC:DD:EE:FF"):
@@ -1673,3 +1676,187 @@ class TestManualPollMode:
             result = await coord._poll_device()
 
         assert result is not None
+
+
+# ---------------------------------------------------------------------------
+# *B# multi-packet reassembly (OCLEANY3 / OCLEANY3P)
+# ---------------------------------------------------------------------------
+
+
+def _make_c3352g_record_bytes(
+    *,
+    month: int = 3,
+    day: int = 9,
+    hour: int = 8,
+    minute: int = 30,
+    second: int = 0,
+    pnum: int = 5,
+    duration: int = 120,
+    score: int = 80,
+) -> bytes:
+    """Build a single 42-byte C3352g session record (no year byte)."""
+    record = bytearray(42)
+    record[0] = 0x00
+    record[1] = month
+    record[2] = day
+    record[3] = hour
+    record[4] = minute
+    record[5] = second
+    record[6] = pnum
+    record[7] = (duration >> 8) & 0xFF
+    record[8] = duration & 0xFF
+    record[33] = score
+    return bytes(record)
+
+
+def _make_t1_c3352g_packets(records: list[bytes], ble_mtu: int = 20) -> list[bytes]:
+    """Chop a *B# stream into BLE-MTU-sized notification packets.
+
+    First packet: ``0307 *B# count_hi count_lo [inline bytes up to MTU-7]``
+    Subsequent packets: raw continuation bytes, each up to *ble_mtu* bytes.
+    """
+    count = len(records)
+    record_data = b"".join(records)
+    header = bytes([0x03, 0x07, 0x2A, 0x42, 0x23, (count >> 8) & 0xFF, count & 0xFF])
+    stream = header + record_data
+    return [stream[i : i + ble_mtu] for i in range(0, len(stream), ble_mtu)]
+
+
+class TestT1C3352gReassembly:
+    """Multi-packet *B# reassembly in _make_notification_handler."""
+
+    def _make_client_firing_notifications(self, *notification_payloads):
+        client = _make_bleak_client(battery_value=80)
+        call_count = [0]
+
+        async def fake_start_notify(uuid, handler):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                for payload in notification_payloads:
+                    handler(None, bytearray(payload))
+
+        client.start_notify = AsyncMock(side_effect=fake_start_notify)
+        return client
+
+    async def _run_poll(self, client) -> list[dict]:
+        coordinator = _make_coordinator()
+        coordinator._store_loaded = True
+        captured: list = []
+
+        async def fake_import(_hass, _mac_slug, _device_name, sessions, last_ts):
+            captured.extend(sessions)
+            return last_ts
+
+        with (
+            patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock,
+            patch(
+                "custom_components.oclean_ble.coordinator.establish_connection",
+                new_callable=AsyncMock,
+                return_value=client,
+            ),
+            patch("custom_components.oclean_ble.coordinator.asyncio.sleep", new_callable=AsyncMock),
+            patch("custom_components.oclean_ble.coordinator.import_new_sessions", side_effect=fake_import),
+        ):
+            bt_mock.async_last_service_info.return_value = _make_service_info()
+            await coordinator._poll_device()
+
+        return captured
+
+    @pytest.mark.asyncio
+    async def test_single_record_multi_packet(self):
+        """count=1 record split across multiple 20-byte packets → 1 session imported."""
+        record = _make_c3352g_record_bytes(month=3, day=9, hour=8, minute=30, second=0, duration=120, score=80)
+        assert len(record) == T1_C3352G_RECORD_SIZE
+        packets = _make_t1_c3352g_packets([record])
+        assert len(packets) > 1, "Must require more than one 20-byte BLE packet"
+
+        captured = await self._run_poll(self._make_client_firing_notifications(*packets))
+
+        assert len(captured) == 1, f"Expected 1 session, got {len(captured)}"
+        session = captured[0]
+        assert session.get(DATA_LAST_BRUSH_DURATION) == 120
+        assert session.get(DATA_LAST_BRUSH_SCORE) == 80
+        import datetime
+
+        dt = datetime.datetime.fromtimestamp(session[DATA_LAST_BRUSH_TIME])
+        assert dt.month == 3
+        assert dt.day == 9
+
+    @pytest.mark.asyncio
+    async def test_two_records_multi_packet(self):
+        """count=2 records → 2 distinct sessions imported."""
+        rec1 = _make_c3352g_record_bytes(month=3, day=9, hour=7, minute=0, second=0, duration=120, score=70)
+        rec2 = _make_c3352g_record_bytes(month=3, day=8, hour=22, minute=0, second=0, duration=90, score=60)
+        packets = _make_t1_c3352g_packets([rec1, rec2])
+
+        captured = await self._run_poll(self._make_client_firing_notifications(*packets))
+
+        assert len(captured) == 2, f"Expected 2 sessions, got {len(captured)}"
+        durations = {s.get(DATA_LAST_BRUSH_DURATION) for s in captured}
+        assert durations == {120, 90}
+
+    @pytest.mark.asyncio
+    async def test_notifications_after_reassembly_are_processed(self):
+        """Notifications arriving after a completed *B# stream must be dispatched."""
+        record = _make_c3352g_record_bytes(month=3, day=9, hour=8, minute=0, second=0, duration=60, score=50)
+        packets = _make_t1_c3352g_packets([record])
+        # 5100 carries a session: M=3 D=16 H=8 Min=0 Sec=0, duration=120 (0x78 BE)
+        notif_5100 = bytes.fromhex("5100ffffffffffffff00031000080000780078")
+        sequence = list(packets) + [notif_5100]
+
+        captured = await self._run_poll(self._make_client_firing_notifications(*sequence))
+
+        # Must get at least 1 session from the *B# reassembly
+        assert len(captured) >= 1
+
+    @pytest.mark.asyncio
+    async def test_count_zero_does_not_start_reassembly(self):
+        """0307 *B# with count=0 → no reassembly, no sessions added."""
+        header_only = bytes.fromhex("03072a42230000")
+        captured = await self._run_poll(self._make_client_firing_notifications(header_only))
+        assert captured == []
+
+    @pytest.mark.asyncio
+    async def test_reassembly_state_isolated_per_poll(self):
+        """Reassembly state must not leak between two successive polls."""
+        record = _make_c3352g_record_bytes(month=3, day=9, hour=8, minute=0, second=0, duration=120, score=75)
+        packets = _make_t1_c3352g_packets([record])
+        coordinator = _make_coordinator()
+        coordinator._store_loaded = True
+        captured_runs: list[list] = []
+
+        for _run in range(2):
+            captured: list = []
+
+            async def fake_import(_hass, _mac_slug, _device_name, sessions, last_ts, _cap=captured):
+                _cap.extend(sessions)
+                return last_ts
+
+            call_count = [0]
+
+            async def fake_start_notify(uuid, handler, _pkts=packets, _count=call_count):
+                _count[0] += 1
+                if _count[0] == 1:
+                    for p in _pkts:
+                        handler(None, bytearray(p))
+
+            client = _make_bleak_client(battery_value=80)
+            client.start_notify = AsyncMock(side_effect=fake_start_notify)
+
+            with (
+                patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock,
+                patch(
+                    "custom_components.oclean_ble.coordinator.establish_connection",
+                    new_callable=AsyncMock,
+                    return_value=client,
+                ),
+                patch("custom_components.oclean_ble.coordinator.asyncio.sleep", new_callable=AsyncMock),
+                patch("custom_components.oclean_ble.coordinator.import_new_sessions", side_effect=fake_import),
+            ):
+                bt_mock.async_last_service_info.return_value = _make_service_info()
+                await coordinator._poll_device()
+
+            captured_runs.append(list(captured))
+
+        assert len(captured_runs[0]) == 1
+        assert len(captured_runs[1]) == 1

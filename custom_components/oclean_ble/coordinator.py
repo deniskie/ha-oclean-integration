@@ -53,7 +53,12 @@ from .const import (
     WRITE_CHAR_UUID,
 )
 from .models import OcleanDeviceData
-from .parser import parse_battery, parse_notification
+from .parser import (
+    T1_C3352G_RECORD_SIZE,
+    parse_battery,
+    parse_notification,
+    parse_t1_c3352g_record,
+)
 from .protocol import UNKNOWN, DeviceProtocol, protocol_for_model
 from .statistics import import_new_sessions
 
@@ -516,25 +521,108 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         timestamp wins" policy to prevent a stale 5a00 push from overwriting
         a more-recent 0307 timestamp, merges fields into *collected*, and
         appends new sessions to *all_sessions*.
+
+        Multi-packet reassembly (*B# format):
+        OCLEANY3 / OCLEANY3P send session records split across multiple BLE
+        packets: a 0307 *B# header packet with record_count + inline data,
+        followed by raw continuation packets (no protocol prefix) until all
+        record_count × 42 bytes are received.  The handler detects the header,
+        accumulates continuation chunks, and flushes complete records through
+        ``parse_t1_c3352g_record`` when the buffer is full.
+        Real notifications (021f, 5100, 0000 …) that arrive while reassembly
+        is active have known 2-byte prefixes and are dispatched normally;
+        only prefix-less continuation chunks are fed to the reassembly buffer.
         """
         _log = self._log  # capture for use in the closure
 
-        def handler(_sender: Any, raw: bytearray) -> None:
-            data = bytes(raw)
-            _log.debug("notification raw: %s", data.hex())
-            parsed = parse_notification(data)
-            _log.debug("notification parsed: %s", parsed)
+        # Mutable reassembly state – use a dict to avoid 'nonlocal' for primitives.
+        _t1: dict[str, Any] = {"in_progress": False, "buf": bytearray(), "expected": 0}
+
+        # Magic header bytes for the *B# multi-packet format (after 0307 prefix).
+        _T1_MAGIC = b"\x2a\x42\x23"  # '*B#'
+
+        def _accept(parsed: dict[str, Any]) -> None:
+            """Merge one parsed dict into collected/all_sessions (shared logic)."""
             if not parsed:
                 return
             incoming_ts = parsed.get(DATA_LAST_BRUSH_TIME)
             if incoming_ts is not None and incoming_ts < collected.get(DATA_LAST_BRUSH_TIME, 0):
-                parsed = {k: v for k, v in parsed.items() if k not in (DATA_LAST_BRUSH_TIME, DATA_LAST_BRUSH_DURATION)}
-            collected.update(parsed)
-            ts = parsed.get(DATA_LAST_BRUSH_TIME)
-            if ts and ts not in seen_ts:
-                seen_ts.add(ts)
+                # Don't let an older session overwrite the newest timestamp in
+                # collected, but still add the session to all_sessions for import.
+                collected.update(
+                    {k: v for k, v in parsed.items() if k not in (DATA_LAST_BRUSH_TIME, DATA_LAST_BRUSH_DURATION)}
+                )
+            else:
+                collected.update(parsed)
+            if incoming_ts and incoming_ts not in seen_ts:
+                seen_ts.add(incoming_ts)
                 all_sessions.append(dict(parsed))
                 session_received.set()
+
+        def _flush_t1_buffer() -> None:
+            """Parse all complete 42-byte records from the reassembly buffer."""
+            buf = bytes(_t1["buf"])
+            _t1["in_progress"] = False
+            _t1["buf"] = bytearray()
+            _t1["expected"] = 0
+            num_records = len(buf) // T1_C3352G_RECORD_SIZE
+            _log.debug("*B# reassembly complete: parsing %d record(s)", num_records)
+            for i in range(num_records):
+                chunk = buf[i * T1_C3352G_RECORD_SIZE : (i + 1) * T1_C3352G_RECORD_SIZE]
+                _accept(parse_t1_c3352g_record(chunk))
+
+        def handler(_sender: Any, raw: bytearray) -> None:
+            data = bytes(raw)
+            _log.debug("notification raw: %s", data.hex())
+
+            # --- Continuation packet for active *B# reassembly ---
+            # While reassembly is active, every incoming packet is treated as
+            # continuation data regardless of its first two bytes. Byte count
+            # is the only reliable discriminator: continuation chunks contain
+            # raw record bytes that can coincidentally match any known prefix.
+            if _t1["in_progress"]:
+                _t1["buf"].extend(data)
+                _log.debug(
+                    "*B# continuation: +%d bytes (%d/%d)",
+                    len(data),
+                    len(_t1["buf"]),
+                    _t1["expected"],
+                )
+                if len(_t1["buf"]) >= _t1["expected"]:
+                    _flush_t1_buffer()
+                return
+
+            # --- Normal notification dispatch ---
+            parsed = parse_notification(data)
+            _log.debug("notification parsed: %s", parsed)
+
+            # --- Check for *B# multi-packet header (0307 + *B# magic + count) ---
+            # payload[3:5] = record_count (2-byte BE), payload[5] == 0x00 signals
+            # C3352g format (no year byte).  Only start reassembly for count > 0
+            # in C3352g format; the OCLEANY3M paginated path (payload[5] != 0) is
+            # already handled inside _parse_info_t1_response.
+            if len(data) >= 8 and data[2:5] == _T1_MAGIC:
+                payload = data[2:]  # strip 0307 prefix
+                record_count = (payload[3] << 8) | payload[4]
+                if record_count > 0 and payload[5] == 0x00:
+                    total_expected = record_count * T1_C3352G_RECORD_SIZE
+                    inline = bytearray(payload[5:])  # bytes already in this packet (from record byte 0)
+                    _t1["buf"] = inline
+                    _t1["expected"] = total_expected
+                    _t1["in_progress"] = True
+                    _log.debug(
+                        "*B# header: count=%d, expected=%d bytes, inline=%d bytes",
+                        record_count,
+                        total_expected,
+                        len(inline),
+                    )
+                    if len(inline) >= total_expected:
+                        _flush_t1_buffer()
+                    # parse_notification returned {} for this case (deferred branch);
+                    # do not call _accept – reassembly handles the data.
+                    return
+
+            _accept(parsed)
 
         return handler
 

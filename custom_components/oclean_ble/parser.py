@@ -44,6 +44,10 @@ _MIN_YEAR = 2015
 _RUNNING_DATA_MIN_RECORD_SIZE = 18  # 0308 simple format (m5348m1)
 _T1_MIN_SIZE = 12  # 0307 Type-1 push (need through byte 11 for pNum)
 _T1_FULL_RECORD_SIZE = 42  # 0307 paginated m18f record (C3385w0_fallback.java)
+
+# Public alias used by the coordinator for *B# multi-packet reassembly.
+# Both C3385w0 (OCLEANY3M) and C3352g (OCLEANY3/OCLEANY3P) use 42-byte records.
+T1_C3352G_RECORD_SIZE: int = _T1_FULL_RECORD_SIZE
 _EXT_MIN_SIZE = 32  # 0308 extended format (AbstractC0002b.m37y)
 
 
@@ -323,6 +327,112 @@ def _parse_m18f_record(record: bytes) -> dict[str, Any]:
             "Oclean m18f record parse error: %s (raw: %s)",
             err,
             record[:_T1_FULL_RECORD_SIZE].hex() if len(record) >= _T1_FULL_RECORD_SIZE else record.hex(),
+        )
+        return {}
+
+
+def parse_t1_c3352g_record(record: bytes) -> dict[str, Any]:
+    """Parse one 42-byte session record from the C3352g *B# multi-packet stream.
+
+    Used by OCLEANY3 (Oclean X Pro) and OCLEANY3P (Oclean X Pro Elite) when the
+    coordinator reassembles the continuation packets from a ``0307 *B# count``
+    notification sequence.
+
+    Differs from ``_parse_m18f_record`` (C3385w0 / OCLEANY3M) in that byte 0 is a
+    type indicator (always 0x00), not a year byte.  Year is inferred from the current
+    wall-clock year, stepping back one year if the reconstructed datetime is in the
+    future (same logic as ``_parse_session_meta_y3p_response``).
+
+    Byte layout (C3352g / APK handler, confirmed bytes marked ✓, uncertain marked ?):
+      byte  0:   type indicator = 0x00          ✓ (discriminator vs C3385w0 format)
+      byte  1:   month (1-12)                   ✓ (via 5100 analogy + log data)
+      byte  2:   day   (1-31)                   ✓
+      byte  3:   hour  (0-23)                   ✓
+      byte  4:   minute (0-59)                  ✓
+      byte  5:   second (0-59)                  ✓
+      byte  6:   pNum (brush-scheme ID)         ? positional, unconfirmed
+      bytes 7-8: duration BE uint16 (seconds)   ? positional, unconfirmed
+      bytes 9-10: validDuration                 ? may not exist
+      bytes 11-16: area1..area6 pressures       ? same offset as C3385w0
+      byte 17:   reserved                       ?
+      bytes 18-19: area7..area8 pressures       ? same offset as C3385w0
+      bytes 20-32: bitfield data                ?
+      byte 33:   score (0-100, 0xFF = absent)   ? same offset as C3385w0
+      bytes 34-41: reserved                     ?
+
+    All uncertain fields are extracted defensively: out-of-range values are silently
+    omitted from the result rather than failing the whole record.
+    """
+    if len(record) < T1_C3352G_RECORD_SIZE:
+        _LOGGER.debug("Oclean C3352g record too short (%d bytes): %s", len(record), record.hex())
+        return {}
+
+    if record[0] != 0x00:
+        _LOGGER.debug(
+            "Oclean C3352g record: unexpected type byte 0x%02x (not C3352g format, raw: %s)",
+            record[0],
+            record[:T1_C3352G_RECORD_SIZE].hex(),
+        )
+        return {}
+
+    try:
+        month = record[1]
+        day = record[2]
+        hour = record[3]
+        minute = record[4]
+        second = record[5]
+
+        # Year is absent from the record; infer from current year, stepping back
+        # if the resulting datetime would be in the future.
+        now = datetime.datetime.now()
+        year = now.year
+        device_dt = datetime.datetime(year, month, day, hour, minute, second)
+        if device_dt > now:
+            year -= 1
+            device_dt = datetime.datetime(year, month, day, hour, minute, second)
+
+        timestamp_s = int(time.mktime(device_dt.timetuple()))
+        result: dict[str, Any] = {DATA_LAST_BRUSH_TIME: timestamp_s}
+
+        # pNum at byte 6 (uncertain offset – positional from C3385w0)
+        result[DATA_LAST_BRUSH_PNUM] = int(record[6])
+
+        # Duration at bytes 7-8 BE (uncertain offset)
+        duration_s = (record[7] << 8) | record[8]
+        if duration_s > 0:
+            result[DATA_LAST_BRUSH_DURATION] = duration_s
+
+        # Score at byte 33 (uncertain offset – same as C3385w0)
+        score = record[33]
+        if 0 < score <= 100:
+            result[DATA_LAST_BRUSH_SCORE] = score
+
+        # Area pressures: bytes 11-16 (area1-6) + bytes 18-19 (area7-8)
+        # (uncertain offsets – same as C3385w0, likely valid since year byte absent
+        # shifts only byte 0 relative to C3385w0)
+        area_bytes = bytes(
+            [record[11], record[12], record[13], record[14], record[15], record[16], record[18], record[19]]
+        )
+        area_dict, _zones_cleaned, avg_pressure = _build_area_stats(area_bytes)
+        if any(v > 0 for v in area_bytes):
+            result[DATA_LAST_BRUSH_AREAS] = area_dict
+            result[DATA_LAST_BRUSH_PRESSURE] = avg_pressure
+
+        _LOGGER.debug(
+            "Oclean C3352g record parsed: ts=%d pNum=%d duration=%s score=%s (raw: %s)",
+            timestamp_s,
+            result[DATA_LAST_BRUSH_PNUM],
+            result.get(DATA_LAST_BRUSH_DURATION, "n/a"),
+            result.get(DATA_LAST_BRUSH_SCORE, "n/a"),
+            record[:T1_C3352G_RECORD_SIZE].hex(),
+        )
+        return result
+
+    except (IndexError, ValueError, OverflowError) as err:
+        _LOGGER.debug(
+            "Oclean C3352g record parse error: %s (raw: %s)",
+            err,
+            record[:T1_C3352G_RECORD_SIZE].hex() if len(record) >= T1_C3352G_RECORD_SIZE else record.hex(),
         )
         return {}
 
@@ -947,6 +1057,13 @@ _PARSERS: dict[bytes, Callable[[bytes], dict[str, Any]]] = {
     RESP_BRUSH_AREAS_Y3P: _parse_brush_areas_y3p_response,
     RESP_SESSION_META_Y3P: _parse_session_meta_y3p_response,
 }
+
+
+# Public set of all 2-byte prefixes recognised by parse_notification().
+# Used by the coordinator to distinguish real notification packets (which always
+# start with a known prefix) from raw continuation chunks in a *B# multi-packet
+# reassembly sequence (which carry no protocol header).
+KNOWN_NOTIFICATION_PREFIXES: frozenset[bytes] = frozenset(_PARSERS.keys())
 
 
 _JSON_KEY_MAP: tuple[tuple[str, tuple[str, ...], bool], ...] = (
