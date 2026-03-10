@@ -1861,3 +1861,205 @@ class TestT1C3352gReassembly:
 
         assert len(captured_runs[0]) == 1
         assert len(captured_runs[1]) == 1
+
+
+# ---------------------------------------------------------------------------
+# _CoordLoggerAdapter – per-device log prefix
+# ---------------------------------------------------------------------------
+
+
+class TestCoordLoggerAdapter:
+    """Tests for _CoordLoggerAdapter.process()."""
+
+    def test_prefix_contains_model_and_mac_suffix(self):
+        """process() must prepend [MODEL/XX] where XX is the last two MAC hex chars."""
+        import logging
+
+        from custom_components.oclean_ble.coordinator import _CoordLoggerAdapter
+
+        coord = _make_coordinator(mac="AA:BB:CC:DD:EE:FF")
+        coord._last_raw[DATA_MODEL_ID] = "OCLEANY3M"
+        adapter = _CoordLoggerAdapter(logging.getLogger("test"), {"coord": coord})
+
+        msg, kwargs = adapter.process("hello world", {})
+
+        assert msg == "[OCLEANY3M/FF] hello world"
+        assert kwargs == {}
+
+    def test_prefix_uses_question_mark_when_model_unknown(self):
+        """When DATA_MODEL_ID is not yet set, model token must be '?'."""
+        import logging
+
+        from custom_components.oclean_ble.coordinator import _CoordLoggerAdapter
+
+        coord = _make_coordinator(mac="AA:BB:CC:DD:EE:11")
+        # _last_raw starts empty → no model
+        adapter = _CoordLoggerAdapter(logging.getLogger("test"), {"coord": coord})
+
+        msg, _ = adapter.process("test", {})
+
+        assert msg.startswith("[?/11]")
+
+
+# ---------------------------------------------------------------------------
+# _patch_aioesphomeapi_uuid_parser – success path
+# ---------------------------------------------------------------------------
+
+
+class TestPatchAioesphomeapiUuidParser:
+    """Test the aioesphomeapi patch when the module IS present."""
+
+    def test_short_uuid_list_returns_null_uuid(self):
+        """After patching, a 0- or 1-element list must return the null UUID."""
+        import sys
+        import types
+
+        # Build a real module object so attribute assignment/reads work normally.
+        fake_model = types.ModuleType("aioesphomeapi.model")
+        original_join = lambda value: "-".join(str(v) for v in value)  # noqa: E731
+        fake_model._join_split_uuid = original_join  # type: ignore[attr-defined]
+
+        # Inject into sys.modules so the import inside the patch function succeeds.
+        sys.modules.setdefault("aioesphomeapi", types.ModuleType("aioesphomeapi"))
+        sys.modules["aioesphomeapi.model"] = fake_model
+
+        try:
+            from custom_components.oclean_ble.coordinator import _patch_aioesphomeapi_uuid_parser
+
+            _patch_aioesphomeapi_uuid_parser()
+
+            patched = fake_model._join_split_uuid  # type: ignore[attr-defined]
+
+            # Short list (0 elements) → null UUID
+            assert patched([]) == "00000000-0000-0000-0000-000000000000"
+            # Single-element list → null UUID
+            assert patched(["only-one"]) == "00000000-0000-0000-0000-000000000000"
+            # Two-element list → passes through to original
+            assert patched(["a", "b"]) == "a-b"
+        finally:
+            sys.modules.pop("aioesphomeapi.model", None)
+
+
+# ---------------------------------------------------------------------------
+# _paginate_sessions – protocol without pagination support
+# ---------------------------------------------------------------------------
+
+
+class TestPaginateSessionsNoPagination:
+    @pytest.mark.asyncio
+    async def test_non_paginating_protocol_skips_immediately(self):
+        """_paginate_sessions must return early when protocol.supports_pagination is False."""
+        coord = _make_coordinator()
+        coord._store_loaded = True
+
+        # Use LEGACY protocol (OCLEANA1) which has no pagination
+        from custom_components.oclean_ble.protocol import LEGACY
+
+        coord._protocol = LEGACY
+
+        client = AsyncMock()
+        event = asyncio.Event()
+        all_sessions = [{"last_brush_time": 1740145339}]
+
+        await coord._paginate_sessions(client, all_sessions, event)
+
+        client.write_gatt_char.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# _read_response_char_fallback – success path (len > 2)
+# ---------------------------------------------------------------------------
+
+
+class TestReadResponseCharFallback:
+    @pytest.mark.asyncio
+    async def test_data_longer_than_2_bytes_calls_handler(self):
+        """When read returns >2 bytes the handler must be called with the data."""
+        coord = _make_coordinator()
+        coord._store_loaded = True
+
+        client = AsyncMock()
+        # Return a realistic payload (e.g. a 0303 state response)
+        client.read_gatt_char = AsyncMock(return_value=bytearray([0x03, 0x03, 0x01, 0x00, 0x00, 0x4B]))
+
+        calls: list[bytearray] = []
+
+        def handler(_sender, data: bytearray) -> None:
+            calls.append(data)
+
+        with patch("custom_components.oclean_ble.coordinator.asyncio.sleep", new_callable=AsyncMock):
+            await coord._read_response_char_fallback(client, handler)
+
+        assert len(calls) == 1
+        assert calls[0] == bytearray([0x03, 0x03, 0x01, 0x00, 0x00, 0x4B])
+
+    @pytest.mark.asyncio
+    async def test_data_exactly_2_bytes_does_not_call_handler(self):
+        """When read returns exactly 2 bytes (len == 2) handler must NOT be called."""
+        coord = _make_coordinator()
+        coord._store_loaded = True
+
+        client = AsyncMock()
+        client.read_gatt_char = AsyncMock(return_value=bytearray([0x03, 0x03]))
+
+        calls: list = []
+
+        def handler(_sender, data: bytearray) -> None:
+            calls.append(data)
+
+        with patch("custom_components.oclean_ble.coordinator.asyncio.sleep", new_callable=AsyncMock):
+            await coord._read_response_char_fallback(client, handler)
+
+        assert calls == []
+
+    @pytest.mark.asyncio
+    async def test_read_exception_does_not_raise(self):
+        """A BleakError from read_gatt_char must be caught and not propagate."""
+        from bleak import BleakError
+
+        coord = _make_coordinator()
+        coord._store_loaded = True
+
+        client = AsyncMock()
+        client.read_gatt_char = AsyncMock(side_effect=BleakError("not connected"))
+
+        def handler(_sender, data):
+            pass  # should never be called
+
+        with patch("custom_components.oclean_ble.coordinator.asyncio.sleep", new_callable=AsyncMock):
+            # Must not raise
+            await coord._read_response_char_fallback(client, handler)
+
+
+# ---------------------------------------------------------------------------
+# async_reset_brush_head – brush head counter reset
+# ---------------------------------------------------------------------------
+
+
+class TestAsyncResetBrushHead:
+    @pytest.mark.asyncio
+    async def test_reset_sends_command_and_clears_counter(self):
+        """async_reset_brush_head must send CMD_CLEAR_BRUSH_HEAD and reset sw counter."""
+        from custom_components.oclean_ble.const import CMD_CLEAR_BRUSH_HEAD, WRITE_CHAR_UUID
+
+        coord = _make_coordinator()
+        coord._store_loaded = True
+        coord._brush_head_sw_count = 42
+
+        client = _make_bleak_client()
+
+        with (
+            patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock,
+            patch(
+                "custom_components.oclean_ble.coordinator.establish_connection",
+                new_callable=AsyncMock,
+                return_value=client,
+            ),
+            patch("custom_components.oclean_ble.coordinator.asyncio.sleep", new_callable=AsyncMock),
+            patch.object(coord, "_save_store", new_callable=AsyncMock),
+        ):
+            bt_mock.async_last_service_info.return_value = _make_service_info()
+            await coord.async_reset_brush_head()
+
+        client.write_gatt_char.assert_called_once_with(WRITE_CHAR_UUID, CMD_CLEAR_BRUSH_HEAD, response=True)
+        assert coord._brush_head_sw_count == 0
