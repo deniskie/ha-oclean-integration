@@ -74,7 +74,7 @@ class _CoordLoggerAdapter(logging.LoggerAdapter):
     """
 
     def process(self, msg: str, kwargs: dict) -> tuple[str, dict]:  # type: ignore[override]
-        coord: OcleanCoordinator = self.extra["coord"]
+        coord: OcleanCoordinator = self.extra["coord"]  # type: ignore[index, assignment]
         model = coord._last_raw.get(DATA_MODEL_ID) or "?"
         suffix = coord._mac.replace(":", "")[-2:].upper()
         return f"[{model}/{suffix}] {msg}", kwargs
