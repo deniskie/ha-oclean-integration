@@ -9,6 +9,10 @@ import json
 import pytest
 
 from custom_components.oclean_ble.const import (
+    DATA_LAST_BRUSH_DURATION,
+    DATA_LAST_BRUSH_PNUM,
+    DATA_LAST_BRUSH_SCORE,
+    DATA_LAST_BRUSH_TIME,
     RESP_BRUSH_AREAS_T1,
     RESP_BRUSH_AREAS_Y3P,
     RESP_EXTENDED_T1,
@@ -1787,79 +1791,145 @@ class TestLog4b00Response:
 
 
 # ---------------------------------------------------------------------------
-# Unknown-notification OCLEANY3MH fingerprint detector (parser.py lines 133-156)
+# XX03 score+session record parser (OCLEANY3MH, issue #19)
 # ---------------------------------------------------------------------------
 
 
-class TestUnknownNotificationOcleany3mhPattern:
-    """The fallback unknown-notification handler detects the OCLEANY3MH score pattern."""
+def _make_xx03_record(
+    *,
+    score: int = 58,
+    byte3: int = 0x03,
+    year: int = 2026,
+    month: int = 3,
+    day: int = 3,
+    hour: int = 19,
+    minute: int = 50,
+    second: int = 7,
+    pnum: int = 87,
+    duration: int = 180,
+) -> bytes:
+    """Build a 20-byte XX03 session record matching the confirmed OCLEANY3MH format.
 
-    def _make_fingerprint(self, score: int = 72) -> bytes:
-        """Build an 18-byte payload matching the OCLEANY3MH structural fingerprint.
+    Confirmed layout (empirical logs, issue #19):
+      byte  0: score
+      bytes 1-2: 0x03 0x03 (constant)
+      byte  3: varies (0x03 older sessions, 0x00 recent)
+      bytes 4-8: ff×5 (separator)
+      byte  9: year_base (+2000)
+      byte 10: month
+      byte 11: day
+      byte 12: hour
+      byte 13: minute
+      byte 14: second
+      byte 15: pNum
+      bytes 16-17: duration BE
+      bytes 18-19: validDuration BE (same value as duration)
+    """
+    data = bytearray(20)
+    data[0] = score
+    data[1] = 0x03
+    data[2] = 0x03
+    data[3] = byte3
+    data[4:9] = b"\xff" * 5
+    data[9] = year - 2000
+    data[10] = month
+    data[11] = day
+    data[12] = hour
+    data[13] = minute
+    data[14] = second
+    data[15] = pnum
+    data[16] = (duration >> 8) & 0xFF
+    data[17] = duration & 0xFF
+    data[18] = (duration >> 8) & 0xFF
+    data[19] = duration & 0xFF
+    return bytes(data)
 
-        byte0 = score candidate, byte1-3 = 0x03, bytes 4-7 = 0xFF×4,
-        bytes 8-13 = Y/M/D/H/Min/S (Y + 2000), byte 14 = pNum, bytes 15-16 = duration BE.
+
+class TestParseXx03SessionRecord:
+    """Tests for _parse_xx03_session_record (OCLEANY3MH score+session, issue #19)."""
+
+    def test_real_observed_packet_old(self):
+        """Decode the confirmed real notification from the 2026-03-10 log.
+
+        Raw: 3a030303ffffffffff1a03031332075700b400b4
+        score=0x3A=58 confirmed against Oclean app.
         """
-        payload = bytearray(18)
-        payload[0] = score
-        payload[1] = 0x03
-        payload[2] = 0x03
-        payload[3] = 0x03
-        payload[4:8] = b"\xff\xff\xff\xff"
-        # timestamp: 2026-02-15 08:30:00
-        payload[8] = 26  # year_base
-        payload[9] = 2
-        payload[10] = 15
-        payload[11] = 8
-        payload[12] = 30
-        payload[13] = 0
-        payload[14] = 88  # pNum candidate
-        payload[15] = 0x00
-        payload[16] = 0x78  # duration = 120 s
-        payload[17] = 0x00
-        # Use an unregistered prefix so it routes through _unknown_notification_handler
-        return bytes([score, 0x03]) + payload[2:]
+        raw = bytes.fromhex("3a030303ffffffffff1a03031332075700b400b4")
+        result = parse_notification(raw)
+        assert result.get(DATA_LAST_BRUSH_SCORE) == 58
+        assert result.get(DATA_LAST_BRUSH_PNUM) == 87
+        assert result.get(DATA_LAST_BRUSH_DURATION) == 180
+        dt = datetime.datetime.fromtimestamp(result[DATA_LAST_BRUSH_TIME])
+        assert dt.year == 2026
+        assert dt.month == 3
+        assert dt.day == 3
+        assert dt.hour == 19
+        assert dt.minute == 50
 
-    def test_fingerprint_match_returns_empty(self):
-        """A matching OCLEANY3MH-pattern notification must return {} (research path)."""
-        # Use raw bytes: prefix = [score, 0x03], then bytes 2+ match the fingerprint
-        score = 72
-        data = bytearray(20)
-        data[0] = score
+    def test_real_observed_packet_new_byte3_zero(self):
+        """Decode the 2026-03-11 log notification (byte[3]=0x00 variant).
+
+        Raw: 47030300ffffffffff1a0306071e0f0000780078
+        score=0x47=71, session 2026-03-06 07:30:15.
+        """
+        raw = bytes.fromhex("47030300ffffffffff1a0306071e0f0000780078")
+        result = parse_notification(raw)
+        assert result.get(DATA_LAST_BRUSH_SCORE) == 0x47  # 71
+        assert result.get(DATA_LAST_BRUSH_DURATION) == 120
+        dt = datetime.datetime.fromtimestamp(result[DATA_LAST_BRUSH_TIME])
+        assert dt.year == 2026
+        assert dt.month == 3
+        assert dt.day == 6
+
+    def test_score_extracted_from_byte0(self):
+        record = _make_xx03_record(score=75)
+        result = parse_notification(record)
+        assert result.get(DATA_LAST_BRUSH_SCORE) == 75
+
+    def test_score_zero_not_stored(self):
+        record = _make_xx03_record(score=0)
+        result = parse_notification(record)
+        assert DATA_LAST_BRUSH_SCORE not in result
+
+    def test_score_101_not_stored(self):
+        record = _make_xx03_record(score=101)
+        result = parse_notification(record)
+        assert DATA_LAST_BRUSH_SCORE not in result
+
+    def test_timestamp_extracted(self):
+        record = _make_xx03_record(year=2026, month=3, day=3, hour=19, minute=50, second=7)
+        result = parse_notification(record)
+        dt = datetime.datetime.fromtimestamp(result[DATA_LAST_BRUSH_TIME])
+        assert dt.year == 2026
+        assert dt.month == 3
+        assert dt.day == 3
+
+    def test_too_short_falls_through(self):
+        """Fewer than 20 bytes must not trigger the XX03 path."""
+        data = bytearray(19)
+        data[0] = 58
         data[1] = 0x03
-        data[2] = 0x03  # data[2] in the _unknown handler is the full payload byte 2
-        data[3] = 0x03
-        data[4:8] = b"\xff\xff\xff\xff"
-        data[8] = 26
-        data[9] = 2
-        data[10] = 15
-        data[11] = 8
-        data[12] = 30
-        data[13] = 0
-        data[14] = 88
-        data[15] = 0x00
-        data[16] = 0x78
+        data[2] = 0x03
+        data[4:9] = b"\xff" * 5
         result = parse_notification(bytes(data))
         assert result == {}
 
-    def test_fingerprint_too_short_falls_through(self):
-        """Fewer than 18 bytes must not trigger the fingerprint check."""
-        data = bytearray(17)
-        data[0] = 72
-        data[1] = 0x03
-        data[2] = 0x03
-        data[3] = 0x03
-        data[4:8] = b"\xff\xff\xff\xff"
+    def test_wrong_ff_separator_falls_through(self):
+        """If bytes 4-8 are not ff×5 the XX03 path must not trigger."""
+        data = bytearray(_make_xx03_record())
+        data[6] = 0x00  # break one ff byte
         result = parse_notification(bytes(data))
         assert result == {}
 
-    def test_fingerprint_wrong_ff_bytes_falls_through(self):
-        """If bytes 4-7 are not all 0xFF the fingerprint must not match."""
-        data = bytearray(20)
-        data[0] = 72
-        data[1] = 0x03
-        data[2] = 0x03
-        data[3] = 0x03
-        data[4:8] = b"\xff\xff\x00\xff"  # one byte differs
+    def test_byte3_zero_variant_parses(self):
+        """byte[3]=0x00 (recent session variant) must also be parsed."""
+        record = _make_xx03_record(score=71, byte3=0x00)
+        result = parse_notification(record)
+        assert result.get(DATA_LAST_BRUSH_SCORE) == 71
+
+    def test_year_base_zero_returns_empty(self):
+        """year_base=0 → year 2000 < _MIN_YEAR → reject."""
+        data = bytearray(_make_xx03_record())
+        data[9] = 0x00
         result = parse_notification(bytes(data))
         assert result == {}
