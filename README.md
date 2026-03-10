@@ -12,7 +12,7 @@ Custom integration for **Oclean Smart Toothbrushes** (Oclean X, X Pro, X Pro Eli
 Connects every 5 minutes via Bluetooth, reads brushing data, then disconnects.
 No cloud, no account, fully local.
 
-> **Devices tested:** Oclean X · Oclean X Pro (OCLEANY3) · Oclean X Pro Elite (OCLEANY3P)
+> **Devices tested:** Oclean X (OCLEANY3M) · Oclean X HW variant (OCLEANY3MH) · Oclean X Pro (OCLEANY3) · Oclean X Pro Elite (OCLEANY3P) · Oclean X Pro 20 (OCLEANX20) · Oclean Air 1 (OCLEANA1)
 > **Protocol:** Reverse-engineered from the official Oclean APK
 
 ---
@@ -197,8 +197,12 @@ Unknown notification types are logged as hex – this helps extend the parser.
 | Device | Model ID | Status | Notes |
 |--------|----------|--------|-------|
 | Oclean X | OCLEANY3M | ✅ Tested | Battery, score, timestamp, duration, and scheme ID confirmed. Extended fields (areas, pressure) not supported by this device. |
-| Oclean X Pro | OCLEANY3 | ⚠️ Partial | Extended 0308 format expected; duration, area, pressure, scheme fields available if confirmed. Needs real-device testing. |
-| Oclean X Pro Elite | OCLEANY3P | ⚠️ Partial | Same as Oclean X Pro |
+| Oclean X (HW variant) | OCLEANY3MH | ✅ Tested | Score, timestamp, duration, and pNum confirmed via `XX03` notification format (issue #19). |
+| Oclean X Pro | OCLEANY3 | ⚠️ Partial | Session data fetched via `0307` + `*B#` multi-packet reassembly; implementation complete but needs real-device confirmation. |
+| Oclean X Pro Elite | OCLEANY3P | ⚠️ Partial | Session metadata via `5100`, tooth areas via `021f`; implementation complete, full field confirmation pending. |
+| Oclean X Pro 20 | OCLEANX20 | ⚠️ Partial | Extended-offset inline `0307` format; timestamp and duration confirmed, further field testing pending. |
+| Oclean Air 1 | OCLEANA1 | ✅ Tested | Battery confirmed. No CCCD on notify characteristic – uses direct READ fallback. Session fields not available on this model. |
+| Oclean Air 1 variants | OCLEANA1a–d | ⚠️ Partial | Same protocol as OCLEANA1; untested on real hardware. |
 | Oclean X Ultra | – | ⚠️ Unknown | Likely uses extended data format |
 | Other Oclean models | – | ⚠️ Unknown | Open an issue with raw log output |
 
@@ -210,7 +214,7 @@ Unknown notification types are logged as hex – this helps extend the parser.
 
 ## Roadmap
 
-- [ ] Confirm brush area / pressure / scheme fields on Oclean X Pro (OCLEANY3) and X Pro Elite (OCLEANY3P)
+- [ ] Confirm brush area / pressure / scheme fields on Oclean X Pro (OCLEANY3) and X Pro Elite (OCLEANY3P) with real-device logs (implementation complete)
 - [ ] Validate real-time zone guidance on K3-series devices
 - [x] Configurable poll windows with native time picker
 - [x] Manual polling mode with `oclean_ble.poll` action
