@@ -60,6 +60,21 @@ from .statistics import import_new_sessions
 _LOGGER = logging.getLogger(__name__)
 
 
+class _CoordLoggerAdapter(logging.LoggerAdapter):
+    """Logger adapter that prepends [MODEL/XX] to every log message.
+
+    MODEL is the device model ID (e.g. OCLEANY3P) or '?' before the first DIS
+    read.  XX are the last two hex characters of the MAC address so that log
+    entries from multiple devices can be told apart at a glance.
+    """
+
+    def process(self, msg: str, kwargs: dict) -> tuple[str, dict]:  # type: ignore[override]
+        coord: OcleanCoordinator = self.extra["coord"]
+        model = coord._last_raw.get(DATA_MODEL_ID) or "?"
+        suffix = coord._mac.replace(":", "")[-2:].upper()
+        return f"[{model}/{suffix}] {msg}", kwargs
+
+
 def _patch_aioesphomeapi_uuid_parser() -> None:
     """Patch aioesphomeapi to handle GATT descriptors with empty UUIDs.
 
@@ -189,6 +204,10 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         # Track whether the last poll succeeded
         self.last_poll_successful: bool = False
 
+        # Per-instance logger that automatically prepends [MODEL/XX] to every
+        # message so multi-device log files can be filtered per entity.
+        self._log: logging.LoggerAdapter = _CoordLoggerAdapter(_LOGGER, {"coord": self})
+
         # Persistent storage: tracks last imported session timestamp per device.
         # Storage key is unique per MAC so multi-device setups don't conflict.
         _mac_slug = mac_address.replace(":", "_").lower()
@@ -237,11 +256,11 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         # regardless of configured windows.
         skip_reason = self._poll_skip_reason()
         if skip_reason and self._last_raw:
-            _LOGGER.debug("Oclean poll skipped: %s", skip_reason)
+            self._log.debug("poll skipped: %s", skip_reason)
             return OcleanDeviceData.from_dict(self._last_raw)
         if skip_reason:
-            _LOGGER.debug(
-                "Oclean poll restriction '%s' bypassed – no cached data, polling anyway",
+            self._log.debug(
+                "poll restriction '%s' bypassed – no cached data, polling anyway",
                 skip_reason,
             )
 
@@ -252,9 +271,8 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
             # Catch all exceptions (BleakError, TimeoutError, IndexError from
             # habluetooth proxy backend, etc.) so HA can keep retrying rather
             # than crashing the integration.
-            _LOGGER.debug(
-                "Oclean %s poll failed: %s (%s)\n%s",
-                self._mac,
+            self._log.debug(
+                "poll failed: %s (%s)\n%s",
                 err,
                 type(err).__name__,
                 traceback.format_exc(),
@@ -285,7 +303,7 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         try:
             await asyncio.sleep(BLE_POST_CONNECT_DELAY)
             await client.write_gatt_char(WRITE_CHAR_UUID, CMD_CLEAR_BRUSH_HEAD, response=True)
-            _LOGGER.info("Oclean brush head counter reset sent to %s", self._mac)
+            self._log.info("brush head counter reset sent")
         finally:
             if client.is_connected:
                 await client.disconnect()
@@ -293,7 +311,7 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         # Reset software counter regardless of hw support (covers both cases)
         self._brush_head_sw_count = 0
         await self._save_store()
-        _LOGGER.debug("Oclean brush head sw counter reset to 0")
+        self._log.debug("brush head sw counter reset to 0")
         if self.data is not None:
             self.async_set_updated_data(dataclasses.replace(self.data, brush_head_usage=0))
 
@@ -364,8 +382,8 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
             last_session = stored.get("last_session", {})
             if last_session:
                 self._last_raw.update(last_session)
-            _LOGGER.debug(
-                "Oclean loaded store: last_session_ts=%d, brush_head_count=%d, hw=%s",
+            self._log.debug(
+                "loaded store: last_session_ts=%d, brush_head_count=%d, hw=%s",
                 self._last_session_ts,
                 self._brush_head_sw_count,
                 self._brush_head_hw_supported,
@@ -425,13 +443,13 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
             )
             if new_ts > self._last_session_ts:
                 self._last_session_ts = new_ts
-                _LOGGER.debug("Oclean updated last_session_ts to %d", self._last_session_ts)
+                self._log.debug("updated last_session_ts to %d", self._last_session_ts)
 
         # Post-brush cooldown: pause polling for N hours after a new session
         if new_session_count > 0 and self._post_brush_cooldown_s > 0:
             self._cooldown_until = time.time() + self._post_brush_cooldown_s
-            _LOGGER.info(
-                "Oclean post-brush cooldown: %d new session(s) detected, pausing polls for %.1f h",
+            self._log.info(
+                "post-brush cooldown: %d new session(s) detected, pausing polls for %.1f h",
                 new_session_count,
                 self._post_brush_cooldown_s / 3600,
             )
@@ -440,8 +458,8 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         if not self._brush_head_hw_supported:
             if new_session_count > 0:
                 self._brush_head_sw_count += new_session_count
-                _LOGGER.debug(
-                    "Oclean brush head sw counter: +%d → %d",
+                self._log.debug(
+                    "brush head sw counter: +%d → %d",
                     new_session_count,
                     self._brush_head_sw_count,
                 )
@@ -465,8 +483,8 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         """Perform GATT operations and return all fetched brush session records."""
         cached_model = self._last_raw.get(DATA_MODEL_ID)
         self._protocol = protocol_for_model(cached_model)
-        _LOGGER.debug(
-            "Oclean poll start: mac=%s ts=%d protocol=%s (model=%s)",
+        self._log.debug(
+            "poll start: mac=%s ts=%d protocol=%s (model=%s)",
             self._mac,
             int(time.time()),
             self._protocol.name,
@@ -499,12 +517,13 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         a more-recent 0307 timestamp, merges fields into *collected*, and
         appends new sessions to *all_sessions*.
         """
+        _log = self._log  # capture for use in the closure
 
         def handler(_sender: Any, raw: bytearray) -> None:
             data = bytes(raw)
-            _LOGGER.debug("Oclean notification raw: %s", data.hex())
+            _log.debug("notification raw: %s", data.hex())
             parsed = parse_notification(data)
-            _LOGGER.debug("Oclean notification parsed: %s", parsed)
+            _log.debug("notification parsed: %s", parsed)
             if not parsed:
                 return
             incoming_ts = parsed.get(DATA_LAST_BRUSH_TIME)
@@ -571,18 +590,18 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
             enriched = {k: collected[k] for k in _ENRICHMENT_KEYS if k in collected and k not in latest}
             if enriched:
                 latest.update(enriched)
-                _LOGGER.debug("Oclean session snapshot enriched: %s", list(enriched.keys()))
+                self._log.debug("session snapshot enriched: %s", list(enriched.keys()))
 
-        _LOGGER.debug(
-            "Oclean fetched %d session(s) total from device (last_known_ts=%d)",
+        self._log.debug(
+            "fetched %d session(s) total from device (last_known_ts=%d)",
             len(all_sessions),
             self._last_session_ts,
         )
         for i, s in enumerate(all_sessions):
             ts = s.get(DATA_LAST_BRUSH_TIME, 0)
             status = "NEW" if ts > self._last_session_ts else "known"
-            _LOGGER.debug(
-                "Oclean  session[%d]: ts=%d (%s)  %s",
+            self._log.debug(
+                " session[%d]: ts=%d (%s)  %s",
                 i,
                 ts,
                 datetime.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S") if ts else "n/a",
@@ -606,8 +625,8 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
                 cached = self._last_raw.get(key)
                 if cached:
                     collected[key] = cached
-            _LOGGER.debug(
-                "Oclean DIS skipped (cached, %.0f h until refresh: model=%s sw=%s)",
+            self._log.debug(
+                "DIS skipped (cached, %.0f h until refresh: model=%s sw=%s)",
                 (_DIS_REFRESH_INTERVAL - age) / 3600,
                 self._last_raw.get(DATA_MODEL_ID),
                 self._last_raw.get(DATA_SW_VERSION),
@@ -624,10 +643,10 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
             try:
                 raw = await client.read_gatt_char(uuid)
                 collected[key] = raw.decode("utf-8").strip("\x00").strip()
-                _LOGGER.debug("Oclean DIS %s: %s", key, collected[key])
+                self._log.debug("DIS %s: %s", key, collected[key])
                 got_fresh_dis = True
             except Exception as err:  # noqa: BLE001
-                _LOGGER.debug("Oclean DIS read skipped for %s: %s", uuid[-8:], err)
+                self._log.debug("DIS read skipped for %s: %s", uuid[-8:], err)
                 # Fall back to cached value so a transient BLE error (e.g.
                 # "Insufficient authorization") does not reset the protocol
                 # profile to UNKNOWN and break the rest of the poll.
@@ -645,16 +664,16 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         model_id = collected.get(DATA_MODEL_ID)
         new_protocol = protocol_for_model(model_id)
         if new_protocol is not self._protocol:
-            _LOGGER.debug(
-                "Oclean protocol updated: %s → %s (model=%s)",
+            self._log.debug(
+                "protocol updated: %s → %s (model=%s)",
                 self._protocol.name,
                 new_protocol.name,
                 model_id,
             )
             self._protocol = new_protocol
         if new_protocol is UNKNOWN and model_id:
-            _LOGGER.warning(
-                "Oclean: unrecognised model ID '%s' on %s – using generic fallback protocol. "
+            self._log.warning(
+                "unrecognised model ID '%s' on %s – using generic fallback protocol. "
                 "Basic sensors (battery, last brush time) may work, but session details "
                 "(score, duration, areas) may be missing. "
                 "Please open an issue at https://github.com/deniskie/ha-oclean-integration "
@@ -679,14 +698,14 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
                         hw_version=hw_revision,
                         model=model_id,
                     )
-                    _LOGGER.debug(
-                        "Oclean device registry updated: model=%s sw=%s hw=%s",
+                    self._log.debug(
+                        "device registry updated: model=%s sw=%s hw=%s",
                         model_id,
                         sw_version,
                         hw_revision,
                     )
             except Exception as err:  # noqa: BLE001
-                _LOGGER.debug("Oclean device registry update skipped: %s", err)
+                self._log.debug("device registry update skipped: %s", err)
 
     async def _calibrate_time(self, client: BleakClient) -> None:
         """Send time-calibration command (020E + BE timestamp)."""
@@ -695,9 +714,9 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         cal_cmd = CMD_CALIBRATE_TIME_PREFIX + time_bytes
         try:
             await client.write_gatt_char(WRITE_CHAR_UUID, cal_cmd, response=True)
-            _LOGGER.debug("Oclean time calibration sent (ts=%d)", timestamp)
+            self._log.debug("time calibration sent (ts=%d)", timestamp)
         except Exception as err:  # noqa: BLE001
-            _LOGGER.warning("Oclean time calibration failed: %s (%s)", err, type(err).__name__)
+            self._log.warning("time calibration failed: %s (%s)", err, type(err).__name__)
 
     async def _subscribe_notifications(
         self, client: BleakClient, handler: Callable[[Any, bytearray], None]
@@ -713,10 +732,10 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
             try:
                 await client.start_notify(char_uuid, handler)
                 subscribed.add(char_uuid)
-                _LOGGER.debug("Oclean subscribed to %s", char_uuid)
+                self._log.debug("subscribed to %s", char_uuid)
             except Exception as err:  # noqa: BLE001
-                _LOGGER.debug(
-                    "Oclean could not subscribe to %s: %s (%s)",
+                self._log.debug(
+                    "could not subscribe to %s: %s (%s)",
                     char_uuid,
                     err,
                     type(err).__name__,
@@ -738,11 +757,11 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         try:
             raw = await client.read_gatt_char(READ_NOTIFY_CHAR_UUID)
             data = bytes(raw)
-            _LOGGER.debug("Oclean READ fallback on READ_NOTIFY_CHAR: %s", data.hex())
+            self._log.debug("READ fallback on READ_NOTIFY_CHAR: %s", data.hex())
             if len(data) > 2:
                 handler(None, bytearray(data))
         except Exception as err:  # noqa: BLE001
-            _LOGGER.debug("Oclean READ fallback failed: %s (%s)", err, type(err).__name__)
+            self._log.debug("READ fallback failed: %s (%s)", err, type(err).__name__)
 
     async def _send_query_commands(self, client: BleakClient, session_received: asyncio.Event) -> None:
         """Send query commands for the active device protocol; wait for first session.
@@ -754,10 +773,10 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         for char_uuid, cmd in self._protocol.query_commands:
             try:
                 await client.write_gatt_char(char_uuid, cmd, response=True)
-                _LOGGER.debug("Oclean command 0x%s sent to ...%s", cmd.hex(), char_uuid[-8:])
+                self._log.debug("command 0x%s sent to ...%s", cmd.hex(), char_uuid[-8:])
             except Exception as err:  # noqa: BLE001
-                _LOGGER.debug(
-                    "Oclean command 0x%s skipped: %s (%s)",
+                self._log.debug(
+                    "command 0x%s skipped: %s (%s)",
                     cmd.hex(),
                     err,
                     type(err).__name__,
@@ -767,8 +786,8 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         try:
             await asyncio.wait_for(session_received.wait(), timeout=float(BLE_NOTIFICATION_WAIT))
         except asyncio.TimeoutError:
-            _LOGGER.debug(
-                "Oclean no session notification within %.1f s (device may have no records)",
+            self._log.debug(
+                "no session notification within %.1f s (device may have no records)",
                 float(BLE_NOTIFICATION_WAIT),
             )
 
@@ -780,7 +799,7 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
     ) -> None:
         """Fetch older sessions via 0309 pagination until done or safety limit reached."""
         if not self._protocol.supports_pagination:
-            _LOGGER.debug("Oclean pagination skipped (%s protocol)", self._protocol.name)
+            self._log.debug("pagination skipped (%s protocol)", self._protocol.name)
             return
 
         for page in range(MAX_SESSION_PAGES - 1):
@@ -788,8 +807,8 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
                 break
             last_ts = all_sessions[-1].get(DATA_LAST_BRUSH_TIME, 0)
             if last_ts and last_ts <= self._last_session_ts:
-                _LOGGER.debug(
-                    "Oclean pagination stopped: reached already-known session (ts=%d) at page %d",
+                self._log.debug(
+                    "pagination stopped: reached already-known session (ts=%d) at page %d",
                     last_ts,
                     page,
                 )
@@ -799,13 +818,13 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
             try:
                 await client.write_gatt_char(WRITE_CHAR_UUID, CMD_QUERY_RUNNING_DATA_NEXT, response=True)
             except BaseException as err:  # noqa: BLE001  # must catch CancelledError (issue #9)
-                _LOGGER.debug("Oclean 0309 write failed at page %d: %s", page, err)
+                self._log.debug("0309 write failed at page %d: %s", page, err)
                 break
 
             try:
                 await asyncio.wait_for(session_received.wait(), timeout=BLE_PAGINATION_TIMEOUT)
             except asyncio.TimeoutError:
-                _LOGGER.debug("Oclean no more sessions after page %d", page)
+                self._log.debug("no more sessions after page %d", page)
                 break
 
     async def _read_battery_and_unsubscribe(self, client: BleakClient, collected: dict[str, Any]) -> None:
@@ -815,12 +834,12 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         finally block tears down all subscriptions automatically, saving 4 extra
         GATT round-trips (~0.4 s) per poll.
         """
-        _LOGGER.debug("Oclean poll collected so far: %s", collected)
+        self._log.debug("poll collected so far: %s", collected)
         try:
             batt_raw = await client.read_gatt_char(BATTERY_CHAR_UUID)
-            _LOGGER.debug("Oclean battery raw: %s", bytes(batt_raw).hex())
+            self._log.debug("battery raw: %s", bytes(batt_raw).hex())
             batt = parse_battery(bytes(batt_raw))
             if batt is not None:
                 collected[DATA_BATTERY] = batt
         except Exception as err:  # noqa: BLE001
-            _LOGGER.warning("Oclean battery read failed: %s (%s)", err, type(err).__name__)
+            self._log.warning("battery read failed: %s (%s)", err, type(err).__name__)
