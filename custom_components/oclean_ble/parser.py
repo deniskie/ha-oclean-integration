@@ -125,35 +125,24 @@ def parse_notification(data: bytes) -> dict[str, Any]:
     except (UnicodeDecodeError, json.JSONDecodeError):
         pass
 
-    # Research: OCLEANY3MH appears to send a notification where byte 0 carries
-    # the brushing score and byte 1 is 0x03.  Because byte 0 varies with the
-    # score value the prefix is not static and cannot be registered in _PARSERS.
-    # Detect by structural fingerprint and log verbosely for protocol analysis.
-    if len(data) >= 18 and data[1] == 0x03 and data[2] == 0x03 and data[3] == 0x03 and data[4:8] == b"\xff\xff\xff\xff":
-        score_candidate = data[0]
-        ts_bytes = data[8:14]  # Y M D H Min S  (year + 2000)
-        pnum_candidate = data[14]
-        duration_candidate = (data[15] << 8) | data[16]
-        try:
-            ts_str = (
-                f"{ts_bytes[0] + 2000:04d}-{ts_bytes[1]:02d}-{ts_bytes[2]:02d} "
-                f"{ts_bytes[3]:02d}:{ts_bytes[4]:02d}:{ts_bytes[5]:02d}"
-            )
-        except (IndexError, ValueError):
-            ts_str = ts_bytes.hex()
-        _LOGGER.debug(
-            "Oclean 0x%s – possible score+session record (OCLEANY3MH research): "
-            "score_candidate=%d (0x%02X)  ts_candidate=%s  "
-            "pNum_candidate=%d  duration_candidate=%d s  raw: %s",
-            data[:2].hex().upper(),
-            score_candidate,
-            score_candidate,
-            ts_str,
-            pnum_candidate,
-            duration_candidate,
-            data.hex(),
-        )
-        return {}
+    # OCLEANY3MH score+session record: dynamic prefix where byte 0 = score.
+    # Structural fingerprint: data[1:3] == 0x03 0x03, data[4:9] == ff×5.
+    # data[3] varies (observed: 0x03 for older sessions, 0x00 for recent ones).
+    # Confirmed format (empirical logs + APK C3385w0_fallback.java):
+    #   byte  0:   score (0-100)
+    #   bytes 1-3: 03 03 XX  (XX = session-age indicator, varies)
+    #   bytes 4-8: ff×5  (separator)
+    #   byte  9:   year_base (+2000)
+    #   byte 10:   month
+    #   byte 11:   day
+    #   byte 12:   hour
+    #   byte 13:   minute
+    #   byte 14:   second
+    #   byte 15:   pNum
+    #   bytes 16-17: duration BE (seconds)
+    #   bytes 18-19: validDuration BE (seconds)
+    if len(data) >= 20 and data[1] == 0x03 and data[2] == 0x03 and data[4:9] == b"\xff\xff\xff\xff\xff":
+        return _parse_xx03_session_record(data)
 
     # Unknown format – log raw hex for debugging/empirical analysis
     _LOGGER.debug(
@@ -162,6 +151,58 @@ def parse_notification(data: bytes) -> dict[str, Any]:
         data.hex(),
     )
     return {}
+
+
+def _parse_xx03_session_record(data: bytes) -> dict[str, Any]:
+    """Parse an OCLEANY3MH score+session record with a dynamic 2-byte prefix.
+
+    Called from parse_notification() when the structural fingerprint matches
+    (data[1:3] == 0x03 0x03, data[4:9] == ff×5).  The full raw notification
+    is passed (not stripped), so byte indices here are absolute.
+
+    Confirmed via empirical logs (issue #19):
+      - 0x3A at byte 0 = score 58  (user-confirmed against Oclean app)
+      - year_base 0x1A at byte 9 = 2026, M/D/H/Min/S at bytes 10-14
+
+    Score of 0x00 or > 100 is omitted (not yet available or device placeholder).
+    """
+    try:
+        year_base = data[9]
+        year = year_base + 2000
+        if year < _MIN_YEAR:
+            _LOGGER.debug("Oclean XX03 record: implausible year_base 0x%02x, raw: %s", year_base, data.hex())
+            return {}
+
+        month, day, hour, minute, second = data[10], data[11], data[12], data[13], data[14]
+        device_dt = datetime.datetime(year, month, day, hour, minute, second)
+        timestamp_s = int(time.mktime(device_dt.timetuple()))
+
+        result: dict[str, Any] = {
+            DATA_LAST_BRUSH_TIME: timestamp_s,
+            DATA_LAST_BRUSH_PNUM: int(data[15]),
+        }
+
+        score = data[0]
+        if 0 < score <= 100:
+            result[DATA_LAST_BRUSH_SCORE] = score
+
+        duration = (data[16] << 8) | data[17]
+        if duration > 0:
+            result[DATA_LAST_BRUSH_DURATION] = duration
+
+        _LOGGER.debug(
+            "Oclean XX03 session record parsed: ts=%d score=%s pNum=%d duration=%s (raw: %s)",
+            timestamp_s,
+            result.get(DATA_LAST_BRUSH_SCORE, "n/a"),
+            result[DATA_LAST_BRUSH_PNUM],
+            result.get(DATA_LAST_BRUSH_DURATION, "n/a"),
+            data.hex(),
+        )
+        return result
+
+    except (IndexError, ValueError, OverflowError) as err:
+        _LOGGER.debug("Oclean XX03 record parse error: %s (raw: %s)", err, data.hex())
+        return {}
 
 
 def _parse_state_response(payload: bytes) -> dict[str, Any]:
