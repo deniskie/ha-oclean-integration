@@ -192,7 +192,7 @@ class TestProtocolForModel:
         [
             ("OCLEANY3M", TYPE1),  # Oclean X – confirmed
             ("OCLEANY3P", TYPE1),  # Oclean X Pro Elite – confirmed (issue #3)
-            ("OCLEANY3", TYPE0),  # Oclean X Pro – confirmed
+            ("OCLEANY3", TYPE1),  # Oclean X Pro – reclassified (issue #49)
             ("OCLEANA1", LEGACY),  # Oclean Air 1 – confirmed (issue #7)
         ],
     )
@@ -215,6 +215,13 @@ class TestProtocolForModel:
     def test_ocleany3p_is_type1_not_type0(self):
         """OCLEANY3P sends 0307 on RECEIVE_BRUSH_UUID – must NOT map to TYPE0."""
         proto = protocol_for_model("OCLEANY3P")
+        assert RECEIVE_BRUSH_UUID in proto.notify_chars
+        assert CHANGE_INFO_UUID not in proto.notify_chars
+        assert proto.supports_pagination is False
+
+    def test_ocleany3_is_type1_not_type0(self):
+        """OCLEANY3 (Oclean X Pro) requires 0307 cmd – must NOT map to TYPE0 (issue #49)."""
+        proto = protocol_for_model("OCLEANY3")
         assert RECEIVE_BRUSH_UUID in proto.notify_chars
         assert CHANGE_INFO_UUID not in proto.notify_chars
         assert proto.supports_pagination is False

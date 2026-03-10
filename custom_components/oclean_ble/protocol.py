@@ -47,7 +47,8 @@ class DeviceProtocol:
 # Concrete profiles
 # ---------------------------------------------------------------------------
 
-#: Type-0 – Oclean X Pro / OCLEANY3 / OCLEANY3P  (extended 0308 records)
+#: Type-0 – reserved; currently no confirmed production devices use this profile.
+#: OCLEANY3 was previously here but was reclassified to TYPE1 (issue #49).
 TYPE0 = DeviceProtocol(
     name="Type-0",
     notify_chars=(READ_NOTIFY_CHAR_UUID, CHANGE_INFO_UUID),
@@ -127,12 +128,16 @@ _MODEL_MAP: dict[str, DeviceProtocol] = {
     # Same year_byte=0/021f/5100 pattern as OCLEANY3P.
     "OCLEANX20": TYPE1,  # Oclean X Pro 20       – confirmed (logs 2026-03-09, issue #37)
     # ------------------------------------------------------------------
-    # Type-0 – 0308 extended records, CHANGE_INFO_UUID
-    # APK handler: C3385w0 mode=0
+    # Type-1 – Oclean X Pro / OCLEANY3 family
+    # Previously mapped to Type-0 (0308/fbb86) based on APK analysis, but
+    # empirical BLE logs (issue #49, 2026-03-10) show the device only pushes
+    # session data when CMD 0307 is sent to fbb89 (SEND_BRUSH_CMD_UUID).
+    # With Type-0 the device receives 0308 on fbb85 and returns nothing.
+    # The response uses the same *B# multi-packet format as OCLEANY3P.
     # ------------------------------------------------------------------
-    "OCLEANY3": TYPE0,  # Oclean X Pro          – confirmed (APK analysis)
-    "OCLEANY3S": TYPE0,  # Oclean X Pro (S)      – APK DeviceType 9
-    "OCLEANY3T": TYPE0,  # Oclean X Pro (T)      – APK DeviceType 10
+    "OCLEANY3": TYPE1,  # Oclean X Pro          – corrected (logs 2026-03-10, issue #49)
+    "OCLEANY3S": TYPE1,  # Oclean X Pro (S)      – APK DeviceType 9
+    "OCLEANY3T": TYPE1,  # Oclean X Pro (T)      – APK DeviceType 10
     # ------------------------------------------------------------------
     # Legacy – fbb86 has no CCCD; battery read via direct characteristic read
     # APK handler: C3385w0 mode=0 (Air 1 family)
