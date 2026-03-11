@@ -6,6 +6,7 @@
 [![License](https://img.shields.io/github/license/deniskie/ha-oclean-integration)](LICENSE)
 [![Tests](https://img.shields.io/github/actions/workflow/status/deniskie/ha-oclean-integration/tests.yaml?label=tests)](https://github.com/deniskie/ha-oclean-integration/actions)
 [![hassfest](https://img.shields.io/github/actions/workflow/status/deniskie/ha-oclean-integration/hassfest.yaml?label=hassfest)](https://github.com/deniskie/ha-oclean-integration/actions/workflows/hassfest.yaml)
+[![validate](https://img.shields.io/github/actions/workflow/status/deniskie/ha-oclean-integration/validate.yaml?label=validate)](https://github.com/deniskie/ha-oclean-integration/actions/workflows/validate.yaml)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 
 > **Unofficial community integration.** This project is not affiliated with, endorsed by,
