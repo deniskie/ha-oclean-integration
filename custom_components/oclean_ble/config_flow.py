@@ -238,21 +238,25 @@ class OcleanOptionsFlow(config_entries.OptionsFlow):
     # ------------------------------------------------------------------
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> FlowResult:
+        errors: dict[str, str] = {}
         if user_input is not None:
             self._poll_interval = int(user_input[CONF_POLL_INTERVAL])
-            self._cooldown = int(user_input.get(CONF_POST_BRUSH_COOLDOWN, DEFAULT_POST_BRUSH_COOLDOWN))
-            self._window_count = int(user_input.get(CONF_WINDOW_COUNT, 0))
-            self._collected_windows = []
-            if self._window_count > 0:
-                return await self.async_step_window_1()
-            return self.async_create_entry(
-                title="",
-                data={
-                    CONF_POLL_INTERVAL: self._poll_interval,
-                    CONF_POST_BRUSH_COOLDOWN: self._cooldown,
-                    CONF_POLL_WINDOWS: "",
-                },
-            )
+            if 0 < self._poll_interval < MIN_POLL_INTERVAL:
+                errors[CONF_POLL_INTERVAL] = "invalid_poll_interval"
+            else:
+                self._cooldown = int(user_input.get(CONF_POST_BRUSH_COOLDOWN, DEFAULT_POST_BRUSH_COOLDOWN))
+                self._window_count = int(user_input.get(CONF_WINDOW_COUNT, 0))
+                self._collected_windows = []
+                if self._window_count > 0:
+                    return await self.async_step_window_1()
+                return self.async_create_entry(
+                    title="",
+                    data={
+                        CONF_POLL_INTERVAL: self._poll_interval,
+                        CONF_POST_BRUSH_COOLDOWN: self._cooldown,
+                        CONF_POLL_WINDOWS: "",
+                    },
+                )
 
         current_interval = self.config_entry.options.get(
             CONF_POLL_INTERVAL,
@@ -264,6 +268,7 @@ class OcleanOptionsFlow(config_entries.OptionsFlow):
 
         return self.async_show_form(
             step_id="init",
+            errors=errors,
             data_schema=vol.Schema(
                 {
                     vol.Required(CONF_POLL_INTERVAL, default=current_interval): selector.NumberSelector(

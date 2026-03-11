@@ -120,7 +120,8 @@
       }
     },
     "error": {
-      "window_incomplete": "Von- und Bis-Zeit müssen beide gesetzt sein."
+      "window_incomplete": "Von- und Bis-Zeit müssen beide gesetzt sein.",
+      "invalid_poll_interval": "Abfrageintervall muss 0 (manuell) oder mindestens 60 Sekunden sein."
     }
   }
 }

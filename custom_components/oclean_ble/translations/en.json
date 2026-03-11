@@ -120,7 +120,8 @@
       }
     },
     "error": {
-      "window_incomplete": "Both start and end time must be set."
+      "window_incomplete": "Both start and end time must be set.",
+      "invalid_poll_interval": "Poll interval must be 0 (manual) or at least 60 seconds."
     }
   }
 }

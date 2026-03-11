@@ -120,7 +120,8 @@
       }
     },
     "error": {
-      "window_incomplete": "Debes establecer tanto la hora de inicio como la de fin."
+      "window_incomplete": "Debes establecer tanto la hora de inicio como la de fin.",
+      "invalid_poll_interval": "El intervalo de sondeo debe ser 0 (manual) o al menos 60 segundos."
     }
   }
 }
