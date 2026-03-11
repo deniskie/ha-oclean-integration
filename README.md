@@ -1,13 +1,11 @@
 # Oclean Toothbrush (inofficial) – Home Assistant Integration
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/integration)
-
 [![GitHub Release](https://img.shields.io/github/v/release/deniskie/ha-oclean-integration)](https://github.com/deniskie/ha-oclean-integration/releases)
 [![License](https://img.shields.io/github/license/deniskie/ha-oclean-integration)](LICENSE)
 [![Tests](https://img.shields.io/github/actions/workflow/status/deniskie/ha-oclean-integration/tests.yaml?label=tests)](https://github.com/deniskie/ha-oclean-integration/actions)
 [![hassfest](https://img.shields.io/github/actions/workflow/status/deniskie/ha-oclean-integration/hassfest.yaml?label=hassfest)](https://github.com/deniskie/ha-oclean-integration/actions/workflows/hassfest.yaml)
 [![validate](https://img.shields.io/github/actions/workflow/status/deniskie/ha-oclean-integration/validate.yaml?label=validate)](https://github.com/deniskie/ha-oclean-integration/actions/workflows/validate.yaml)
-
 
 > **Unofficial community integration.** This project is not affiliated with, endorsed by,
 > or connected to Oclean / Zhuhai Ice Bear Smart Home Technology Co., Ltd.
