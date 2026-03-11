@@ -2,6 +2,10 @@
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/integration)
 [![HA Version](https://img.shields.io/badge/Home%20Assistant-2023.4%2B-blue)](https://www.home-assistant.io/)
+[![GitHub Release](https://img.shields.io/github/v/release/deniskie/ha-oclean-integration)](https://github.com/deniskie/ha-oclean-integration/releases)
+[![License](https://img.shields.io/github/license/deniskie/ha-oclean-integration)](LICENSE)
+[![Tests](https://img.shields.io/github/actions/workflow/status/deniskie/ha-oclean-integration/tests.yaml?label=tests)](https://github.com/deniskie/ha-oclean-integration/actions)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 
 > **Unofficial community integration.** This project is not affiliated with, endorsed by,
 > or connected to Oclean / Zhuhai Ice Bear Smart Home Technology Co., Ltd.
