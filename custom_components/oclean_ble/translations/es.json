@@ -89,7 +89,7 @@
           "window_count": "Número de ventanas horarias de cepillado"
         },
         "data_description": {
-          "poll_interval": "Con qué frecuencia sondear el cepillo por Bluetooth. Mínimo 60 s.",
+          "poll_interval": "Con qué frecuencia sondear el cepillo por Bluetooth. Mínimo 60 s. 0 = manual (sin sondeo automático).",
           "post_brush_cooldown": "Detener el sondeo durante estas horas tras detectar un nuevo cepillado. 0 para desactivar.",
           "window_count": "Restringir el sondeo a ventanas horarias concretas (ej. mañana y noche). 0 para sondear siempre."
         }

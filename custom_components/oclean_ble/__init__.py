@@ -106,6 +106,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     poll_windows = entry.options.get(CONF_POLL_WINDOWS, "")
     post_brush_cooldown_h = int(entry.options.get(CONF_POST_BRUSH_COOLDOWN, DEFAULT_POST_BRUSH_COOLDOWN))
 
+    _LOGGER.debug(
+        "Oclean config: mac=%s name=%s poll_interval=%s poll_windows=%r post_brush_cooldown_h=%d",
+        mac,
+        device_name,
+        f"{poll_interval}s" if poll_interval > 0 else "manual (disabled)",
+        poll_windows or "(none)",
+        post_brush_cooldown_h,
+    )
+
     coordinator = OcleanCoordinator(
         hass,
         mac,
