@@ -101,6 +101,10 @@ BLE_ENRICHMENT_WAIT = 1.5
 BLE_READ_FALLBACK_DELAY = 1.5
 # Per-page notification timeout used during 0309 session pagination.
 BLE_PAGINATION_TIMEOUT = 2.0
+# Timeout for a single start_notify() GATT operation.  BlueZ can hang
+# indefinitely on a characteristic that has a lingering "Notify acquired"
+# state from a previous crashed connection; this cap prevents poll stalls.
+BLE_SUBSCRIBE_TIMEOUT = 10.0
 
 # Brush head reset command
 CMD_CLEAR_BRUSH_HEAD = bytes.fromhex("020F")

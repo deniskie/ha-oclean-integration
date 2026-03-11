@@ -29,6 +29,7 @@ from .const import (
     BLE_PAGINATION_TIMEOUT,
     BLE_POST_CONNECT_DELAY,
     BLE_READ_FALLBACK_DELAY,
+    BLE_SUBSCRIBE_TIMEOUT,
     CMD_CALIBRATE_TIME_PREFIX,
     CMD_CLEAR_BRUSH_HEAD,
     CMD_QUERY_RUNNING_DATA_NEXT,
@@ -819,7 +820,10 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         subscribed: set[str] = set()
         for char_uuid in self._protocol.notify_chars:
             try:
-                await client.start_notify(char_uuid, handler)
+                await asyncio.wait_for(
+                    client.start_notify(char_uuid, handler),
+                    timeout=BLE_SUBSCRIBE_TIMEOUT,
+                )
                 subscribed.add(char_uuid)
                 self._log.debug("subscribed to %s", char_uuid)
             except Exception as err:  # noqa: BLE001
