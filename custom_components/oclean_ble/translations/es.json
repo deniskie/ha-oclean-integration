@@ -23,7 +23,7 @@
         },
         "data_description": {
           "mac_address": "La dirección MAC Bluetooth de tu cepillo Oclean.",
-          "poll_interval": "Cada cuánto (en segundos) se sondea el dispositivo. Mínimo 60 s. Predeterminado: 300 s (5 min)."
+          "poll_interval": "Cada cuánto (en segundos) se sondea el dispositivo. Mínimo 60 s, o 0 para desactivar el sondeo automático. Predeterminado: 300 s (5 min)."
         }
       },
       "confirm": {

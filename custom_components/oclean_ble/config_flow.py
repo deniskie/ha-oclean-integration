@@ -57,6 +57,13 @@ def _parse_windows_list(windows_str: str) -> list[tuple[str, str]]:
     return result
 
 
+def _validate_poll_interval(value: int) -> int:
+    """Accept 0 (manual / no auto-polling) or any value >= MIN_POLL_INTERVAL."""
+    if value == POLL_INTERVAL_MANUAL or value >= MIN_POLL_INTERVAL:
+        return value
+    raise vol.Invalid(f"Poll interval must be 0 (manual) or at least {MIN_POLL_INTERVAL} seconds")
+
+
 def _windows_list_to_str(windows: list[tuple[str, str]]) -> str:
     """Combine ('HH:MM:SS', 'HH:MM:SS') tuples into 'HH:MM-HH:MM[, ...]' for storage."""
     parts: list[str] = []
@@ -111,7 +118,7 @@ class OcleanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignor
             data_schema=vol.Schema(
                 {
                     vol.Optional(CONF_POLL_INTERVAL, default=DEFAULT_POLL_INTERVAL): vol.All(
-                        int, vol.Range(min=MIN_POLL_INTERVAL)
+                        int, _validate_poll_interval
                     ),
                 }
             ),
@@ -163,7 +170,7 @@ class OcleanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignor
                 {
                     vol.Required(CONF_MAC_ADDRESS): vol.In(device_options),
                     vol.Optional(CONF_POLL_INTERVAL, default=DEFAULT_POLL_INTERVAL): vol.All(
-                        int, vol.Range(min=MIN_POLL_INTERVAL)
+                        int, _validate_poll_interval
                     ),
                 }
             ),
@@ -198,7 +205,7 @@ class OcleanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignor
                     vol.Required(CONF_MAC_ADDRESS): str,
                     vol.Optional(CONF_DEVICE_NAME, default="Oclean"): str,
                     vol.Optional(CONF_POLL_INTERVAL, default=DEFAULT_POLL_INTERVAL): vol.All(
-                        int, vol.Range(min=MIN_POLL_INTERVAL)
+                        int, _validate_poll_interval
                     ),
                 }
             ),
