@@ -642,15 +642,17 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
           1. Time calibration  (020E + BE timestamp)   – mo5289B
           2. DIS read / cache
           3. Subscribe to notification characteristics
+          3b. Subscribe to 0x2A19 battery notifications (captures push before step 8)
           4. Status + running-data query commands
           5. READ fallback for devices without CCCD (e.g. OCLEANA1)
           6. Session pagination (0309)
           7. Enrichment wait if sessions were received
-          8. Battery read
+          8. Battery read (skipped if notification already delivered the value)
         """
         await self._calibrate_time(client)
         await self._read_device_info_service(client, collected)
         subscribed = await self._subscribe_notifications(client, handler)
+        await self._subscribe_battery_notifications(client, collected)
         await self._send_query_commands(client, session_received)
         # Fallback for devices (e.g. OCLEANA1) where READ_NOTIFY_CHAR_UUID has no
         # CCCD and cannot be subscribed; poll the characteristic directly instead.
@@ -920,14 +922,48 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
                 self._log.debug("no more sessions after page %d", page)
                 break
 
+    async def _subscribe_battery_notifications(self, client: BleakClient, collected: dict[str, Any]) -> None:
+        """Subscribe to 0x2A19 battery-level notifications (APK: m5371W on all devices).
+
+        The Oclean firmware pushes an updated battery value on 0x2A19 shortly
+        after connect (confirmed via APK: C3385w0 / C3335a both call m5371W on
+        BATTERY_SERVICE_UUID + BATTERY_CHARACTER_UUID).  Subscribing here – before
+        the query commands – ensures any push that arrives during the poll window
+        is captured in *collected*.  _read_battery_and_unsubscribe then skips the
+        explicit read_gatt_char if the notification already delivered a value.
+        """
+
+        def _batt_notify(_sender: Any, raw: bytearray) -> None:
+            val = parse_battery(bytes(raw))
+            if val is not None:
+                collected[DATA_BATTERY] = val
+                self._log.debug("battery notification: %d%%", val)
+
+        try:
+            await asyncio.wait_for(
+                client.start_notify(BATTERY_CHAR_UUID, _batt_notify),
+                timeout=BLE_SUBSCRIBE_TIMEOUT,
+            )
+            self._log.debug("subscribed to battery notifications (0x2A19)")
+        except Exception as err:  # noqa: BLE001
+            self._log.debug("battery notify subscribe failed: %s (%s)", err, type(err).__name__)
+
     async def _read_battery_and_unsubscribe(self, client: BleakClient, collected: dict[str, Any]) -> None:
-        """Read battery level via GATT.
+        """Read battery level via GATT, unless a notification already delivered it.
+
+        If _subscribe_battery_notifications captured a 0x2A19 push during the poll
+        window, DATA_BATTERY is already in *collected* and the explicit read is
+        skipped.  The read_gatt_char fallback covers devices that support the
+        characteristic but do not push notifications proactively.
 
         stop_notify is intentionally omitted: the BLE disconnect in _poll_device's
         finally block tears down all subscriptions automatically, saving 4 extra
         GATT round-trips (~0.4 s) per poll.
         """
         self._log.debug("poll collected so far: %s", collected)
+        if DATA_BATTERY in collected:
+            self._log.debug("battery already set from notification: %d%%", collected[DATA_BATTERY])
+            return
         try:
             batt_raw = await client.read_gatt_char(BATTERY_CHAR_UUID)
             self._log.debug("battery raw: %s", bytes(batt_raw).hex())

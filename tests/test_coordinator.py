@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import time as dtime
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -1231,6 +1231,64 @@ class TestBatteryReadFailure:
         # Must not raise
         await coord._read_battery_and_unsubscribe(client, collected)
         assert DATA_BATTERY not in collected
+
+    @pytest.mark.asyncio
+    async def test_notification_value_skips_read(self):
+        """If DATA_BATTERY already set (from notification), read_gatt_char is not called."""
+        coord = _make_coordinator()
+        client = _make_bleak_client(battery_value=99)
+        collected: dict = {DATA_BATTERY: 55}
+        await coord._read_battery_and_unsubscribe(client, collected)
+        # Value must stay at notification value, not overwritten by read
+        assert collected[DATA_BATTERY] == 55
+        client.read_gatt_char.assert_not_called()
+
+
+class TestSubscribeBatteryNotifications:
+    @pytest.mark.asyncio
+    async def test_subscribe_success_registers_callback(self):
+        """start_notify must be called with BATTERY_CHAR_UUID on success."""
+        from custom_components.oclean_ble.const import BATTERY_CHAR_UUID
+
+        coord = _make_coordinator()
+        client = _make_bleak_client()
+        collected: dict = {}
+        await coord._subscribe_battery_notifications(client, collected)
+        client.start_notify.assert_any_call(BATTERY_CHAR_UUID, ANY)
+
+    @pytest.mark.asyncio
+    async def test_subscribe_failure_does_not_raise(self):
+        """Exception during start_notify must be swallowed gracefully."""
+        coord = _make_coordinator()
+        client = _make_bleak_client()
+        client.start_notify = AsyncMock(side_effect=Exception("no CCCD"))
+        collected: dict = {}
+        await coord._subscribe_battery_notifications(client, collected)
+        assert DATA_BATTERY not in collected
+
+    @pytest.mark.asyncio
+    async def test_notification_callback_sets_battery(self):
+        """When start_notify fires the callback, collected[DATA_BATTERY] is updated."""
+        from custom_components.oclean_ble.const import BATTERY_CHAR_UUID
+
+        coord = _make_coordinator()
+        client = _make_bleak_client()
+        collected: dict = {}
+
+        # Capture the callback that _subscribe_battery_notifications registers
+        captured_cb: list = []
+
+        async def _fake_start_notify(uuid, cb):
+            if uuid == BATTERY_CHAR_UUID:
+                captured_cb.append(cb)
+
+        client.start_notify = AsyncMock(side_effect=_fake_start_notify)
+        await coord._subscribe_battery_notifications(client, collected)
+
+        assert len(captured_cb) == 1
+        # Simulate device pushing a battery level notification (72 %)
+        captured_cb[0](None, bytearray([72]))
+        assert collected[DATA_BATTERY] == 72
 
 
 # ---------------------------------------------------------------------------
