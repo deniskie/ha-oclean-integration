@@ -23,7 +23,7 @@
         },
         "data_description": {
           "mac_address": "Die Bluetooth-MAC-Adresse deiner Oclean-Zahnbürste.",
-          "poll_interval": "Wie oft (in Sekunden) das Gerät abgefragt werden soll. Minimum: 60 s. Standard: 300 s (5 min)."
+          "poll_interval": "Wie oft (in Sekunden) das Gerät abgefragt werden soll. Minimum: 60 s, oder 0 zum Deaktivieren des automatischen Pollings. Standard: 300 s (5 min)."
         }
       },
       "confirm": {
