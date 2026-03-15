@@ -149,6 +149,9 @@ def _install_ha_stubs() -> None:
         async def async_config_entry_first_refresh(self):
             self.data = await self._async_update_data()
 
+        async def async_refresh(self):
+            self.data = await self._async_update_data()
+
         def __class_getitem__(cls, item):
             return cls
 

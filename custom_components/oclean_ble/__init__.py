@@ -10,7 +10,6 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall
-from homeassistant.exceptions import ConfigEntryNotReady
 
 from .const import (
     CONF_DEVICE_NAME,
@@ -124,15 +123,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         post_brush_cooldown_h=post_brush_cooldown_h,
     )
 
-    # Perform the first refresh – raises ConfigEntryNotReady if device unreachable
-    # and no cached data exists yet.
-    try:
-        await coordinator.async_config_entry_first_refresh()
-    except Exception as err:
-        # Device may be sleeping; don't block setup entirely – HA will retry.
-        _LOGGER.warning("Oclean initial poll failed (%s) – integration will retry", err)
-        raise ConfigEntryNotReady(f"Oclean not reachable on startup: {err}") from err
-
+    # Register coordinator and set up platforms *before* the first poll so that
+    # the poll service and all entities always exist, even when the device is
+    # sleeping on HA startup.  Entities will show as unavailable until the first
+    # successful poll.
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -162,6 +156,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             _handle_poll,
             schema=vol.Schema({vol.Optional("entry_id"): str}),
         )
+
+    # Initial poll: best-effort.  If the device is sleeping, entities stay
+    # unavailable and will update as soon as the next poll succeeds (either on
+    # the configured interval or via a manual service call).
+    await coordinator.async_refresh()
 
     return True
 
