@@ -47,6 +47,7 @@ from custom_components.oclean_ble.parser import (
     parse_battery,
     parse_notification,
     parse_t1_c3352g_record,
+    parse_y3p_stream_record,
 )
 
 # ---------------------------------------------------------------------------
@@ -1719,6 +1720,149 @@ class TestParseT1C3352gRecord:
         assert dt.hour == 0
         assert dt.minute == 33
         assert dt.second == 40
+
+
+# ---------------------------------------------------------------------------
+# parse_y3p_stream_record – OCLEANY3P *B# stream records (year inferred)
+# ---------------------------------------------------------------------------
+
+
+def _make_y3p_record(
+    *,
+    month: int = 3,
+    day: int = 9,
+    hour: int = 7,
+    minute: int = 0,
+    second: int = 0,
+    duration: int = 120,
+    areas: tuple = (5, 14, 1, 8, 12, 10, 3, 7),
+    score: int = 82,
+) -> bytes:
+    """Build a full 42-byte OCLEANY3P stream record (year_base=0x00 at byte 0)."""
+    record = bytearray(42)
+    record[0] = 0x00  # year_base always 0x00 for OCLEANY3P
+    record[1] = month
+    record[2] = day
+    record[3] = hour
+    record[4] = minute
+    record[5] = second
+    record[7] = (duration >> 8) & 0xFF
+    record[8] = duration & 0xFF
+    for i, v in enumerate(areas[:8]):
+        record[21 + i] = v
+    record[33] = score
+    return bytes(record)
+
+
+class TestParseY3pStreamRecord:
+    """Tests for parse_y3p_stream_record (OCLEANY3P *B# stream, year inferred)."""
+
+    def test_extracts_timestamp_current_year(self):
+        """Date in the past resolves to the current year."""
+        now = datetime.datetime.now()
+        record = _make_y3p_record(month=now.month, day=max(1, now.day - 1))
+        result = parse_y3p_stream_record(record)
+        assert "last_brush_time" in result
+        dt = datetime.datetime.fromtimestamp(result["last_brush_time"])
+        assert dt.year == now.year
+
+    def test_future_date_steps_back_one_year(self):
+        """A date one month in the future rolls back to the previous year."""
+        now = datetime.datetime.now()
+        future_month = (now.month % 12) + 1
+        record = _make_y3p_record(month=future_month, day=1, hour=0, minute=0, second=0)
+        result = parse_y3p_stream_record(record)
+        assert "last_brush_time" in result
+        dt = datetime.datetime.fromtimestamp(result["last_brush_time"])
+        # The inferred year must be in the past (either current or previous year)
+        assert dt <= now
+
+    def test_extracts_duration(self):
+        record = _make_y3p_record(duration=180)
+        result = parse_y3p_stream_record(record)
+        assert result.get("last_brush_duration") == 180
+
+    def test_zero_duration_not_stored(self):
+        record = _make_y3p_record(duration=0)
+        result = parse_y3p_stream_record(record)
+        assert "last_brush_duration" not in result
+
+    def test_extracts_score(self):
+        record = _make_y3p_record(score=75)
+        result = parse_y3p_stream_record(record)
+        assert result.get("last_brush_score") == 75
+
+    def test_score_0_not_stored(self):
+        record = _make_y3p_record(score=0)
+        result = parse_y3p_stream_record(record)
+        assert "last_brush_score" not in result
+
+    def test_score_101_not_stored(self):
+        record = _make_y3p_record(score=101)
+        result = parse_y3p_stream_record(record)
+        assert "last_brush_score" not in result
+
+    def test_score_0xff_not_stored(self):
+        record = _make_y3p_record(score=0xFF)
+        result = parse_y3p_stream_record(record)
+        assert "last_brush_score" not in result
+
+    def test_extracts_areas(self):
+        record = _make_y3p_record(areas=(5, 14, 1, 8, 12, 10, 3, 7))
+        result = parse_y3p_stream_record(record)
+        assert "last_brush_areas" in result
+        assert "last_brush_pressure" in result
+
+    def test_zero_areas_not_stored(self):
+        record = _make_y3p_record(areas=(0, 0, 0, 0, 0, 0, 0, 0))
+        result = parse_y3p_stream_record(record)
+        assert "last_brush_areas" not in result
+        assert "last_brush_pressure" not in result
+
+    def test_too_short_returns_empty(self):
+        assert parse_y3p_stream_record(bytes(41)) == {}
+        assert parse_y3p_stream_record(b"") == {}
+
+    def test_invalid_month_returns_empty(self):
+        """month=0 → datetime.datetime raises ValueError → returns {}."""
+        record = bytearray(_make_y3p_record())
+        record[1] = 0
+        assert parse_y3p_stream_record(bytes(record)) == {}
+
+    def test_real_observed_bytes(self):
+        """Decode a realistic 42-byte Y3P record from issue #49 log analysis.
+
+        Session observed 2025-08-28 00:59:55: byte 0 = 0x00, bytes 1-5 = 8/28/0/59/55,
+        bytes 7-8 = 0x00/0x78 (120 s), areas at bytes 21-28, score at byte 33.
+        """
+        record = bytearray(42)
+        record[0] = 0x00  # no year encoded
+        record[1] = 8  # month
+        record[2] = 28  # day
+        record[3] = 0  # hour
+        record[4] = 59  # minute
+        record[5] = 55  # second
+        record[7] = 0x00
+        record[8] = 0x78  # duration = 120 s
+        record[21] = 5  # area pressures
+        record[22] = 14
+        record[23] = 1
+        record[24] = 8
+        record[25] = 12
+        record[26] = 10
+        record[27] = 3
+        record[28] = 7
+        record[33] = 82  # score
+        result = parse_y3p_stream_record(bytes(record))
+        assert result.get("last_brush_duration") == 120
+        assert result.get("last_brush_score") == 82
+        assert "last_brush_areas" in result
+        dt = datetime.datetime.fromtimestamp(result["last_brush_time"])
+        assert dt.month == 8
+        assert dt.day == 28
+        assert dt.hour == 0
+        assert dt.minute == 59
+        assert dt.second == 55
 
 
 # ---------------------------------------------------------------------------
