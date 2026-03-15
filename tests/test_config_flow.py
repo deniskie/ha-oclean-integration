@@ -1,12 +1,16 @@
 """Tests for config_flow.py – validates schema logic and MAC validation."""
+
 from __future__ import annotations
 
 import pytest
 
 # conftest.py stubs HA before these imports
+import voluptuous as vol
+
 from custom_components.oclean_ble.config_flow import (
     _MAC_RE,
     _parse_windows_list,
+    _validate_poll_interval,
     _windows_list_to_str,
 )
 from custom_components.oclean_ble.const import (
@@ -18,22 +22,23 @@ from custom_components.oclean_ble.const import (
 # MAC address regex validation
 # ---------------------------------------------------------------------------
 
+
 class TestMacAddressRegex:
     VALID = [
         "AA:BB:CC:DD:EE:FF",
         "00:11:22:33:44:55",
-        "a0:b1:c2:d3:e4:f5",   # lowercase
-        "A0:B1:C2:D3:E4:F5",   # uppercase
+        "a0:b1:c2:d3:e4:f5",  # lowercase
+        "A0:B1:C2:D3:E4:F5",  # uppercase
     ]
     INVALID = [
-        "AA:BB:CC:DD:EE",          # only 5 octets
-        "AA:BB:CC:DD:EE:FF:00",    # 7 octets
-        "AABBCCDDEEFF",            # no colons
-        "AA-BB-CC-DD-EE-FF",       # hyphens
-        "GG:BB:CC:DD:EE:FF",       # invalid hex
+        "AA:BB:CC:DD:EE",  # only 5 octets
+        "AA:BB:CC:DD:EE:FF:00",  # 7 octets
+        "AABBCCDDEEFF",  # no colons
+        "AA-BB-CC-DD-EE-FF",  # hyphens
+        "GG:BB:CC:DD:EE:FF",  # invalid hex
         "",
         "AA:BB:CC:DD:EE:GG",
-        "AA:BB:CC:DD:EE:F",        # too short last octet
+        "AA:BB:CC:DD:EE:F",  # too short last octet
     ]
 
     @pytest.mark.parametrize("mac", VALID)
@@ -49,6 +54,7 @@ class TestMacAddressRegex:
 # Poll interval constants
 # ---------------------------------------------------------------------------
 
+
 class TestPollIntervalConstants:
     def test_default_is_5_minutes(self):
         assert DEFAULT_POLL_INTERVAL == 300
@@ -61,8 +67,37 @@ class TestPollIntervalConstants:
 
 
 # ---------------------------------------------------------------------------
+# Poll interval validator
+# ---------------------------------------------------------------------------
+
+
+class TestValidatePollInterval:
+    def test_zero_is_allowed(self):
+        assert _validate_poll_interval(0) == 0
+
+    def test_minimum_is_allowed(self):
+        assert _validate_poll_interval(MIN_POLL_INTERVAL) == MIN_POLL_INTERVAL
+
+    def test_above_minimum_is_allowed(self):
+        assert _validate_poll_interval(300) == 300
+
+    def test_between_1_and_59_is_rejected(self):
+        with pytest.raises(vol.Invalid):
+            _validate_poll_interval(30)
+
+    def test_59_is_rejected(self):
+        with pytest.raises(vol.Invalid):
+            _validate_poll_interval(59)
+
+    def test_negative_is_rejected(self):
+        with pytest.raises(vol.Invalid):
+            _validate_poll_interval(-1)
+
+
+# ---------------------------------------------------------------------------
 # Config flow input normalization
 # ---------------------------------------------------------------------------
+
 
 class TestMacNormalization:
     """The config flow calls .upper().strip() on the MAC before validation."""
@@ -86,6 +121,7 @@ class TestMacNormalization:
 # ---------------------------------------------------------------------------
 # Poll window helpers
 # ---------------------------------------------------------------------------
+
 
 class TestParseWindowsList:
     def test_empty_string_returns_empty(self):

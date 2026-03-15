@@ -23,7 +23,7 @@
         },
         "data_description": {
           "mac_address": "The Bluetooth MAC address of your Oclean toothbrush.",
-          "poll_interval": "How often (in seconds) to poll the device. Minimum 60 s. Default: 300 s (5 min)."
+          "poll_interval": "How often (in seconds) to poll the device. Minimum 60 s, or 0 to disable automatic polling. Default: 300 s (5 min)."
         }
       },
       "confirm": {
