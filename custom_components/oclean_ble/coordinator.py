@@ -15,6 +15,7 @@ from datetime import timedelta
 from typing import Any
 
 from bleak import BleakClient, BleakError
+from bleak.backends.device import BLEDevice
 from bleak_retry_connector import establish_connection
 from homeassistant.components import bluetooth
 from homeassistant.core import HomeAssistant
@@ -364,7 +365,7 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
 
         return None
 
-    def _resolve_ble_device(self):
+    def _resolve_ble_device(self) -> BLEDevice:
         """BLEDevice from HA Bluetooth registry; raises BleakError if not found."""
         service_info = bluetooth.async_last_service_info(self.hass, self._mac, connectable=True)
         if service_info is not None:
