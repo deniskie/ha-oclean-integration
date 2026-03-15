@@ -60,6 +60,7 @@ from .parser import (
     parse_battery,
     parse_notification,
     parse_t1_c3352g_record,
+    parse_y3p_stream_record,
 )
 from .protocol import UNKNOWN, DeviceProtocol, protocol_for_model
 from .statistics import import_new_sessions
@@ -528,17 +529,21 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         OCLEANY3 sends session records split across multiple BLE packets: a
         0307 *B# header packet with record_count + inline data, followed by
         raw continuation packets until all record_count × 42 bytes are received.
-        The handler detects the header (payload[5] = year_base != 0 means real
-        data), accumulates continuation chunks, and flushes complete records
-        through ``parse_t1_c3352g_record`` when the buffer is full.
-        OCLEANY3P sends the same *B# header but with year_base=0 (placeholder);
-        its actual session data arrives separately via 021f/5100 notifications
-        and is handled by the normal dispatch path.
+        The handler detects the header, accumulates continuation chunks, and
+        flushes complete records through the appropriate parse function when the
+        buffer is full.  OCLEANY3 encodes year_base (year−2000) at record byte 0
+        and uses ``parse_t1_c3352g_record``.  OCLEANY3P always writes 0x00 at
+        byte 0 (year inferred from wall clock) and uses ``parse_y3p_stream_record``.
         """
         _log = self._log  # capture for use in the closure
 
         # Mutable reassembly state – use a dict to avoid 'nonlocal' for primitives.
-        _t1: dict[str, Any] = {"in_progress": False, "buf": bytearray(), "expected": 0}
+        _t1: dict[str, Any] = {
+            "in_progress": False,
+            "buf": bytearray(),
+            "expected": 0,
+            "parse_fn": parse_t1_c3352g_record,
+        }
 
         # Magic header bytes for the *B# multi-packet format (after 0307 prefix).
         _T1_MAGIC = b"\x2a\x42\x23"  # '*B#'
@@ -564,14 +569,16 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         def _flush_t1_buffer() -> None:
             """Parse all complete 42-byte records from the reassembly buffer."""
             buf = bytes(_t1["buf"])
+            parse_fn = _t1["parse_fn"]
             _t1["in_progress"] = False
             _t1["buf"] = bytearray()
             _t1["expected"] = 0
+            _t1["parse_fn"] = parse_t1_c3352g_record
             num_records = len(buf) // T1_C3352G_RECORD_SIZE
             _log.debug("*B# reassembly complete: parsing %d record(s)", num_records)
             for i in range(num_records):
                 chunk = buf[i * T1_C3352G_RECORD_SIZE : (i + 1) * T1_C3352G_RECORD_SIZE]
-                _accept(parse_t1_c3352g_record(chunk))
+                _accept(parse_fn(chunk))
 
         def handler(_sender: Any, raw: bytearray) -> None:
             data = bytes(raw)
@@ -600,24 +607,24 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
 
             # --- Check for *B# multi-packet header (0307 + *B# magic + count) ---
             # payload[3:5] = record_count (2-byte BE).
-            # payload[5] = year_base of the first record (year − 2000).
-            # year_base != 0 → real session records from OCLEANY3 → start reassembly.
-            # year_base == 0 → OCLEANY3P placeholder (no inline data; sessions arrive
-            #   via 021f/5100); let _accept() handle the already-parsed result.
+            # payload[5] = record byte 0 (year_base for OCLEANY3; 0x00 for OCLEANY3P).
+            # Both devices use the same *B# format; year_base=0x00 selects the Y3P parser.
             if len(data) >= 8 and data[2:5] == _T1_MAGIC:
                 payload = data[2:]  # strip 0307 prefix
                 record_count = (payload[3] << 8) | payload[4]
-                if record_count > 0 and payload[5] != 0x00:
+                if record_count > 0:
                     total_expected = record_count * T1_C3352G_RECORD_SIZE
                     inline = bytearray(payload[5:])  # bytes already in this packet (from record byte 0)
                     _t1["buf"] = inline
                     _t1["expected"] = total_expected
                     _t1["in_progress"] = True
+                    _t1["parse_fn"] = parse_y3p_stream_record if payload[5] == 0x00 else parse_t1_c3352g_record
                     _log.debug(
-                        "*B# header: count=%d, expected=%d bytes, inline=%d bytes",
+                        "*B# header: count=%d, expected=%d bytes, inline=%d bytes, parser=%s",
                         record_count,
                         total_expected,
                         len(inline),
+                        "Y3P" if payload[5] == 0x00 else "C3352g",
                     )
                     if len(inline) >= total_expected:
                         _flush_t1_buffer()

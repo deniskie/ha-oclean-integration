@@ -473,6 +473,74 @@ def parse_t1_c3352g_record(record: bytes) -> dict[str, Any]:
         return {}
 
 
+def parse_y3p_stream_record(record: bytes) -> dict[str, Any]:
+    """Parse one 42-byte session record from the OCLEANY3P *B# stream.
+
+    OCLEANY3P uses the same *B# multi-packet reassembly as OCLEANY3, but encodes
+    byte 0 as 0x00 (no year stored on device).  The year is inferred from the
+    current wall clock, stepping back by one year if the resulting datetime lies
+    in the future.
+
+    Byte layout (confirmed 2026-03-15 from log analysis of issue #49, sw=1.0.0.41):
+      byte  0:   0x00 – no year encoded
+      byte  1:   month (1-12)
+      byte  2:   day   (1-31)
+      byte  3:   hour  (0-23)
+      byte  4:   minute (0-59)
+      byte  5:   second (0-59)
+      bytes 7-8:  session duration, big-endian uint16 (seconds)
+      bytes 21-28: 8 tooth-area pressure values (BrushAreaType order)
+      byte  33:  brushing score (0-100; 0xFF = absent)
+    """
+    if len(record) < T1_C3352G_RECORD_SIZE:
+        _LOGGER.debug("Oclean Y3P stream record too short (%d bytes): %s", len(record), record.hex())
+        return {}
+
+    try:
+        month = record[1]
+        day = record[2]
+        hour = record[3]
+        minute = record[4]
+        second = record[5]
+
+        now = datetime.datetime.now()
+        year = now.year
+        device_dt = datetime.datetime(year, month, day, hour, minute, second)
+        if device_dt > now:
+            year -= 1
+            device_dt = datetime.datetime(year, month, day, hour, minute, second)
+
+        timestamp_s = int(time.mktime(device_dt.timetuple()))
+        result: dict[str, Any] = {DATA_LAST_BRUSH_TIME: timestamp_s}
+
+        duration_s = (record[7] << 8) | record[8]
+        if duration_s > 0:
+            result[DATA_LAST_BRUSH_DURATION] = duration_s
+
+        area_bytes = bytes(record[21:29])
+        area_dict, _zones_cleaned, avg_pressure = _build_area_stats(area_bytes)
+        if any(v > 0 for v in area_bytes):
+            result[DATA_LAST_BRUSH_AREAS] = area_dict
+            result[DATA_LAST_BRUSH_PRESSURE] = avg_pressure
+
+        score = record[33]
+        if 0 < score <= 100:
+            result[DATA_LAST_BRUSH_SCORE] = score
+
+        _LOGGER.debug(
+            "Oclean Y3P stream record: ts=%d duration=%s score=%s (raw: %s)",
+            timestamp_s,
+            result.get(DATA_LAST_BRUSH_DURATION, "n/a"),
+            result.get(DATA_LAST_BRUSH_SCORE, "n/a"),
+            record[:T1_C3352G_RECORD_SIZE].hex(),
+        )
+        return result
+
+    except (IndexError, ValueError, OverflowError) as err:
+        _LOGGER.debug("Oclean Y3P stream record parse error: %s (raw: %s)", err, record.hex())
+        return {}
+
+
 def _parse_t1_ocleanx20_inline(payload: bytes) -> dict[str, Any]:
     """Parse OCLEANX20 extended-offset inline 0307 payload.
 
