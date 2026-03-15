@@ -180,18 +180,17 @@ class OcleanSensor(OcleanEntity, SensorEntity):
     @property
     def available(self) -> bool:
         """Return True if coordinator is available or we have stale data."""
+        data = self.coordinator.data
         if not self.coordinator.last_update_success:
             # Stay available if we have any cached value
-            return (
-                self.coordinator.data is not None and self.coordinator.data.get(self.entity_description.key) is not None
-            )
+            return data is not None and data.get(self.entity_description.key) is not None
         # If the device has reported at least one session but this session-derived
         # field is still None, the device protocol does not support it.
         return not (
             self.entity_description.key in _SESSION_DERIVED_KEYS
-            and self.coordinator.data is not None
-            and self.coordinator.data.get(DATA_LAST_BRUSH_TIME) is not None
-            and self.coordinator.data.get(self.entity_description.key) is None
+            and data is not None
+            and data.get(DATA_LAST_BRUSH_TIME) is not None
+            and data.get(self.entity_description.key) is None
         )
 
 
