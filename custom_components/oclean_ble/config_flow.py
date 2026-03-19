@@ -57,13 +57,6 @@ def _parse_windows_list(windows_str: str) -> list[tuple[str, str]]:
     return result
 
 
-def _validate_poll_interval(value: int) -> int:
-    """Accept 0 (manual / no auto-polling) or any value >= MIN_POLL_INTERVAL."""
-    if value == POLL_INTERVAL_MANUAL or value >= MIN_POLL_INTERVAL:
-        return value
-    raise vol.Invalid(f"Poll interval must be 0 (manual) or at least {MIN_POLL_INTERVAL} seconds")
-
-
 def _windows_list_to_str(windows: list[tuple[str, str]]) -> str:
     """Combine ('HH:MM:SS', 'HH:MM:SS') tuples into 'HH:MM-HH:MM[, ...]' for storage."""
     parts: list[str] = []
@@ -101,24 +94,35 @@ class OcleanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignor
 
     async def async_step_confirm(self, user_input: dict[str, Any] | None = None) -> FlowResult:
         """Confirm a bluetooth-discovered device."""
+        errors: dict[str, str] = {}
         if user_input is not None:
-            poll_interval = user_input.get(CONF_POLL_INTERVAL, DEFAULT_POLL_INTERVAL)
-            return self.async_create_entry(
-                title=self._name or "Oclean",
-                data={
-                    CONF_MAC_ADDRESS: self._mac,
-                    CONF_DEVICE_NAME: self._name,
-                    CONF_POLL_INTERVAL: poll_interval,
-                },
-            )
+            poll_interval = int(user_input.get(CONF_POLL_INTERVAL, DEFAULT_POLL_INTERVAL))
+            if 0 < poll_interval < MIN_POLL_INTERVAL:
+                errors[CONF_POLL_INTERVAL] = "invalid_poll_interval"
+            else:
+                return self.async_create_entry(
+                    title=self._name or "Oclean",
+                    data={
+                        CONF_MAC_ADDRESS: self._mac,
+                        CONF_DEVICE_NAME: self._name,
+                        CONF_POLL_INTERVAL: poll_interval,
+                    },
+                )
 
         return self.async_show_form(
             step_id="confirm",
+            errors=errors,
             description_placeholders={"name": self._name, "mac": self._mac},
             data_schema=vol.Schema(
                 {
-                    vol.Optional(CONF_POLL_INTERVAL, default=DEFAULT_POLL_INTERVAL): vol.All(
-                        int, _validate_poll_interval
+                    vol.Optional(CONF_POLL_INTERVAL, default=DEFAULT_POLL_INTERVAL): selector.NumberSelector(
+                        selector.NumberSelectorConfig(
+                            min=POLL_INTERVAL_MANUAL,
+                            max=86400,
+                            step=1,
+                            unit_of_measurement="s",
+                            mode=selector.NumberSelectorMode.BOX,
+                        )
                     ),
                 }
             ),
@@ -147,19 +151,22 @@ class OcleanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignor
 
         if user_input is not None:
             mac = user_input[CONF_MAC_ADDRESS]
-            await self.async_set_unique_id(mac)
-            self._abort_if_unique_id_configured()
-            self._mac = mac
-            self._name = self._discovered_devices.get(mac, "Oclean")
-            poll_interval = user_input.get(CONF_POLL_INTERVAL, DEFAULT_POLL_INTERVAL)
-            return self.async_create_entry(
-                title=self._name,
-                data={
-                    CONF_MAC_ADDRESS: mac,
-                    CONF_DEVICE_NAME: self._name,
-                    CONF_POLL_INTERVAL: poll_interval,
-                },
-            )
+            poll_interval = int(user_input.get(CONF_POLL_INTERVAL, DEFAULT_POLL_INTERVAL))
+            if 0 < poll_interval < MIN_POLL_INTERVAL:
+                errors[CONF_POLL_INTERVAL] = "invalid_poll_interval"
+            else:
+                await self.async_set_unique_id(mac)
+                self._abort_if_unique_id_configured()
+                self._mac = mac
+                self._name = self._discovered_devices.get(mac, "Oclean")
+                return self.async_create_entry(
+                    title=self._name,
+                    data={
+                        CONF_MAC_ADDRESS: mac,
+                        CONF_DEVICE_NAME: self._name,
+                        CONF_POLL_INTERVAL: poll_interval,
+                    },
+                )
 
         device_options = {mac: f"{name} ({mac})" for mac, name in self._discovered_devices.items()}
 
@@ -169,8 +176,14 @@ class OcleanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignor
             data_schema=vol.Schema(
                 {
                     vol.Required(CONF_MAC_ADDRESS): vol.In(device_options),
-                    vol.Optional(CONF_POLL_INTERVAL, default=DEFAULT_POLL_INTERVAL): vol.All(
-                        int, _validate_poll_interval
+                    vol.Optional(CONF_POLL_INTERVAL, default=DEFAULT_POLL_INTERVAL): selector.NumberSelector(
+                        selector.NumberSelectorConfig(
+                            min=POLL_INTERVAL_MANUAL,
+                            max=86400,
+                            step=1,
+                            unit_of_measurement="s",
+                            mode=selector.NumberSelectorMode.BOX,
+                        )
                     ),
                 }
             ),
@@ -185,17 +198,20 @@ class OcleanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignor
             if not _MAC_RE.match(mac):
                 errors[CONF_MAC_ADDRESS] = "invalid_mac"
             else:
-                await self.async_set_unique_id(mac)
-                self._abort_if_unique_id_configured()
-                poll_interval = user_input.get(CONF_POLL_INTERVAL, DEFAULT_POLL_INTERVAL)
-                return self.async_create_entry(
-                    title=user_input.get(CONF_DEVICE_NAME, "Oclean"),
-                    data={
-                        CONF_MAC_ADDRESS: mac,
-                        CONF_DEVICE_NAME: user_input.get(CONF_DEVICE_NAME, "Oclean"),
-                        CONF_POLL_INTERVAL: poll_interval,
-                    },
-                )
+                poll_interval = int(user_input.get(CONF_POLL_INTERVAL, DEFAULT_POLL_INTERVAL))
+                if 0 < poll_interval < MIN_POLL_INTERVAL:
+                    errors[CONF_POLL_INTERVAL] = "invalid_poll_interval"
+                else:
+                    await self.async_set_unique_id(mac)
+                    self._abort_if_unique_id_configured()
+                    return self.async_create_entry(
+                        title=user_input.get(CONF_DEVICE_NAME, "Oclean"),
+                        data={
+                            CONF_MAC_ADDRESS: mac,
+                            CONF_DEVICE_NAME: user_input.get(CONF_DEVICE_NAME, "Oclean"),
+                            CONF_POLL_INTERVAL: poll_interval,
+                        },
+                    )
 
         return self.async_show_form(
             step_id="manual",
@@ -204,8 +220,14 @@ class OcleanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignor
                 {
                     vol.Required(CONF_MAC_ADDRESS): str,
                     vol.Optional(CONF_DEVICE_NAME, default="Oclean"): str,
-                    vol.Optional(CONF_POLL_INTERVAL, default=DEFAULT_POLL_INTERVAL): vol.All(
-                        int, _validate_poll_interval
+                    vol.Optional(CONF_POLL_INTERVAL, default=DEFAULT_POLL_INTERVAL): selector.NumberSelector(
+                        selector.NumberSelectorConfig(
+                            min=POLL_INTERVAL_MANUAL,
+                            max=86400,
+                            step=1,
+                            unit_of_measurement="s",
+                            mode=selector.NumberSelectorMode.BOX,
+                        )
                     ),
                 }
             ),
