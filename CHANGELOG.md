@@ -1,5 +1,13 @@
 # Changelog
 
+## [v1.0.10] – 2026-03-20
+
+### Bug Fixes
+
+- **Config flow 500 error on open** (closes #55): The setup wizard crashed with a `500 Internal Server Error` when opened via Settings → Integrations. Root cause: `voluptuous_serialize` cannot serialize custom validator functions. Replaced `_validate_poll_interval` with `selector.NumberSelector` (HA-idiomatic, serializable). The poll interval gap constraint (must be 0 or ≥ 60 s) is now validated inline, consistent with the options flow.
+
+---
+
 ## [v1.0.8] – 2026-03-11
 
 ### New Features
