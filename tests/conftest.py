@@ -119,6 +119,9 @@ def _install_ha_stubs() -> None:
         def __init__(self, config=None):
             pass
 
+        def __call__(self, value):
+            return value
+
     class TextSelectorConfig:
         def __init__(self, **kwargs):
             pass
