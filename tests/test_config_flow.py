@@ -2,15 +2,21 @@
 
 from __future__ import annotations
 
+import asyncio
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
 
 # conftest.py stubs HA before these imports
 from custom_components.oclean_ble.config_flow import (
     _MAC_RE,
+    OcleanConfigFlow,
     _parse_windows_list,
     _windows_list_to_str,
 )
 from custom_components.oclean_ble.const import (
+    CONF_MAC_ADDRESS,
+    CONF_POLL_INTERVAL,
     DEFAULT_POLL_INTERVAL,
     MIN_POLL_INTERVAL,
 )
@@ -139,3 +145,69 @@ class TestWindowsListToStr:
     def test_roundtrip(self):
         original = "07:00-09:00, 20:00-22:30"
         assert _windows_list_to_str(_parse_windows_list(original)) == original
+
+
+# ---------------------------------------------------------------------------
+# Poll interval gap validation in config flow steps
+# ---------------------------------------------------------------------------
+
+
+class TestPollIntervalGapValidationInFlowSteps:
+    """Values in (0, MIN_POLL_INTERVAL) must be rejected in config-flow steps,
+    and NumberSelector floats must be stored as int."""
+
+    def _make_flow(self) -> OcleanConfigFlow:
+        flow = OcleanConfigFlow()
+        flow._mac = "AA:BB:CC:DD:EE:FF"
+        flow._name = "Oclean"
+        flow.async_create_entry = MagicMock(return_value={"type": "create_entry"})
+        flow.async_show_form = MagicMock(return_value={"type": "form"})
+        flow.async_set_unique_id = AsyncMock()
+        flow._abort_if_unique_id_configured = MagicMock()
+        return flow
+
+    @pytest.mark.parametrize(
+        ("value", "expect_error"),
+        [
+            (0, False),  # manual mode – allowed
+            (1, True),  # 1 s – in gap
+            (MIN_POLL_INTERVAL - 1, True),  # 59 s – in gap
+            (MIN_POLL_INTERVAL, False),  # 60 s – minimum allowed
+            (300, False),  # default – allowed
+        ],
+    )
+    def test_confirm_validates_gap(self, value, expect_error):
+        flow = self._make_flow()
+        asyncio.run(flow.async_step_confirm({CONF_POLL_INTERVAL: value}))
+        if expect_error:
+            errors = flow.async_show_form.call_args.kwargs["errors"]
+            assert errors.get(CONF_POLL_INTERVAL) == "invalid_poll_interval"
+            flow.async_create_entry.assert_not_called()
+        else:
+            flow.async_create_entry.assert_called_once()
+
+    @pytest.mark.parametrize(
+        ("value", "expect_error"),
+        [
+            (0, False),
+            (30, True),
+            (MIN_POLL_INTERVAL, False),
+        ],
+    )
+    def test_manual_validates_gap(self, value, expect_error):
+        flow = self._make_flow()
+        asyncio.run(flow.async_step_manual({CONF_MAC_ADDRESS: "AA:BB:CC:DD:EE:FF", CONF_POLL_INTERVAL: value}))
+        if expect_error:
+            errors = flow.async_show_form.call_args.kwargs["errors"]
+            assert errors.get(CONF_POLL_INTERVAL) == "invalid_poll_interval"
+            flow.async_create_entry.assert_not_called()
+        else:
+            flow.async_create_entry.assert_called_once()
+
+    def test_confirm_stores_integer_not_float(self):
+        """NumberSelector returns floats – verify the int() cast stores an int."""
+        flow = self._make_flow()
+        asyncio.run(flow.async_step_confirm({CONF_POLL_INTERVAL: 300.0}))
+        data = flow.async_create_entry.call_args.kwargs["data"]
+        assert isinstance(data[CONF_POLL_INTERVAL], int)
+        assert data[CONF_POLL_INTERVAL] == 300
