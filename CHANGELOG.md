@@ -8,6 +8,23 @@
 
 ---
 
+## [v1.0.9] – 2026-03-15
+
+### Bug Fixes
+
+- **OCLEANY3P – all sessions now imported** (closes #49): The `*B#` multi-packet reassembly was skipped for Oclean X Pro Elite devices because they encode `0x00` at record byte 0 (no year stored on device). Only the first session was imported; the remaining sessions were silently discarded. The coordinator now correctly enters reassembly for all devices and selects the right parser based on the year byte: `0x00` → year inferred from wall clock (`parse_y3p_stream_record`), any other value → year read from the record (`parse_t1_c3352g_record`).
+- **Non-blocking startup**: The integration no longer raises `ConfigEntryNotReady` when the device is unreachable at HA startup. Coordinator and entities are registered immediately so the poll service and all entity entries always exist. Entities show as unavailable until the first successful poll.
+- **Battery notifications** (closes #7): Subscribe to characteristic `0x2A19` before reading to ensure notifications are received.
+- **Options flow**: Reject poll interval values between 1 and 59 seconds (must be 0 for manual or ≥ 60 s).
+- **Setup wizard**: Allow poll interval 0 (manual / no auto-polling) in the config flow (closes #51).
+- **Stability**: Added timeout to `start_notify()` to prevent a BlueZ hang on stale subscriptions.
+
+### Internal
+
+- Log active config on entry load; clarify `poll_interval=0` wording in UI.
+
+---
+
 ## [v1.0.8] – 2026-03-11
 
 ### New Features
