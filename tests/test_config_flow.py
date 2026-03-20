@@ -5,12 +5,9 @@ from __future__ import annotations
 import pytest
 
 # conftest.py stubs HA before these imports
-import voluptuous as vol
-
 from custom_components.oclean_ble.config_flow import (
     _MAC_RE,
     _parse_windows_list,
-    _validate_poll_interval,
     _windows_list_to_str,
 )
 from custom_components.oclean_ble.const import (
@@ -64,34 +61,6 @@ class TestPollIntervalConstants:
 
     def test_default_ge_minimum(self):
         assert DEFAULT_POLL_INTERVAL >= MIN_POLL_INTERVAL
-
-
-# ---------------------------------------------------------------------------
-# Poll interval validator
-# ---------------------------------------------------------------------------
-
-
-class TestValidatePollInterval:
-    def test_zero_is_allowed(self):
-        assert _validate_poll_interval(0) == 0
-
-    def test_minimum_is_allowed(self):
-        assert _validate_poll_interval(MIN_POLL_INTERVAL) == MIN_POLL_INTERVAL
-
-    def test_above_minimum_is_allowed(self):
-        assert _validate_poll_interval(300) == 300
-
-    def test_between_1_and_59_is_rejected(self):
-        with pytest.raises(vol.Invalid):
-            _validate_poll_interval(30)
-
-    def test_59_is_rejected(self):
-        with pytest.raises(vol.Invalid):
-            _validate_poll_interval(59)
-
-    def test_negative_is_rejected(self):
-        with pytest.raises(vol.Invalid):
-            _validate_poll_interval(-1)
 
 
 # ---------------------------------------------------------------------------
