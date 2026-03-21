@@ -10,7 +10,12 @@
 - **`pNum` → scheme name** – No local mapping possible; the Oclean app fetches scheme names from a cloud API. Currently the numeric pNum is exposed as-is.
 - **`blunt_teeth` unit** – Whether the brush-head wear counter increments linearly (+1 per session) or encodes an ADC wear value is not yet confirmed.
 - **Extended 0308 format** – Implemented based on APK analysis (`AbstractC0002b.m37y`), but never observed on real hardware (all known devices use TYPE1 / 0307).
-- **Model-based sensor visibility** – Sensors that are structurally unavailable for a given device model (e.g. tooth-area sensors on devices that never push `2604`/`021f`, or `brush_head_days` on OCLEANY3M which does not respond to `0302`) should be hidden rather than showing "Unavailable". The integration should use the detected model ID and protocol profile to suppress sensors that can never deliver data.
+- **Model-based sensor visibility** – Sensors that are structurally unavailable for a given device model (e.g. tooth-area sensors on devices that never push `2604`/`021f`, or `brush_head_days` on OCLEANY3M which does not respond to `0302`) should be hidden rather than showing "Unavailable". Planned implementation:
+  - Config flow (auto-discovery + manual): add model dropdown with all known model IDs from `_MODEL_MAP` + `"auto-detect"` as default. Model stored as `CONF_MODEL_ID` in config entry.
+  - `async_setup_entry`: if model known → protocol resolved immediately → `entity_registry_enabled_default` set per sensor based on protocol capability flags (e.g. `supports_brush_head_days`, `supports_areas`, `supports_gesture_data` on `DeviceProtocol`).
+  - First poll: DIS model ID confirms/corrects the selection. If model differs → config entry updated + entities reloaded.
+  - If model was `auto-detect` at setup → after first poll, unsupported entities disabled via entity registry API (`RegistryEntryDisabler.INTEGRATION`). HA shows one-time restart notice.
+  - Note: `entity_registry_enabled_default` only applies on first entity registration. Already-registered entities require the registry API + HA reload.
 - **Conditional options flow** – The options dialog should show or hide settings based on the current configuration (e.g. hide brush-head lifetime input when no hardware counter is available, hide poll-window fields when polling is disabled).
 
 ### Wanted: Oclean X Pro Elite (OCLEANY3P) Test Reports
