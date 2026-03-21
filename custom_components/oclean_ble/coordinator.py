@@ -408,7 +408,18 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
             max_attempts=3,
         )
         try:
+            await asyncio.sleep(BLE_POST_CONNECT_DELAY)
+            subscribed: list[str] = []
+            for char_uuid in self._protocol.notify_chars:
+                try:
+                    await client.start_notify(char_uuid, lambda _s, _r: None)
+                    subscribed.append(char_uuid)
+                except Exception:  # noqa: BLE001
+                    pass
             await self._calibrate_time(client)
+            for char_uuid in subscribed:
+                with contextlib.suppress(Exception):
+                    await client.stop_notify(char_uuid)
         finally:
             if client.is_connected:
                 await client.disconnect()
@@ -439,7 +450,7 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         cmd = CMD_AREA_REMIND + bytes([0x01 if enabled else 0x00])
         try:
             await asyncio.sleep(BLE_POST_CONNECT_DELAY)
-            await client.write_gatt_char(self._protocol.write_char, cmd, response=True)
+            await self._write_standalone(client, cmd)
             self._log.info("area remind set to %s", enabled)
         finally:
             if client.is_connected:
@@ -463,13 +474,32 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         cmd = CMD_BRUSH_HEAD_MAX_DAYS + days.to_bytes(2, "big")
         try:
             await asyncio.sleep(BLE_POST_CONNECT_DELAY)
-            await client.write_gatt_char(self._protocol.write_char, cmd, response=True)
+            await self._write_standalone(client, cmd)
             self._log.info("brush head max days set to %d", days)
         finally:
             if client.is_connected:
                 await client.disconnect()
         self._brush_head_max_days = days
         await self._save_store()
+
+    async def _write_standalone(self, client: BleakClient, cmd: bytes) -> None:
+        """Subscribe to notify chars, write *cmd* to write_char, then unsubscribe.
+
+        On TYPE1 devices (fbb89 write-only) the device only exposes the write
+        characteristic after at least one notify subscription is active (fbb90).
+        This mirrors the poll setup so standalone writes succeed on all protocols.
+        """
+        subscribed: list[str] = []
+        for char_uuid in self._protocol.notify_chars:
+            try:
+                await client.start_notify(char_uuid, lambda _s, _r: None)
+                subscribed.append(char_uuid)
+            except Exception:  # noqa: BLE001
+                pass
+        await client.write_gatt_char(self._protocol.write_char, cmd, response=True)
+        for char_uuid in subscribed:
+            with contextlib.suppress(Exception):
+                await client.stop_notify(char_uuid)
 
     # ------------------------------------------------------------------
     # Internal helpers

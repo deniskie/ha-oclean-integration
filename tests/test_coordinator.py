@@ -2307,3 +2307,113 @@ class TestAsyncResetBrushHead:
             await coord.async_reset_brush_head()
 
         client.write_gatt_char.assert_called_once_with(WRITE_CHAR_UUID, CMD_CLEAR_BRUSH_HEAD, response=True)
+
+
+# ---------------------------------------------------------------------------
+# async_set_area_remind / async_set_brush_head_max_days
+# ---------------------------------------------------------------------------
+
+
+class TestStandaloneWrites:
+    @pytest.mark.asyncio
+    async def test_area_remind_on_writes_correct_command(self):
+        """async_set_area_remind(True) must write CMD_AREA_REMIND + 0x01."""
+        from custom_components.oclean_ble.const import CMD_AREA_REMIND
+
+        coord = _make_coordinator()
+        client = _make_bleak_client()
+
+        with (
+            patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock,
+            patch(
+                "custom_components.oclean_ble.coordinator.establish_connection",
+                new_callable=AsyncMock,
+                return_value=client,
+            ),
+            patch("custom_components.oclean_ble.coordinator.asyncio.sleep", new_callable=AsyncMock),
+            patch.object(coord, "_save_store", new_callable=AsyncMock),
+        ):
+            bt_mock.async_last_service_info.return_value = _make_service_info()
+            await coord.async_set_area_remind(True)
+
+        cmd_bytes = client.write_gatt_char.call_args[0][1]
+        assert cmd_bytes == CMD_AREA_REMIND + bytes([0x01])
+        assert coord.area_remind is True
+
+    @pytest.mark.asyncio
+    async def test_area_remind_off_writes_correct_command(self):
+        """async_set_area_remind(False) must write CMD_AREA_REMIND + 0x00."""
+        from custom_components.oclean_ble.const import CMD_AREA_REMIND
+
+        coord = _make_coordinator()
+        client = _make_bleak_client()
+
+        with (
+            patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock,
+            patch(
+                "custom_components.oclean_ble.coordinator.establish_connection",
+                new_callable=AsyncMock,
+                return_value=client,
+            ),
+            patch("custom_components.oclean_ble.coordinator.asyncio.sleep", new_callable=AsyncMock),
+            patch.object(coord, "_save_store", new_callable=AsyncMock),
+        ):
+            bt_mock.async_last_service_info.return_value = _make_service_info()
+            await coord.async_set_area_remind(False)
+
+        cmd_bytes = client.write_gatt_char.call_args[0][1]
+        assert cmd_bytes == CMD_AREA_REMIND + bytes([0x00])
+        assert coord.area_remind is False
+
+    @pytest.mark.asyncio
+    async def test_set_brush_head_max_days_writes_correct_command(self):
+        """async_set_brush_head_max_days must write CMD_BRUSH_HEAD_MAX_DAYS + 2-byte big-endian days."""
+        from custom_components.oclean_ble.const import CMD_BRUSH_HEAD_MAX_DAYS
+
+        coord = _make_coordinator()
+        client = _make_bleak_client()
+
+        with (
+            patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock,
+            patch(
+                "custom_components.oclean_ble.coordinator.establish_connection",
+                new_callable=AsyncMock,
+                return_value=client,
+            ),
+            patch("custom_components.oclean_ble.coordinator.asyncio.sleep", new_callable=AsyncMock),
+            patch.object(coord, "_save_store", new_callable=AsyncMock),
+        ):
+            bt_mock.async_last_service_info.return_value = _make_service_info()
+            await coord.async_set_brush_head_max_days(90)
+
+        cmd_bytes = client.write_gatt_char.call_args[0][1]
+        assert cmd_bytes == CMD_BRUSH_HEAD_MAX_DAYS + (90).to_bytes(2, "big")
+        assert coord.brush_head_max_days == 90
+
+    @pytest.mark.asyncio
+    async def test_write_standalone_subscribes_notify_chars_before_write(self):
+        """_write_standalone must subscribe to protocol notify_chars before writing."""
+        from custom_components.oclean_ble.const import CMD_AREA_REMIND
+        from custom_components.oclean_ble.protocol import TYPE1
+
+        coord = _make_coordinator()
+        coord._protocol = TYPE1
+        client = _make_bleak_client()
+
+        with (
+            patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock,
+            patch(
+                "custom_components.oclean_ble.coordinator.establish_connection",
+                new_callable=AsyncMock,
+                return_value=client,
+            ),
+            patch("custom_components.oclean_ble.coordinator.asyncio.sleep", new_callable=AsyncMock),
+            patch.object(coord, "_save_store", new_callable=AsyncMock),
+        ):
+            bt_mock.async_last_service_info.return_value = _make_service_info()
+            await coord.async_set_area_remind(True)
+
+        # start_notify must have been called for each notify char in TYPE1
+        assert client.start_notify.await_count == len(TYPE1.notify_chars)
+        # stop_notify must match
+        assert client.stop_notify.await_count == len(TYPE1.notify_chars)
