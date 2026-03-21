@@ -1640,6 +1640,98 @@ class TestHardwareBrushHeadCounter:
 
         assert result[DATA_BRUSH_HEAD_USAGE] == 42
 
+    @pytest.mark.asyncio
+    async def test_sw_counter_increments_when_hw_absent(self):
+        """SW counter must be incremented by new_session_count when HW value is absent."""
+        from custom_components.oclean_ble.const import DATA_BRUSH_HEAD_USAGE, DATA_LAST_BRUSH_TIME
+
+        coord = _make_coordinator()
+        coord._store_loaded = True
+        client = _make_bleak_client()
+
+        session = {DATA_LAST_BRUSH_TIME: 1_700_000_001}
+
+        async def fake_setup(_client, collected):
+            # No DATA_BRUSH_HEAD_USAGE in collected → SW counter path
+            return [session]
+
+        async def fake_import(_h, _m, _d, sessions, last_ts):
+            return max(s.get(DATA_LAST_BRUSH_TIME, 0) for s in sessions)
+
+        with (
+            patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock,
+            patch(
+                "custom_components.oclean_ble.coordinator.establish_connection",
+                new_callable=AsyncMock,
+                return_value=client,
+            ),
+            patch("custom_components.oclean_ble.coordinator.asyncio.sleep", new_callable=AsyncMock),
+            patch("custom_components.oclean_ble.coordinator.import_new_sessions", side_effect=fake_import),
+            patch.object(coord, "_setup_and_read", side_effect=fake_setup),
+        ):
+            bt_mock.async_last_service_info.return_value = _make_service_info()
+            result = await coord._poll_device()
+
+        assert result[DATA_BRUSH_HEAD_USAGE] == 1
+        assert coord._brush_head_sw_count == 1
+
+    @pytest.mark.asyncio
+    async def test_hw_value_syncs_sw_counter(self):
+        """When device delivers DATA_BRUSH_HEAD_USAGE, SW counter must be updated to match."""
+        from custom_components.oclean_ble.const import DATA_BRUSH_HEAD_USAGE
+
+        coord = _make_coordinator()
+        coord._store_loaded = True
+        coord._brush_head_sw_count = 5  # outdated SW value
+        client = _make_bleak_client()
+
+        async def fake_setup(_client, collected):
+            collected[DATA_BRUSH_HEAD_USAGE] = 12  # HW counter from 0302
+            return []
+
+        async def fake_import(_h, _m, _d, sessions, last_ts):
+            return last_ts
+
+        with (
+            patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock,
+            patch(
+                "custom_components.oclean_ble.coordinator.establish_connection",
+                new_callable=AsyncMock,
+                return_value=client,
+            ),
+            patch("custom_components.oclean_ble.coordinator.asyncio.sleep", new_callable=AsyncMock),
+            patch("custom_components.oclean_ble.coordinator.import_new_sessions", side_effect=fake_import),
+            patch.object(coord, "_setup_and_read", side_effect=fake_setup),
+        ):
+            bt_mock.async_last_service_info.return_value = _make_service_info()
+            result = await coord._poll_device()
+
+        assert result[DATA_BRUSH_HEAD_USAGE] == 12
+        assert coord._brush_head_sw_count == 12
+
+    @pytest.mark.asyncio
+    async def test_sw_counter_reset_on_brush_head_reset(self):
+        """async_reset_brush_head must reset SW counter to 0."""
+        coord = _make_coordinator()
+        coord._store_loaded = True
+        coord._brush_head_sw_count = 7
+        client = _make_bleak_client()
+        client.write_gatt_char = AsyncMock()
+
+        with (
+            patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock,
+            patch(
+                "custom_components.oclean_ble.coordinator.establish_connection",
+                new_callable=AsyncMock,
+                return_value=client,
+            ),
+            patch("custom_components.oclean_ble.coordinator.asyncio.sleep", new_callable=AsyncMock),
+        ):
+            bt_mock.async_last_service_info.return_value = _make_service_info()
+            await coord.async_reset_brush_head()
+
+        assert coord._brush_head_sw_count == 0
+
 
 # ---------------------------------------------------------------------------
 # DIS cache – fresh read when never read or expired (> 24 h)
