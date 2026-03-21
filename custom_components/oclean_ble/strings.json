@@ -1,0 +1,152 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Oclean Toothbrush (unofficial)",
+        "description": "Set up your Oclean Smart Toothbrush. Nearby devices will be listed automatically if Bluetooth is enabled."
+      },
+      "pick_device": {
+        "title": "Select Oclean Device",
+        "description": "Select the Oclean device to integrate.",
+        "data": {
+          "mac_address": "Device",
+          "poll_interval": "Poll interval (seconds)"
+        }
+      },
+      "manual": {
+        "title": "Manual Setup",
+        "description": "No Oclean devices were found nearby. Enter the MAC address of your Oclean toothbrush manually. You can find it in the official Oclean app under device settings.",
+        "data": {
+          "mac_address": "MAC Address (e.g. AA:BB:CC:DD:EE:FF)",
+          "device_name": "Device name",
+          "poll_interval": "Poll interval (seconds)"
+        },
+        "data_description": {
+          "mac_address": "The Bluetooth MAC address of your Oclean toothbrush.",
+          "poll_interval": "How often (in seconds) to poll the device. Minimum 60 s, or 0 to disable automatic polling. Default: 300 s (5 min)."
+        }
+      },
+      "confirm": {
+        "title": "Confirm Oclean Device",
+        "description": "Found Oclean device **{name}** ({mac}). Confirm to add it.",
+        "data": {
+          "poll_interval": "Poll interval (seconds)"
+        }
+      }
+    },
+    "error": {
+      "invalid_mac": "Invalid MAC address format. Please use AA:BB:CC:DD:EE:FF.",
+      "cannot_connect": "Failed to connect to the device. Make sure it is charged and nearby."
+    },
+    "abort": {
+      "already_configured": "This Oclean device is already configured.",
+      "no_devices_found": "No Oclean devices found."
+    }
+  },
+  "entity": {
+    "button": {
+      "reset_brush_head": {
+        "name": "Reset Brush Head"
+      },
+      "sync_time": {
+        "name": "Sync Time"
+      }
+    },
+    "switch": {
+      "area_remind": {
+        "name": "Area Reminder"
+      }
+    },
+    "number": {
+      "brush_head_max_days": {
+        "name": "Brush Head Max Lifetime"
+      }
+    },
+    "sensor": {
+      "battery": {
+        "name": "Battery"
+      },
+      "last_brush_score": {
+        "name": "Last Brush Score"
+      },
+      "last_brush_duration": {
+        "name": "Last Brush Duration"
+      },
+      "last_brush_pressure": {
+        "name": "Last Brush Pressure"
+      },
+      "last_brush_time": {
+        "name": "Last Brush Time"
+      },
+      "brush_head_usage": {
+        "name": "Brush Head Usage"
+      },
+      "brush_head_days": {
+        "name": "Brush Head Days"
+      },
+      "sw_version": {
+        "name": "Firmware Version"
+      },
+      "model_id": {
+        "name": "Model"
+      },
+      "hw_revision": {
+        "name": "Hardware Revision"
+      },
+      "last_brush_gesture_code": {
+        "name": "Last Brush Gesture Code"
+      },
+      "last_brush_gesture_array": {
+        "name": "Last Brush Gesture Array"
+      },
+      "last_brush_power_array": {
+        "name": "Last Brush Power Array"
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Oclean Options",
+        "data": {
+          "poll_interval": "Poll interval (seconds)",
+          "post_brush_cooldown": "Post-brush cooldown (hours)",
+          "window_count": "Number of brushing time windows"
+        },
+        "data_description": {
+          "poll_interval": "How often to poll the toothbrush over Bluetooth. Minimum 60 s. Set to 0 to disable automatic polling (manual only).",
+          "post_brush_cooldown": "Pause polling for this many hours after a new brushing session is detected. Set to 0 to disable.",
+          "window_count": "Restrict polling to specific time windows (e.g. morning and evening brushing). Set to 0 to always poll."
+        }
+      },
+      "window_1": {
+        "title": "Brushing Window 1",
+        "description": "Define the first time window during which the toothbrush will be polled.",
+        "data": {
+          "window_start": "From",
+          "window_end": "To"
+        }
+      },
+      "window_2": {
+        "title": "Brushing Window 2",
+        "description": "Define the second time window during which the toothbrush will be polled.",
+        "data": {
+          "window_start": "From",
+          "window_end": "To"
+        }
+      },
+      "window_3": {
+        "title": "Brushing Window 3",
+        "description": "Define the third time window during which the toothbrush will be polled.",
+        "data": {
+          "window_start": "From",
+          "window_end": "To"
+        }
+      }
+    },
+    "error": {
+      "window_incomplete": "Both start and end time must be set.",
+      "invalid_poll_interval": "Poll interval must be 0 (manual) or at least 60 seconds."
+    }
+  }
+}

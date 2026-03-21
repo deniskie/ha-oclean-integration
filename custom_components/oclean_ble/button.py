@@ -14,12 +14,10 @@ from .entity import OcleanEntity
 BUTTON_DESCRIPTIONS: tuple[ButtonEntityDescription, ...] = (
     ButtonEntityDescription(
         key="reset_brush_head",
-        name="Reset Brush Head",
         icon="mdi:toothbrush-paste",
     ),
     ButtonEntityDescription(
         key="sync_time",
-        name="Sync Time",
         icon="mdi:clock-sync",
     ),
 )
