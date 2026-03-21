@@ -1,5 +1,21 @@
 # Changelog
 
+## [Unreleased]
+
+### New Features
+
+- **Poll Now button** – New button entity (`button.oclean_poll_now`) triggers an immediate BLE poll directly from the HA dashboard, without needing to use the `oclean_ble.poll` service action.
+
+### Improvements
+
+- **Last Brush Duration** – Default display unit changed from seconds to minutes (e.g. `2.5 min` instead of `150 s`). The unit can still be overridden per entity in HA settings.
+
+### Bug Fixes
+
+- **ESPHome proxy – battery stuck** (closes #7): When the ESPHome BLE proxy has a stale GATT cache and `0x2A19` (Battery Service) is not found, the integration now immediately invalidates the DIS cache and triggers a full GATT re-discovery, then retries the battery notification subscription within the same poll. Previously the proxy would not rediscover `0x2A19` for up to 24 hours.
+
+---
+
 ## [v1.0.10] – 2026-03-20
 
 ### Bug Fixes
