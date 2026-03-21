@@ -561,9 +561,9 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         all_sessions: list[dict[str, Any]] = []
         seen_ts: set[int] = set()
         session_received = asyncio.Event()
-        handler = self._make_notification_handler(collected, all_sessions, seen_ts, session_received)
+        handler, flush_pending = self._make_notification_handler(collected, all_sessions, seen_ts, session_received)
 
-        await self._run_ble_queries(client, collected, all_sessions, session_received, handler)
+        await self._run_ble_queries(client, collected, all_sessions, session_received, handler, flush_pending)
         self._finalize_sessions(collected, all_sessions)
         return all_sessions
 
@@ -573,13 +573,17 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         all_sessions: list[dict[str, Any]],
         seen_ts: set[int],
         session_received: asyncio.Event,
-    ) -> Callable[[Any, bytearray], None]:
-        """Return a BLE notification callback that accumulates session data.
+    ) -> tuple[Callable[[Any, bytearray], None], Callable[[], None]]:
+        """Return a (handler, flush_pending) pair for BLE notification processing.
 
-        The returned handler parses each notification, applies the "newer
-        timestamp wins" policy to prevent a stale 5a00 push from overwriting
-        a more-recent 0307 timestamp, merges fields into *collected*, and
-        appends new sessions to *all_sessions*.
+        *handler* is the BLE notification callback that accumulates session data.
+        It parses each notification, applies the "newer timestamp wins" policy to
+        prevent a stale 5a00 push from overwriting a more-recent 0307 timestamp,
+        merges fields into *collected*, and appends new sessions to *all_sessions*.
+
+        *flush_pending* flushes any complete 42-byte records already accumulated
+        in the *B# reassembly buffer.  Call it after the session-wait timeout to
+        recover records that arrived before the BLE connection is torn down.
 
         Multi-packet reassembly (*B# format):
         OCLEANY3 sends session records split across multiple BLE packets: a
@@ -690,7 +694,26 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
 
             _accept(parsed)
 
-        return handler
+        def flush_pending() -> None:
+            """Flush any complete 42-byte records buffered so far.
+
+            Called after the BLE session-wait timeout to recover records that
+            arrived before the connection is torn down but before the full
+            expected byte count was reached (e.g. slow ESPHome BLE proxy).
+            """
+            if _t1["in_progress"] and _t1["buf"]:
+                available = len(_t1["buf"])
+                complete = (available // T1_C3352G_RECORD_SIZE) * T1_C3352G_RECORD_SIZE
+                _log.debug(
+                    "*B# partial flush: %d/%d bytes, flushing %d complete record(s)",
+                    available,
+                    _t1["expected"],
+                    available // T1_C3352G_RECORD_SIZE,
+                )
+                _t1["expected"] = complete  # limit flush to complete records only
+                _flush_t1_buffer()
+
+        return handler, flush_pending
 
     async def _run_ble_queries(
         self,
@@ -699,6 +722,7 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         all_sessions: list[dict[str, Any]],
         session_received: asyncio.Event,
         handler: Callable[[Any, bytearray], None],
+        flush_pending: Callable[[], None],
     ) -> None:
         """Execute the full GATT operation sequence for one poll.
 
@@ -718,6 +742,9 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         subscribed = await self._subscribe_notifications(client, handler)
         await self._subscribe_battery_notifications(client, collected)
         await self._send_query_commands(client, session_received)
+        # If the session-wait timed out while a *B# stream was mid-flight (e.g.
+        # slow ESPHome proxy), flush whatever complete records arrived so far.
+        flush_pending()
         # Fallback for devices (e.g. OCLEANA1) where READ_NOTIFY_CHAR_UUID has no
         # CCCD and cannot be subscribed; poll the characteristic directly instead.
         if READ_NOTIFY_CHAR_UUID not in subscribed:

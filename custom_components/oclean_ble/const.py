@@ -92,8 +92,11 @@ BLE_CONNECT_TIMEOUT = 10
 # Post-connect pause before issuing GATT commands (proxy backend needs time to
 # finish processing the GATT service table after establish_connection returns).
 BLE_POST_CONNECT_DELAY = 2.0
-# Time to wait for notifications after sending a command
-BLE_NOTIFICATION_WAIT = 3
+# Time to wait for the first session notification after sending a query command.
+# Must be long enough for the full *B# stream to arrive via an ESPHome BLE proxy:
+# observed rate ~437 B/s → 32 sessions × 42 B = 1 344 B ≈ 3.1 s; 60 sessions ≈ 5.8 s.
+# 8 s gives comfortable headroom for large session counts and slow proxy setups.
+BLE_NOTIFICATION_WAIT = 8
 # Extra wait after receiving a session, allowing the device time to push
 # enrichment notifications (0000 score, 2604 zone pressures).  These are
 # unsolicited pushes the device sends shortly after the 0307 session response.
