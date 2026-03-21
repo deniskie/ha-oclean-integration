@@ -54,6 +54,7 @@ def _install_ha_stubs() -> None:
 
     class UnitOfTime:
         SECONDS = "s"
+        MINUTES = "min"
         DAYS = "d"
 
     const.UnitOfTime = UnitOfTime
@@ -237,6 +238,7 @@ def _install_ha_stubs() -> None:
             device_class=None,
             state_class=None,
             native_unit_of_measurement=None,
+            suggested_unit_of_measurement=None,
             icon=None,
             **kwargs,
         ):
