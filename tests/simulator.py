@@ -17,6 +17,7 @@ Usage (builder pattern)::
         .build_client()
     )
 """
+
 from __future__ import annotations
 
 import struct
@@ -257,6 +258,7 @@ class OcleanDeviceSimulator:
         self._battery: int = 75
         self._notifications: list[bytes] = []
         self._notify_errors: dict[str, type[Exception] | Exception] = {}
+        self._read_char_responses: dict[str, bytes] = {}
 
     def with_battery(self, battery: int) -> OcleanDeviceSimulator:
         """Set the battery level returned by the GATT Battery Characteristic read."""
@@ -269,6 +271,19 @@ class OcleanDeviceSimulator:
     ) -> OcleanDeviceSimulator:
         """Make start_notify raise for specific characteristic UUIDs (simulates OCLEANA1)."""
         self._notify_errors = errors
+        return self
+
+    def with_read_char_responses(
+        self,
+        responses: dict[str, bytes],
+    ) -> OcleanDeviceSimulator:
+        """Override read_gatt_char return values for specific characteristic UUIDs.
+
+        Keys are full UUID strings (e.g. READ_NOTIFY_CHAR_UUID).
+        Values are the raw bytes to return for that UUID.
+        UUIDs not listed fall back to bytearray([battery]).
+        """
+        self._read_char_responses.update(responses)
         return self
 
     def add_notification(self, data: bytes) -> OcleanDeviceSimulator:
@@ -291,9 +306,7 @@ class OcleanDeviceSimulator:
     ) -> OcleanDeviceSimulator:
         """Add a Type-1 (0307) session push notification (Oclean X / OCLEANY3M)."""
         self._notifications.append(
-            build_0307_payload(
-                year, month, day, hour, minute, second, pnum, duration, valid_duration
-            )
+            build_0307_payload(year, month, day, hour, minute, second, pnum, duration, valid_duration)
         )
         return self
 
@@ -315,8 +328,17 @@ class OcleanDeviceSimulator:
         """Add an extended (0308) session notification (Oclean X Pro / OCLEANY3)."""
         self._notifications.append(
             build_0308_extended_payload(
-                year, month, day, hour, minute, second,
-                pnum, duration, score, area_pressures, tz_offset_quarters,
+                year,
+                month,
+                day,
+                hour,
+                minute,
+                second,
+                pnum,
+                duration,
+                score,
+                area_pressures,
+                tz_offset_quarters,
             )
         )
         return self
@@ -334,6 +356,65 @@ class OcleanDeviceSimulator:
         self._notifications.append(build_2604_payload(area_pressures))
         return self
 
+    def add_y3p_stream_session(
+        self,
+        month: int,
+        day: int,
+        hour: int,
+        minute: int,
+        second: int,
+        *,
+        duration: int,
+        score: int,
+        area_pressures: tuple = (0, 0, 0, 0, 0, 0, 0, 0),
+    ) -> OcleanDeviceSimulator:
+        """Add a single OCLEANY3P *B# stream session (1 record = 42 bytes).
+
+        OCLEANY3P announces one session via a 0307 *B# header (count=1, year_byte=0),
+        then the coordinator accumulates continuation packets until 42 bytes arrive.
+
+        The 42-byte Y3P record layout::
+
+          byte  0:   0x00 (year_byte – not stored on device)
+          bytes 1-5: month / day / hour / minute / second
+          byte  6:   0x00 (reserved)
+          bytes 7-8: duration, big-endian uint16 (seconds)
+          bytes 9-20: 0x00 (reserved)
+          bytes 21-28: 8 tooth-area pressure values
+          bytes 29-32: 0x00 (reserved)
+          byte  33:  brushing score (0-100; 0xFF = absent)
+          bytes 34-41: 0x00 (padding)
+
+        The record is split across 3 BLE packets:
+          - 0307 header (20 bytes): prefix + *B# magic + count=1 + record[0:13]
+          - continuation 1  (20 bytes): record[13:33]
+          - continuation 2   (9 bytes): record[33:42]
+        """
+        record = bytearray(42)
+        record[0] = 0x00
+        record[1] = month
+        record[2] = day
+        record[3] = hour
+        record[4] = minute
+        record[5] = second
+        record[7] = (duration >> 8) & 0xFF
+        record[8] = duration & 0xFF
+        for i, p in enumerate(area_pressures[:8]):
+            record[21 + i] = int(p) & 0xFF
+        record[33] = max(0, min(255, score))
+
+        header = bytearray(20)
+        header[0:2] = b"\x03\x07"
+        header[2:5] = b"\x2a\x42\x23"  # *B#
+        header[5] = 0x00  # count high byte
+        header[6] = 0x01  # count low byte (1 record)
+        header[7:20] = record[0:13]
+
+        self._notifications.append(bytes(header))
+        self._notifications.append(bytes(record[13:33]))  # 20 bytes
+        self._notifications.append(bytes(record[33:42]))  # 9 bytes
+        return self
+
     def add_session_meta(
         self,
         year: int,
@@ -346,9 +427,7 @@ class OcleanDeviceSimulator:
         duration: int,
     ) -> OcleanDeviceSimulator:
         """Add a 5a00 session-meta push notification."""
-        self._notifications.append(
-            build_5a00_payload(year, month, day, hour, minute, second, duration)
-        )
+        self._notifications.append(build_5a00_payload(year, month, day, hour, minute, second, duration))
         return self
 
     def build_client(self) -> AsyncMock:
@@ -361,13 +440,20 @@ class OcleanDeviceSimulator:
         notifications = list(self._notifications)
         battery = self._battery
         notify_errors = dict(self._notify_errors)
+        read_responses = dict(self._read_char_responses)
 
         client = AsyncMock()
         client.is_connected = True
         client.write_gatt_char = AsyncMock()
         client.stop_notify = AsyncMock()
         client.disconnect = AsyncMock()
-        client.read_gatt_char = AsyncMock(return_value=bytearray([battery]))
+
+        async def _read_gatt_char(uuid: str) -> bytearray:
+            if uuid in read_responses:
+                return bytearray(read_responses[uuid])
+            return bytearray([battery])
+
+        client.read_gatt_char = AsyncMock(side_effect=_read_gatt_char)
 
         call_count = [0]
 
