@@ -31,6 +31,7 @@ CHANGE_INFO_UUID = "6c290d2e-1c03-aca1-ab48-a9b908bae79e"  # Notify (Type 0 only
 CMD_QUERY_STATUS = bytes.fromhex("0303")  # mo5295Q0 – all types
 CMD_DEVICE_INFO = bytes.fromhex("0202")  # mo5310r0 – all types
 CMD_CALIBRATE_TIME_PREFIX = bytes.fromhex("020E")  # mo5289B Type 0: + 4-byte BE unix timestamp
+CMD_CALIBRATE_TIME_T1_PREFIX = bytes.fromhex("0201")  # mo5292L Type 1 (C3352g): + 8-byte datetime payload
 CMD_QUERY_RUNNING_DATA = bytes.fromhex("0308")  # mo5299S0 Type 0 / C3340b1 – fetch brush records
 CMD_QUERY_RUNNING_DATA_T1 = bytes.fromhex("0307")  # Type 1 (Oclean X): send to SEND_BRUSH_CMD_UUID
 CMD_QUERY_RUNNING_DATA_NEXT = bytes.fromhex("0309")  # mo5301W0 – follow-up page
