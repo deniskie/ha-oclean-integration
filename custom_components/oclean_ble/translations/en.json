@@ -76,6 +76,15 @@
       },
       "hw_revision": {
         "name": "Hardware Revision"
+      },
+      "last_brush_gesture_code": {
+        "name": "Last Brush Gesture Code"
+      },
+      "last_brush_gesture_array": {
+        "name": "Last Brush Gesture Array"
+      },
+      "last_brush_power_array": {
+        "name": "Last Brush Power Array"
       }
     }
   },

@@ -16,8 +16,12 @@ from .const import (
     DATA_IS_BRUSHING,
     DATA_LAST_BRUSH_AREAS,
     DATA_LAST_BRUSH_DURATION,
+    DATA_LAST_BRUSH_GESTURE_ARRAY,
+    DATA_LAST_BRUSH_GESTURE_CODE,
     DATA_LAST_BRUSH_PNUM,
+    DATA_LAST_BRUSH_POWER_ARRAY,
     DATA_LAST_BRUSH_PRESSURE,
+    DATA_LAST_BRUSH_PRESSURE_RATIO,
     DATA_LAST_BRUSH_SCORE,
     DATA_LAST_BRUSH_TIME,
     RESP_BRUSH_AREAS_T1,
@@ -54,6 +58,15 @@ _EXT_MIN_SIZE = 32  # 0308 extended format (AbstractC0002b.m37y)
 def _parse_signed_byte(value: int) -> int:
     """Interpret a single byte as a signed int8 (-128..127)."""
     return value if value < 128 else value - 256
+
+
+def _extract_nibbles(byte_val: int) -> list[int]:
+    """Extract 4 × 2-bit values from one byte (APK: a.b.a / m13a).
+
+    Index 0 = MSBits 7-6, index 3 = LSBits 1-0.  Each value is 0-3.
+    Used to decode powerArray from bytes 30-32 of 42-byte 0307 records.
+    """
+    return [(byte_val >> (6 - 2 * i)) & 0x3 for i in range(4)]
 
 
 def _build_utc_timestamp(device_dt: datetime.datetime, tz_offset_quarters: int) -> int:
@@ -353,12 +366,23 @@ def _parse_m18f_record(record: bytes) -> dict[str, Any]:
             result[DATA_LAST_BRUSH_AREAS] = area_dict
             result[DATA_LAST_BRUSH_PRESSURE] = avg_pressure
 
+        # gestureCode / pressureRatio / gestureArray / powerArray (APK: C3385w0_fallback)
+        # pressureCode = m14b(bytes 11-15); formula TBD – raw inputs stored as pressureRatio.
+        result[DATA_LAST_BRUSH_GESTURE_CODE] = int(record[14])
+        result[DATA_LAST_BRUSH_PRESSURE_RATIO] = list(record[11:16])
+        result[DATA_LAST_BRUSH_GESTURE_ARRAY] = list(record[18:31])  # bytes 18-30 inclusive
+        result[DATA_LAST_BRUSH_POWER_ARRAY] = (
+            _extract_nibbles(record[30]) + _extract_nibbles(record[31]) + _extract_nibbles(record[32])
+        )
+        _LOGGER.debug("Oclean 0307 m18f record point=%d (raw byte 34, APK: not used)", record[34])
+
         _LOGGER.debug(
-            "Oclean 0307 m18f parsed: ts=%d pNum=%d duration=%s score=%s (raw: %s)",
+            "Oclean 0307 m18f parsed: ts=%d pNum=%d duration=%s score=%s gestureCode=%d (raw: %s)",
             timestamp_s,
             result[DATA_LAST_BRUSH_PNUM],
             result.get(DATA_LAST_BRUSH_DURATION, "n/a"),
             result.get(DATA_LAST_BRUSH_SCORE, "n/a"),
+            result[DATA_LAST_BRUSH_GESTURE_CODE],
             record[:_T1_FULL_RECORD_SIZE].hex(),
         )
         return result
@@ -454,12 +478,22 @@ def parse_t1_c3352g_record(record: bytes) -> dict[str, Any]:
             result[DATA_LAST_BRUSH_AREAS] = area_dict
             result[DATA_LAST_BRUSH_PRESSURE] = avg_pressure
 
+        # gestureCode / pressureRatio / gestureArray / powerArray (APK: C3385w0_fallback)
+        result[DATA_LAST_BRUSH_GESTURE_CODE] = int(record[14])
+        result[DATA_LAST_BRUSH_PRESSURE_RATIO] = list(record[11:16])
+        result[DATA_LAST_BRUSH_GESTURE_ARRAY] = list(record[18:31])
+        result[DATA_LAST_BRUSH_POWER_ARRAY] = (
+            _extract_nibbles(record[30]) + _extract_nibbles(record[31]) + _extract_nibbles(record[32])
+        )
+        _LOGGER.debug("Oclean C3352g record point=%d (raw byte 34, APK: not used)", record[34])
+
         _LOGGER.debug(
-            "Oclean C3352g record parsed: ts=%d pNum=%d duration=%s score=%s (raw: %s)",
+            "Oclean C3352g record parsed: ts=%d pNum=%d duration=%s score=%s gestureCode=%d (raw: %s)",
             timestamp_s,
             result[DATA_LAST_BRUSH_PNUM],
             result.get(DATA_LAST_BRUSH_DURATION, "n/a"),
             result.get(DATA_LAST_BRUSH_SCORE, "n/a"),
+            result[DATA_LAST_BRUSH_GESTURE_CODE],
             record[:T1_C3352G_RECORD_SIZE].hex(),
         )
         return result
@@ -535,11 +569,21 @@ def parse_y3p_stream_record(record: bytes) -> dict[str, Any]:
         if 0 < score <= 100:
             result[DATA_LAST_BRUSH_SCORE] = score
 
+        # gestureCode / pressureRatio / gestureArray / powerArray (APK: C3385w0_fallback)
+        result[DATA_LAST_BRUSH_GESTURE_CODE] = int(record[14])
+        result[DATA_LAST_BRUSH_PRESSURE_RATIO] = list(record[11:16])
+        result[DATA_LAST_BRUSH_GESTURE_ARRAY] = list(record[18:31])
+        result[DATA_LAST_BRUSH_POWER_ARRAY] = (
+            _extract_nibbles(record[30]) + _extract_nibbles(record[31]) + _extract_nibbles(record[32])
+        )
+        _LOGGER.debug("Oclean Y3P stream record point=%d (raw byte 34, APK: not used)", record[34])
+
         _LOGGER.debug(
-            "Oclean Y3P stream record: ts=%d duration=%s score=%s (raw: %s)",
+            "Oclean Y3P stream record: ts=%d duration=%s score=%s gestureCode=%d (raw: %s)",
             timestamp_s,
             result.get(DATA_LAST_BRUSH_DURATION, "n/a"),
             result.get(DATA_LAST_BRUSH_SCORE, "n/a"),
+            result[DATA_LAST_BRUSH_GESTURE_CODE],
             record[:T1_C3352G_RECORD_SIZE].hex(),
         )
         return result
