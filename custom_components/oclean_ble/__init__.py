@@ -8,7 +8,6 @@ import logging.handlers
 import pathlib
 
 import voluptuous as vol
-from homeassistant import __version__ as HA_VERSION
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall
@@ -114,7 +113,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         _INTEGRATION_VERSION,
         mac,
         device_name,
-        HA_VERSION,
+        hass.config.version,
     )
     _LOGGER.debug(
         "Oclean config: poll_interval=%s poll_windows=%r post_brush_cooldown_h=%d",
