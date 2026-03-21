@@ -58,7 +58,7 @@ After restart, go to **Settings → Integrations → Add Integration** and searc
 | `sensor.oclean_battery` | Battery level | % | ✅ Tested |
 | `sensor.oclean_last_brush_score` | Quality score of last session (0–100) | – | ✅ Tested |
 | `sensor.oclean_last_brush_time` | Timestamp of last session | timestamp | ✅ Tested |
-| `sensor.oclean_last_brush_duration` | Duration of last session in seconds | s | ✅ Tested |
+| `sensor.oclean_last_brush_duration` | Duration of last session | min (default) | ✅ Tested |
 | `sensor.oclean_last_brush_scheme_type` | Brush programme name (from pNum); falls back to numeric ID if name is unknown | – | ✅ Tested |
 | `sensor.oclean_brush_head_usage` | Brush head wear indicator | – | ⚠️ Unconfirmed |
 | `sensor.oclean_last_brush_pressure` | Average brushing pressure across all tooth zones | – | ⚠️ Unconfirmed |
@@ -74,6 +74,7 @@ After restart, go to **Settings → Integrations → Add Integration** and searc
 |--------|-------------|--------|
 | `button.oclean_reset_brush_head` | Resets the brush head wear counter | ⚠️ Unconfirmed |
 | `button.oclean_sync_time` | Syncs the current time to the device clock | ✅ Tested |
+| `button.oclean_poll_now` | Triggers an immediate BLE poll | ✅ Tested |
 
 **Legend:**
 - ✅ **Tested** – confirmed working on real hardware with multiple sessions
@@ -92,7 +93,7 @@ After restart, go to **Settings → Integrations → Add Integration** and searc
 | Battery level | Read directly from device |
 | Last brush score | Confirmed with multiple real sessions (Oclean X); delivered via separate BLE notification after session end |
 | Last brush timestamp | Device local time, confirmed across multiple sessions |
-| Last brush duration | Session length in seconds; confirmed on Oclean X (0307 format, APK-verified via AbstractC0002b.m18f) |
+| Last brush duration | Session length; displayed in minutes by default (e.g. 2.5 min). Confirmed on Oclean X (0307 format, APK-verified via AbstractC0002b.m18f) |
 | Last brush scheme type | Brush programme name/ID (pNum); confirmed on Oclean X via 0307 (APK-verified) |
 | Time calibration | Device clock synced on every poll and on demand via the *Sync Time* button |
 | Poll interval | Configurable 60–86400 seconds (default: 300 s), or set to `0` for manual-only mode |
