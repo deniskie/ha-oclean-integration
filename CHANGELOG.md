@@ -2,16 +2,27 @@
 
 ## [Unreleased]
 
+---
+
+## [v1.1.0] – 2026-03-21
+
 ### New Features
 
 - **Poll Now button** – New button entity (`button.oclean_poll_now`) triggers an immediate BLE poll directly from the HA dashboard, without needing to use the `oclean_ble.poll` service action.
+- **Software brush-head counter** – When the device does not expose a hardware session counter via the `0302` response (e.g. OCLEANY3M), the integration now maintains a software counter that increments by the number of new sessions on each poll. The hardware value always takes priority when available; both counters stay in sync. The counter is reset to 0 when "Reset Brush Head" is pressed.
 
 ### Improvements
 
 - **Last Brush Duration** – Default display unit changed from seconds to minutes (e.g. `2.5 min` instead of `150 s`). The unit can still be overridden per entity in HA settings.
+- **TYPE1 command routing** – All four query commands (0303 / 0202 / 0302 / 0307) for TYPE1 devices (Oclean X family) are now sent via `fbb89` (`SEND_BRUSH_CMD_UUID`) as required by the firmware. Previously 0303 / 0202 / 0302 were incorrectly sent to `fbb85`.
+- **`write_char` field on DeviceProtocol** – Each protocol profile now declares the correct characteristic for one-off write commands (area reminder, brush-head lifetime, time calibration, reset). TYPE1 uses `fbb89`; all other profiles use `fbb85`.
+- **Standalone writes on TYPE1** – Area Reminder, Brush Head Lifetime, Sync Time, and Reset Brush Head now subscribe to the device's notify characteristics before writing. This is required on TYPE1 devices where `fbb89` is only exposed after at least one notify subscription (e.g. `fbb90`) is active.
+- **020F ACK logging** – "Reset Brush Head" subscribes to `fbb86` and `fbb90` before sending the reset command and logs any notification received within 2 seconds. This aids protocol research into whether the device returns an updated counter value.
 
 ### Bug Fixes
 
+- **Area Reminder switch "Characteristic not found"** – Toggling the switch on TYPE1 devices (OCLEANY3M etc.) failed with `Characteristic fbb89 was not found`. Fixed by subscribing to notify chars before the write (see improvement above).
+- **Sync Time button on TYPE1** – Same root cause as Area Reminder; the `020E`/`0201` calibration write now also uses the subscribe-first pattern.
 - **ESPHome proxy – battery stuck** (closes #7): When the ESPHome BLE proxy has a stale GATT cache and `0x2A19` (Battery Service) is not found, the integration now immediately invalidates the DIS cache and triggers a full GATT re-discovery, then retries the battery notification subscription within the same poll. Previously the proxy would not rediscover `0x2A19` for up to 24 hours.
 
 ---
