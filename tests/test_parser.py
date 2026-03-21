@@ -11,12 +11,14 @@ import pytest
 from custom_components.oclean_ble.const import (
     DATA_BRUSH_HEAD_DAYS,
     DATA_BRUSH_HEAD_USAGE,
+    DATA_BRUSH_MODE,
     DATA_LAST_BRUSH_DURATION,
     DATA_LAST_BRUSH_PNUM,
     DATA_LAST_BRUSH_SCORE,
     DATA_LAST_BRUSH_TIME,
     RESP_BRUSH_AREAS_T1,
     RESP_BRUSH_AREAS_Y3P,
+    RESP_DEVICE_SETTINGS,
     RESP_EXTENDED_T1,
     RESP_INFO,
     RESP_INFO_T1,
@@ -31,11 +33,11 @@ from custom_components.oclean_ble.parser import (
     T1_C3352G_RECORD_SIZE,
     _device_datetime,
     _log_4b00_response,
-    _log_device_settings_response,
     _map_json_brush_data,
     _parse_0314_response,
     _parse_brush_areas_t1_response,
     _parse_brush_areas_y3p_response,
+    _parse_device_settings_response,
     _parse_extended_running_data_record,
     _parse_info_response,
     _parse_info_t1_response,
@@ -2083,12 +2085,12 @@ class TestParseXx03SessionRecord:
 
 
 # ---------------------------------------------------------------------------
-# _log_device_settings_response – 0302 brush-head counter parser
+# _parse_device_settings_response (0302)
 # ---------------------------------------------------------------------------
 
 
 class TestLogDeviceSettingsResponse:
-    """Tests for _log_device_settings_response (RESP_DEVICE_SETTINGS / 0302 parser)."""
+    """Tests for _parse_device_settings_response (RESP_DEVICE_SETTINGS / 0302 parser)."""
 
     def _make_payload(self, head_days: int = 42, head_times: int = 17) -> bytes:
         """Build a minimal 32-byte 0302 payload with known brush-head values."""
@@ -2102,21 +2104,85 @@ class TestLogDeviceSettingsResponse:
 
     def test_returns_brush_head_usage_and_days(self):
         """32-byte payload must return DATA_BRUSH_HEAD_USAGE and DATA_BRUSH_HEAD_DAYS."""
-        result = _log_device_settings_response(self._make_payload(head_days=42, head_times=17))
+        result = _parse_device_settings_response(self._make_payload(head_days=42, head_times=17))
         assert result[DATA_BRUSH_HEAD_USAGE] == 17
         assert result[DATA_BRUSH_HEAD_DAYS] == 42
 
-    def test_short_payload_returns_empty(self):
-        """Payloads shorter than 32 bytes must return {} (no data to extract)."""
-        assert _log_device_settings_response(bytes(31)) == {}
-        assert _log_device_settings_response(b"") == {}
+    def test_short_payload_no_brush_head_counters(self):
+        """Payloads shorter than 32 bytes return modeNum but not brush-head counters."""
+        result = _parse_device_settings_response(bytes(31))
+        assert DATA_BRUSH_MODE in result
+        assert DATA_BRUSH_HEAD_USAGE not in result
+        assert DATA_BRUSH_HEAD_DAYS not in result
+        assert _parse_device_settings_response(b"") == {}
 
     def test_routed_via_parse_notification(self):
-        """parse_notification must route 0302 prefix to _log_device_settings_response."""
-        from custom_components.oclean_ble.const import RESP_DEVICE_SETTINGS
-
+        """parse_notification must route 0302 prefix to _parse_device_settings_response."""
         payload = self._make_payload(head_days=10, head_times=5)
         data = RESP_DEVICE_SETTINGS + payload
         result = parse_notification(data)
         assert result[DATA_BRUSH_HEAD_USAGE] == 5
         assert result[DATA_BRUSH_HEAD_DAYS] == 10
+
+
+def _make_device_settings_payload(mode_num: int = 0, extra_bytes: int = 28) -> bytes:
+    """Build a minimal 0302 payload.
+
+    Byte layout (APK C3367n0.java):
+      0  batteryLevel
+      1  networkStatus
+      2  raiseWake
+      3  voiceMainSwitch
+      4  bindState
+      5  modeNum  ← the field under test
+      6+ remaining bytes (irrelevant for current parser)
+    """
+    payload = bytearray(6 + extra_bytes)
+    payload[5] = mode_num
+    return bytes(payload)
+
+
+class TestParseDeviceSettingsResponse:
+    def test_mode_num_extracted(self):
+        payload = _make_device_settings_payload(mode_num=2)
+        result = _parse_device_settings_response(payload)
+        assert result[DATA_BRUSH_MODE] == 2
+
+    def test_mode_num_zero(self):
+        payload = _make_device_settings_payload(mode_num=0)
+        assert _parse_device_settings_response(payload)[DATA_BRUSH_MODE] == 0
+
+    def test_mode_num_max_byte(self):
+        payload = _make_device_settings_payload(mode_num=255)
+        assert _parse_device_settings_response(payload)[DATA_BRUSH_MODE] == 255
+
+    def test_mode_num_k3_clean(self):
+        # K3 mode 0 = "Clean" (APK: cbModeClean checked when modeNum != 3)
+        payload = _make_device_settings_payload(mode_num=0)
+        assert _parse_device_settings_response(payload)[DATA_BRUSH_MODE] == 0
+
+    def test_mode_num_k3_core(self):
+        # K3 mode 3 = "Core" (APK: cbModeCore checked when modeNum == 3)
+        payload = _make_device_settings_payload(mode_num=3)
+        assert _parse_device_settings_response(payload)[DATA_BRUSH_MODE] == 3
+
+    def test_exact_6_bytes_accepted(self):
+        payload = bytes([0x50, 0x01, 0x01, 0x01, 0x02, 0x04])
+        result = _parse_device_settings_response(payload)
+        assert result[DATA_BRUSH_MODE] == 4
+
+    def test_too_short_returns_empty(self):
+        assert _parse_device_settings_response(b"") == {}
+        assert _parse_device_settings_response(bytes(5)) == {}
+
+    def test_extra_bytes_ignored(self):
+        payload = _make_device_settings_payload(mode_num=7, extra_bytes=50)
+        assert _parse_device_settings_response(payload)[DATA_BRUSH_MODE] == 7
+
+    def test_routed_via_parse_notification(self):
+        # RESP_DEVICE_SETTINGS (0302) prefix must be registered in _PARSERS
+        mode = 5
+        payload = _make_device_settings_payload(mode_num=mode)
+        notification = RESP_DEVICE_SETTINGS + payload
+        result = parse_notification(notification)
+        assert result[DATA_BRUSH_MODE] == mode

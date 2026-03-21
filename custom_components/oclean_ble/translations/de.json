@@ -93,6 +93,9 @@
       "hw_revision": {
         "name": "Hardware-Revision"
       },
+      "brush_mode": {
+        "name": "Putzmodus"
+      },
       "last_brush_gesture_code": {
         "name": "Letzter Gestencode"
       },

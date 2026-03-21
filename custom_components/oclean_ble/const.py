@@ -38,7 +38,7 @@ CMD_QUERY_RUNNING_DATA_NEXT = bytes.fromhex("0309")  # mo5301W0 – follow-up pa
 CMD_QUERY_EXTENDED_DATA_T1 = bytes.fromhex("0314")  # mo5337g1 – C3376s (Oclean X Pro); extended session data
 CMD_QUERY_DEVICE_SETTINGS = bytes.fromhex(
     "030201"
-)  # mo5301W0 – triggers 0302 device-settings response (brush head counters)
+)  # mo5301W0 / W0 – request device settings (modeNum, areaRemind, brush head counters, etc.)
 
 # Response type markers (first 2 bytes)
 # Observed on Oclean X: the device echoes the command prefix as the response type.
@@ -50,6 +50,7 @@ RESP_DEVICE_SETTINGS = bytes.fromhex("0302")  # Device-Info notification – set
 RESP_INFO = bytes.fromhex("0308")  # Response to CMD_QUERY_RUNNING_DATA – brush records (Type 0)
 RESP_INFO_T1 = bytes.fromhex("0307")  # Response to CMD_QUERY_RUNNING_DATA_T1 – brush records (Type 1, Oclean X)
 RESP_DEVICE_INFO = bytes.fromhex("0202")  # Response to CMD_DEVICE_INFO – "OK" acknowledge
+RESP_DEVICE_SETTINGS = bytes.fromhex("0302")  # Response to CMD_QUERY_DEVICE_SETTINGS – device settings payload
 RESP_K3GUIDE = bytes.fromhex("0340")  # Real-time zone guidance during brushing (K3 devices)
 RESP_EXTENDED_T1 = bytes.fromhex("0314")  # Response to CMD_QUERY_EXTENDED_DATA_T1 (score candidate)
 RESP_SCORE_T1 = bytes.fromhex("0000")  # Score push (Type-1, Oclean X series): payload[0] = score 0-100
@@ -134,6 +135,7 @@ DATA_LAST_BRUSH_GESTURE_CODE = "last_brush_gesture_code"  # int 0-255 (APK: byte
 DATA_LAST_BRUSH_PRESSURE_RATIO = "last_brush_pressure_ratio"  # list[int] len=5 (bytes 11-15)
 DATA_LAST_BRUSH_GESTURE_ARRAY = "last_brush_gesture_array"  # list[int] len=13 (bytes 18-30)
 DATA_LAST_BRUSH_POWER_ARRAY = "last_brush_power_array"  # list[int] len=12, each 0-3 (nibbles from bytes 30-32)
+DATA_BRUSH_MODE = "brush_mode"  # int: active brushing mode number from 0302 device-settings response (byte 5)
 
 # Tooth area zone names in BrushAreaType enum order (value 1 → index 0 … value 8 → index 7)
 # Source: com/ocleanble/lib/device/BrushAreaType.java
