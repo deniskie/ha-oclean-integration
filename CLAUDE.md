@@ -40,18 +40,22 @@ This is a **Home Assistant custom integration** (`domain: oclean_ble`) for Oclea
 BLE Device
   └─ establish_connection (bleak_retry_connector)
        └─ OcleanCoordinator._poll_device()
-            ├─ _calibrate_time()         → write CMD 020E + timestamp
+            ├─ _calibrate_time()           → write CMD 020E + timestamp via DeviceProtocol.write_char
             ├─ _read_device_info_service() → BLE DIS (model/fw/hw, cached 24 h)
-            ├─ _subscribe_notifications() → up to 4 GATT notify characteristics
-            ├─ _send_query_commands()     → CMD 0303 (status), 0308 / 0307 (sessions)
-            ├─ _paginate_sessions()       → CMD 0309 until no new sessions
+            ├─ _subscribe_notifications()  → up to 4 GATT notify characteristics (per DeviceProtocol.notify_chars)
+            ├─ _send_query_commands()      → CMD sequence from DeviceProtocol.query_commands
+            │                                TYPE1: 0303/0202/0302/0307 all via fbb89 (SEND_BRUSH_CMD_UUID)
+            │                                TYPE0: 0303/0202/0302/0308 all via fbb85 (WRITE_CHAR_UUID)
+            ├─ _paginate_sessions()        → CMD 0309 via fbb85 until no new sessions (TYPE0 only)
             └─ _read_battery_and_unsubscribe()
                   → notification_handler() calls parse_notification()
                        └─ _PARSERS registry dispatches by 2-byte prefix
                             ├─ 0303 → _parse_state_response()
-                            ├─ 0307 → _parse_info_t1_response()   (Type-1 / Oclean X)
+                            ├─ 0307 → _parse_info_t1_response()   (Type-1 / Oclean X family)
                             ├─ 0308 → _parse_info_response()      (Type-0; auto-detects extended vs. simple binary format)
                             ├─ 0202 → _handle_device_info_ack()
+                            ├─ 0000 → _parse_score_t1_response()  (Type-1 enrichment: score push after session)
+                            ├─ 2604 → _parse_brush_areas_t1_response() (Type-1 enrichment: per-tooth areas)
                             └─ 0340 → _parse_k3guide_response()   (K3-series real-time guidance)
   └─ OcleanDeviceData (dataclass snapshot)
        └─ CoordinatorEntity subclasses (OcleanSensor, OcleanBinarySensor, OcleanButton)
@@ -63,6 +67,7 @@ BLE Device
 |------|------|
 | `coordinator.py` | `OcleanCoordinator` – BLE polling, session pagination, HA long-term statistics import, stale-data persistence |
 | `parser.py` | Pure functions: BLE byte payload → dict. Strategy registry `_PARSERS` keyed on 2-byte response prefix. Two binary record formats (simple 18-byte and extended 32-byte). |
+| `protocol.py` | `DeviceProtocol` dataclass – per-family capability profile: `notify_chars`, `query_commands`, `supports_pagination`, `write_char`. `protocol_for_model()` maps DIS model-IDs to profiles. |
 | `models.py` | `OcleanDeviceData` dataclass – typed snapshot returned by the coordinator. Field names match `DATA_*` string constants from `const.py` so sensors look up values via `getattr`. |
 | `const.py` | All GATT UUIDs, BLE command bytes, response type markers, `DATA_*` / `SENSOR_*` key constants, `SCHEME_NAMES` lookup, `TOOTH_AREA_NAMES` tuple |
 | `entity.py` | `OcleanEntity` base class – shared `unique_id`, `device_info`, and `available` logic |
@@ -82,7 +87,7 @@ The Type-1 path (0307) is a separate handler `_parse_info_t1_response()` with a 
 
 `OcleanCoordinator` persists state in HA storage (one store per MAC, keyed `oclean_ble.<mac_slug>`):
 - `last_session_ts` – Unix timestamp of the newest imported session; prevents re-importing sessions across restarts
-- `brush_head_count` / `brush_head_hw` – software brush-head counter (used when the device doesn't expose a hardware counter)
+- `brush_head_sw_count` – software brush-head session counter; incremented per new session when the device does not expose a hardware counter via 0302. When the hardware value IS available, it syncs `brush_head_sw_count` to match, so switching between HW and SW mode is seamless. Reset by `async_reset_brush_head()`.
 
 New sessions are imported via `recorder.statistics.async_add_external_statistics` with their actual timestamps so historical data appears correctly in HA graphs.
 
@@ -131,14 +136,16 @@ grep -c "DIS read" oclean_ble.log
 
 ### Device protocol mapping (confirmed via APK + empirical logs)
 
-| Device | Model-ID | Session command | Session response | Extended fields |
-|--------|----------|----------------|-----------------|-----------------|
-| Oclean X | OCLEANY3M | 0307 → SEND_BRUSH_CMD_UUID | RECEIVE_BRUSH_UUID | Score via `0000`, areas via `2604` |
-| Oclean X Pro | OCLEANY3 | 0308 → WRITE_CHAR_UUID | READ_NOTIFY_CHAR_UUID | Extended 32-byte format inline |
-| Oclean X Pro Elite | OCLEANY3P | 0307 → SEND_BRUSH_CMD_UUID | RECEIVE_BRUSH_UUID | Score via `0000`, areas via `021f`, meta via `5100` |
-| Oclean Air 1 | OCLEANA1 | 0307 → SEND_BRUSH_CMD_UUID | fbb86 READ (no CCCD) | None |
+| Device | Model-ID | Protocol | All commands via | Session response | Extended fields |
+|--------|----------|----------|-----------------|-----------------|-----------------|
+| Oclean X | OCLEANY3M | TYPE1 | fbb89 (SEND_BRUSH_CMD_UUID) | fbb90 (RECEIVE_BRUSH_UUID) | Score via `0000`, areas via `2604` (enrichment pushes after session) |
+| Oclean X Pro | OCLEANY3 | TYPE1 | fbb89 | fbb90 | Score/areas via enrichment pushes |
+| Oclean X Pro Elite | OCLEANY3P | TYPE1 | fbb89 | fbb90 | Score via `0000`, areas via `021f`, meta via `5100` |
+| Oclean Air 1 | OCLEANA1 | LEGACY | fbb85 (WRITE_CHAR_UUID) | fbb86 READ (no CCCD) | None |
 
-**OCLEANY3M**: Only uses 0307. Extended fields (Areas, Pressure, Scheme) are unavailable – expected, not a bug.
+**All TYPE1 devices** send every BLE command (0303/0202/0302/0307) via `fbb89` (`SEND_BRUSH_CMD_UUID`). Responses arrive as notifications on `fbb90` (`RECEIVE_BRUSH_UUID`) or `fbb86` (`READ_NOTIFY_CHAR_UUID`). The `write_char` field on `DeviceProtocol` controls which characteristic is used for one-off standalone writes (area_remind, brush_head_max_days, reset_brush_head, time calibration).
+
+**OCLEANY3M**: Score and areas arrive as unsolicited enrichment pushes (`0000`, `2604`) on fbb90 after the 0307 session response. In inline mode (no new sessions), the 13-byte truncated record omits score – enrichment pushes may or may not follow depending on firmware.
 
 **OCLEANY3P** (Oclean X Pro Elite): Uses 0307. When the device has stored sessions, it responds with session_count>0 and year_byte=0 (no inline data), then pushes session data via:
 - `021f` – candidate: zone/area pressure data (analogous to `2604` on OCLEANY3M)
@@ -163,6 +170,14 @@ Both `021f` and `5100` are logged for research. Format confirmed once correlated
 2. If `0308` arrives: check if `payload[0]==0 and payload[1]>=32` – if not, it falls to simple parser
 3. If extended detected: does `"extended running-data"` appear? If not, check `"extended record parse error"`
 4. If simple parser runs instead: fields like Areas/Pressure/Scheme are not in that format
+
+### What to look for when debugging missing Score/Areas on TYPE1 (OCLEANY3M)
+
+Score (`0000`) and areas (`2604`) are enrichment pushes from the device after the 0307 session response:
+1. Check if 0307 session is received at all: `grep "0307 inline\|0307 paginated\|C3352g record\|m18f parsed" oclean_ble.log`
+2. If session received, check if enrichment arrives: `grep "0000 score\|2604 areas" oclean_ble.log`
+3. If enrichment missing: likely inline mode (device has no new sessions since last poll); enrichment only reliably arrives in paginated mode (new sessions present)
+4. Check 0302 device-settings response: `grep "0302 brush-head counters" oclean_ble.log` – confirms all TYPE1 commands now reach the device via fbb89
 
 ### `b2` byte in 0303 STATE response
 
