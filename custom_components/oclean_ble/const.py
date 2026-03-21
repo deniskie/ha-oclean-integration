@@ -136,6 +136,7 @@ DATA_LAST_BRUSH_PRESSURE_RATIO = "last_brush_pressure_ratio"  # list[int] len=5 
 DATA_LAST_BRUSH_GESTURE_ARRAY = "last_brush_gesture_array"  # list[int] len=13 (bytes 18-30)
 DATA_LAST_BRUSH_POWER_ARRAY = "last_brush_power_array"  # list[int] len=12, each 0-3 (nibbles from bytes 30-32)
 DATA_BRUSH_MODE = "brush_mode"  # int: active brushing mode number from 0302 device-settings response (byte 5)
+DATA_LAST_POLL = "last_poll"  # Unix timestamp (seconds) of the last successful BLE poll
 
 # Tooth area zone names in BrushAreaType enum order (value 1 → index 0 … value 8 → index 7)
 # Source: com/ocleanble/lib/device/BrushAreaType.java

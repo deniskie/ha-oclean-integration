@@ -33,6 +33,7 @@ from .const import (
     DATA_LAST_BRUSH_PRESSURE,
     DATA_LAST_BRUSH_SCORE,
     DATA_LAST_BRUSH_TIME,
+    DATA_LAST_POLL,
     DATA_MODEL_ID,
     DATA_SW_VERSION,
     DOMAIN,
@@ -142,6 +143,13 @@ SENSOR_DESCRIPTIONS: tuple[SensorEntityDescription, ...] = (
         name="Brush Mode",
         icon="mdi:tune",
         state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
+    SensorEntityDescription(
+        key=DATA_LAST_POLL,
+        name="Last Poll",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        icon="mdi:clock-check-outline",
         entity_category=EntityCategory.DIAGNOSTIC,
     ),
     # NOTE: DATA_LAST_BRUSH_PNUM is handled by OcleanSchemeSensor below (custom class).

@@ -47,6 +47,7 @@ from .const import (
     DATA_LAST_BRUSH_PRESSURE,
     DATA_LAST_BRUSH_SCORE,
     DATA_LAST_BRUSH_TIME,
+    DATA_LAST_POLL,
     DATA_MODEL_ID,
     DATA_SW_VERSION,
     DIS_HW_REV_UUID,
@@ -594,6 +595,7 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
                 await client.disconnect()
 
         self.last_poll_successful = True
+        collected[DATA_LAST_POLL] = int(time.time())
 
         # Count new sessions before _import_new_sessions updates _last_session_ts
         new_session_count = sum(1 for s in all_sessions if s.get(DATA_LAST_BRUSH_TIME, 0) > self._last_session_ts)
