@@ -46,6 +46,8 @@ _LOGGER = logging.getLogger(__name__)
 
 # Earliest plausible session year for any Oclean device.
 _MIN_YEAR = 2015
+# Base year used in Oclean's year encoding (device stores year - 2000).
+_YEAR_2000 = 2000
 # Minimum payload sizes for each binary record format.
 _RUNNING_DATA_MIN_RECORD_SIZE = 18  # 0308 simple format (m5348m1)
 _T1_MIN_SIZE = 12  # 0307 Type-1 push (need through byte 11 for pNum)
@@ -109,7 +111,7 @@ def _device_datetime(
     Raises ValueError if the resulting year predates the first Oclean devices,
     which is caught by each parser's existing except block.
     """
-    year = year_byte + 2000
+    year = year_byte + _YEAR_2000
     if year < _MIN_YEAR:
         raise ValueError(f"implausible year {year} (byte={year_byte:#04x})")
     return datetime.datetime(year, month, day, hour, minute, second)
@@ -183,7 +185,7 @@ def _parse_xx03_session_record(data: bytes) -> dict[str, Any]:
     """
     try:
         year_base = data[9]
-        year = year_base + 2000
+        year = year_base + _YEAR_2000
         if year < _MIN_YEAR:
             _LOGGER.debug("Oclean XX03 record: implausible year_base 0x%02x, raw: %s", year_base, data.hex())
             return {}
@@ -433,7 +435,7 @@ def parse_t1_c3352g_record(record: bytes) -> dict[str, Any]:
         return {}
 
     year_base = record[0]
-    year = year_base + 2000
+    year = year_base + _YEAR_2000
     if year < _MIN_YEAR:
         _LOGGER.debug(
             "Oclean C3352g record: implausible year_base 0x%02x (year %d < %d), raw: %s",
