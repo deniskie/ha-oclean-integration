@@ -875,7 +875,8 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         """
         if self._protocol is TYPE1:
             now = datetime.datetime.now().astimezone()
-            offset_min = int(now.utcoffset().total_seconds() / 60)
+            utc_offset = now.utcoffset()
+            offset_min = int(utc_offset.total_seconds() / 60) if utc_offset is not None else 0
             tz_idx = _oclean_tz_index(offset_min)
             weekday = (now.weekday() + 1) % 7  # Python Mon=0..Sun=6 → Oclean Sun=0..Sat=6
             payload = bytes(
