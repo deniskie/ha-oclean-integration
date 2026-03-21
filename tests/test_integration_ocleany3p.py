@@ -152,6 +152,57 @@ class TestOcleanY3PStreamSession:
         assert result.get(DATA_LAST_BRUSH_TIME) is None
 
     @pytest.mark.asyncio
+    async def test_flush_pending_recovers_complete_record_from_truncated_stream(self):
+        """flush_pending rescues a complete record when a multi-record stream is truncated.
+
+        Scenario (slow ESPHome BLE proxy):
+          - Device announces 2 records → total_expected = 84 bytes.
+          - Record 1 arrives fully (42 bytes in buffer) but no auto-flush because
+            expected is still 84.
+          - Record 2 starts arriving (20 bytes) then the session-wait times out.
+          - flush_pending() is called: floor(62/42)*42 = 42 → record 1 is parsed.
+          - Result: session data from record 1 is present despite the truncation.
+        """
+        record1 = bytearray(42)
+        record1[0] = 0x00
+        record1[1] = 3  # month
+        record1[2] = 11  # day
+        record1[3] = 20  # hour
+        record1[4] = 2  # minute
+        record1[5] = 23  # second
+        record1[7] = 0x00
+        record1[8] = 120  # duration = 120 s
+        record1[33] = 85  # score
+
+        record2 = bytearray(42)  # partial – only first 20 bytes will arrive
+        record2[0] = 0x00
+
+        # Header announces count=2 (total_expected = 84 bytes).
+        header = bytearray(20)
+        header[0:2] = b"\x03\x07"
+        header[2:5] = b"\x2a\x42\x23"  # *B#
+        header[5] = 0x00
+        header[6] = 0x02  # count = 2 records
+        header[7:20] = record1[0:13]  # inline: first 13 bytes of record 1
+
+        # record1[13:33] → continuation 1 (20 bytes), record1[33:42] → continuation 2 (9 bytes)
+        # After these two continuations: buf = 42 bytes, expected = 84 → no auto-flush.
+        # Then record2[0:20] (20 bytes) arrives → buf = 62 bytes → still no auto-flush.
+        client = (
+            OcleanDeviceSimulator()
+            .with_battery(70)
+            .add_notification(bytes(header))
+            .add_notification(bytes(record1[13:33]))  # +20 B → 33 total
+            .add_notification(bytes(record1[33:42]))  # +9 B → 42 total (record 1 complete)
+            .add_notification(bytes(record2[0:20]))  # +20 B → 62 total (record 2 partial)
+            .build_client()
+        )
+        result = await run_poll(_coordinator(), client)
+
+        assert result.get(DATA_LAST_BRUSH_DURATION) == 120
+        assert result.get(DATA_LAST_BRUSH_SCORE) == 85
+
+    @pytest.mark.asyncio
     async def test_incomplete_stream_no_session(self):
         """Only the 0307 header + first continuation (33/42 bytes) → no session emitted.
 
