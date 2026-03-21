@@ -36,6 +36,9 @@ CMD_QUERY_RUNNING_DATA = bytes.fromhex("0308")  # mo5299S0 Type 0 / C3340b1 – 
 CMD_QUERY_RUNNING_DATA_T1 = bytes.fromhex("0307")  # Type 1 (Oclean X): send to SEND_BRUSH_CMD_UUID
 CMD_QUERY_RUNNING_DATA_NEXT = bytes.fromhex("0309")  # mo5301W0 – follow-up page
 CMD_QUERY_EXTENDED_DATA_T1 = bytes.fromhex("0314")  # mo5337g1 – C3376s (Oclean X Pro); extended session data
+CMD_QUERY_DEVICE_SETTINGS = bytes.fromhex(
+    "030201"
+)  # mo5301W0 – triggers 0302 device-settings response (brush head counters)
 
 # Response type markers (first 2 bytes)
 # Observed on Oclean X: the device echoes the command prefix as the response type.

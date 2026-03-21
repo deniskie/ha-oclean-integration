@@ -271,13 +271,6 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         self._last_session_ts: int = 0
         self._store_loaded: bool = False
 
-        # Software brush-head usage counter.
-        # Used when the device does not expose a hardware counter via BLE (0308 bytes 14-15).
-        # Once a hardware value is ever received, _brush_head_hw_supported is set to True
-        # and the software counter is no longer written to the sensor.
-        self._brush_head_sw_count: int = 0
-        self._brush_head_hw_supported: bool = False
-
         # User-controlled device settings (write-only; state persisted locally).
         self._area_remind: bool | None = None
         self._brush_head_max_days: int | None = None
@@ -366,10 +359,7 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
             if client.is_connected:
                 await client.disconnect()
 
-        # Reset software counter regardless of hw support (covers both cases)
-        self._brush_head_sw_count = 0
         await self._save_store()
-        self._log.debug("brush head sw counter reset to 0")
         if self.data is not None:
             self.async_set_updated_data(dataclasses.replace(self.data, brush_head_usage=0))
 
@@ -493,18 +483,14 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         stored = await self._store.async_load()
         if stored:
             self._last_session_ts = stored.get("last_session_ts", 0)
-            self._brush_head_sw_count = stored.get("brush_head_count", 0)
-            self._brush_head_hw_supported = stored.get("brush_head_hw", False)
             self._area_remind = stored.get("area_remind")
             self._brush_head_max_days = stored.get("brush_head_max_days")
             last_session = stored.get("last_session", {})
             if last_session:
                 self._last_raw.update(last_session)
             self._log.debug(
-                "loaded store: last_session_ts=%d, brush_head_count=%d, hw=%s",
+                "loaded store: last_session_ts=%d",
                 self._last_session_ts,
-                self._brush_head_sw_count,
-                self._brush_head_hw_supported,
             )
         self._store_loaded = True
 
@@ -516,8 +502,6 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         await self._store.async_save(
             {
                 "last_session_ts": self._last_session_ts,
-                "brush_head_count": self._brush_head_sw_count,
-                "brush_head_hw": self._brush_head_hw_supported,
                 "area_remind": self._area_remind,
                 "brush_head_max_days": self._brush_head_max_days,
                 "last_session": last_session,
@@ -548,10 +532,6 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
 
         self.last_poll_successful = True
 
-        # Detect hardware brush-head counter support
-        if collected.get(DATA_BRUSH_HEAD_USAGE) is not None:
-            self._brush_head_hw_supported = True
-
         # Count new sessions before _import_new_sessions updates _last_session_ts
         new_session_count = sum(1 for s in all_sessions if s.get(DATA_LAST_BRUSH_TIME, 0) > self._last_session_ts)
 
@@ -573,17 +553,6 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
                 new_session_count,
                 self._post_brush_cooldown_s / 3600,
             )
-
-        # Software brush-head counter: increment per new session when hw not supported
-        if not self._brush_head_hw_supported:
-            if new_session_count > 0:
-                self._brush_head_sw_count += new_session_count
-                self._log.debug(
-                    "brush head sw counter: +%d → %d",
-                    new_session_count,
-                    self._brush_head_sw_count,
-                )
-            collected[DATA_BRUSH_HEAD_USAGE] = self._brush_head_sw_count
 
         # Merge with last known persistent data, then overwrite with fresh values
         merged = {**{k: self._last_raw.get(k) for k in _PERSISTENT_KEYS}, **collected}

@@ -1048,10 +1048,13 @@ def _log_4b00_response(payload: bytes) -> dict[str, Any]:
 
 
 def _log_device_settings_response(payload: bytes) -> dict[str, Any]:
-    """Log all fields of a 0302 Device-Info notification for empirical analysis.
+    """Parse a 0302 Device-Settings notification; return brush-head usage counter.
 
-    The 0302 notification is sent by the device in response to CMD_DEVICE_INFO
-    (0202) and contains device settings including brush head counters.
+    The 0302 notification is sent by the device in response to
+    CMD_QUERY_DEVICE_SETTINGS (030201) and contains device settings including
+    native brush-head counters.  headUsedTimes (the session count since last
+    brush-head reset) is mapped to DATA_BRUSH_HEAD_USAGE and replaces the old
+    software counter.
 
     Byte layout (APK source C3385w0, min. 32 bytes after the 0302 prefix):
       byte   0:    deviceTheme
@@ -1072,39 +1075,35 @@ def _log_device_settings_response(payload: bytes) -> dict[str, Any]:
       bytes 24-25: pNum
       bytes 25-27: headMaxTimeLong  ← unit TBD (empirical; see CMD_BRUSH_HEAD_MAX_DAYS)
       bytes 27-29: headUsedTimeLong ← unit TBD (should be same unit as headMaxTimeLong)
-      bytes 29-31: headUsedDays     ← likely calendar days since brush head install
-      bytes 31-32: headUsedTimes    ← likely number of brushing sessions
-
-    The unit of headMaxTimeLong / headUsedTimeLong is empirically unconfirmed.
-    Compare headUsedTimeLong against known brushing duration and headUsedDays
-    against calendar days since last brush head reset to narrow down the unit.
+      bytes 29-31: headUsedDays     ← calendar days since brush head install
+      bytes 31-32: headUsedTimes    ← number of brushing sessions since last reset
     """
     _LOGGER.debug("Oclean 0302 device-settings raw: %s  len=%d", payload.hex(), len(payload))
     for i, b in enumerate(payload):
         _LOGGER.debug("  0302[%02d] = 0x%02X  (%3d)", i, b, b)
 
-    if len(payload) >= 32:
-        head_max = int.from_bytes(payload[25:27], "big")
-        head_used = int.from_bytes(payload[27:29], "big")
-        head_days = int.from_bytes(payload[29:31], "big")
-        head_times = payload[31]
-        _LOGGER.debug(
-            "Oclean 0302 brush-head counters –"
-            " headMaxTimeLong=%d (0x%04x, unit TBD)"
-            " headUsedTimeLong=%d (0x%04x, unit TBD)"
-            " headUsedDays=%d"
-            " headUsedTimes=%d",
-            head_max,
-            head_max,
-            head_used,
-            head_used,
-            head_days,
-            head_times,
-        )
-    else:
+    if len(payload) < 32:
         _LOGGER.debug("Oclean 0302 payload too short for brush-head fields (%d < 32)", len(payload))
+        return {}
 
-    return {}
+    head_max = int.from_bytes(payload[25:27], "big")
+    head_used = int.from_bytes(payload[27:29], "big")
+    head_days = int.from_bytes(payload[29:31], "big")
+    head_times = payload[31]
+    _LOGGER.debug(
+        "Oclean 0302 brush-head counters –"
+        " headMaxTimeLong=%d (0x%04x, unit TBD)"
+        " headUsedTimeLong=%d (0x%04x, unit TBD)"
+        " headUsedDays=%d"
+        " headUsedTimes=%d",
+        head_max,
+        head_max,
+        head_used,
+        head_used,
+        head_days,
+        head_times,
+    )
+    return {DATA_BRUSH_HEAD_USAGE: head_times}
 
 
 def _parse_brush_areas_y3p_response(payload: bytes) -> dict[str, Any]:
