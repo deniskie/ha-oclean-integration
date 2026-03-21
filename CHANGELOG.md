@@ -10,6 +10,8 @@
 - **`pNum` → scheme name** – No local mapping possible; the Oclean app fetches scheme names from a cloud API. Currently the numeric pNum is exposed as-is.
 - **`blunt_teeth` unit** – Whether the brush-head wear counter increments linearly (+1 per session) or encodes an ADC wear value is not yet confirmed.
 - **Extended 0308 format** – Implemented based on APK analysis (`AbstractC0002b.m37y`), but never observed on real hardware (all known devices use TYPE1 / 0307).
+- **Model-based sensor visibility** – Sensors that are structurally unavailable for a given device model (e.g. tooth-area sensors on devices that never push `2604`/`021f`, or `brush_head_days` on OCLEANY3M which does not respond to `0302`) should be hidden rather than showing "Unavailable". The integration should use the detected model ID and protocol profile to suppress sensors that can never deliver data.
+- **Conditional options flow** – The options dialog should show or hide settings based on the current configuration (e.g. hide brush-head lifetime input when no hardware counter is available, hide poll-window fields when polling is disabled).
 
 ### Wanted: Oclean X Pro Elite (OCLEANY3P) Test Reports
 
