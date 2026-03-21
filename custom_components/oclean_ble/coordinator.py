@@ -562,7 +562,7 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         # showing a previous session's score/areas alongside the current session's
         # timestamp (e.g. OCLEANY3P inline mode where session_count=0 omits enrichment).
         new_ts = collected.get(DATA_LAST_BRUSH_TIME, 0)
-        prev_ts = self._last_raw.get(DATA_LAST_BRUSH_TIME, 0)
+        prev_ts = self._last_raw.get(DATA_LAST_BRUSH_TIME) or 0
         if new_ts and new_ts > prev_ts:
             for key in _ENRICHMENT_KEYS:
                 if key not in collected:
