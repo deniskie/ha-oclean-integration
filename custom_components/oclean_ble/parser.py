@@ -14,6 +14,7 @@ from .const import (
     DATA_BATTERY,
     DATA_BRUSH_HEAD_DAYS,
     DATA_BRUSH_HEAD_USAGE,
+    DATA_BRUSH_MODE,
     DATA_IS_BRUSHING,
     DATA_LAST_BRUSH_AREAS,
     DATA_LAST_BRUSH_DURATION,
@@ -887,6 +888,41 @@ def _handle_device_info_ack(payload: bytes) -> dict[str, Any]:
     return {}
 
 
+def _parse_device_settings_response(payload: bytes) -> dict[str, Any]:
+    """Parse 0302 device-settings response payload (bytes after the 2-byte type marker).
+
+    Sent by device in response to CMD_QUERY_DEVICE_SETTINGS (030201).
+    Byte layout (source: APK C3367n0.java / C3385w0_fallback.java):
+      byte 0: batteryLevel (also available from 0303; redundant)
+      byte 1: networkStatus (bool)
+      byte 2: raiseWake (bool)
+      byte 3: voiceMainSwitch (bool)
+      byte 4: bindState (bool)
+      byte 5: modeNum – active brushing mode number (device-family-specific)
+      byte 6: brushSongSwitch (bool)
+      byte 7: unknown
+      byte 8: overCross (bool)
+      bytes 9-10: unknown (2-byte value)
+      byte 11: deviceTheme
+      bytes 12-15: unknown
+      byte 16: year (+ 2000) – device clock
+      bytes 17-21: month/day/hour/minute/second
+      byte 22: unknown
+      byte 23: areaRemind (bool)
+      byte 24: timezone offset
+      bytes 25-30: unknown
+      byte 31: deviceLanguage
+    """
+    result: dict[str, Any] = {}
+    if len(payload) < 6:
+        _LOGGER.debug("Oclean device-settings response too short: %s", payload.hex())
+        return result
+
+    result[DATA_BRUSH_MODE] = int(payload[5])
+    _LOGGER.debug("Oclean device-settings parsed: modeNum=%d (raw: %s)", result[DATA_BRUSH_MODE], payload.hex())
+    return result
+
+
 def _parse_score_t1_response(payload: bytes) -> dict[str, Any]:
     """Parse 0000 score-push notification (Type-1 devices: Oclean X series).
 
@@ -1265,6 +1301,7 @@ _PARSERS: dict[bytes, Callable[[bytes], dict[str, Any]]] = {
     RESP_INFO: _parse_info_response,
     RESP_INFO_T1: _parse_info_t1_response,
     RESP_DEVICE_INFO: _handle_device_info_ack,
+    RESP_DEVICE_SETTINGS: _parse_device_settings_response,
     RESP_K3GUIDE: _parse_k3guide_response,
     RESP_EXTENDED_T1: _parse_0314_response,
     RESP_SCORE_T1: _parse_score_t1_response,

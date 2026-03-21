@@ -22,6 +22,7 @@ from .const import (
     DATA_BATTERY,
     DATA_BRUSH_HEAD_DAYS,
     DATA_BRUSH_HEAD_USAGE,
+    DATA_BRUSH_MODE,
     DATA_HW_REVISION,
     DATA_LAST_BRUSH_AREAS,
     DATA_LAST_BRUSH_DURATION,
@@ -132,6 +133,14 @@ SENSOR_DESCRIPTIONS: tuple[SensorEntityDescription, ...] = (
         key=DATA_HW_REVISION,
         name="Hardware Revision",
         icon="mdi:wrench",
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
+    # Device settings (diagnostic) – read from 0302 device-settings response
+    SensorEntityDescription(
+        key=DATA_BRUSH_MODE,
+        name="Brush Mode",
+        icon="mdi:tune",
+        state_class=SensorStateClass.MEASUREMENT,
         entity_category=EntityCategory.DIAGNOSTIC,
     ),
     # NOTE: DATA_LAST_BRUSH_PNUM is handled by OcleanSchemeSensor below (custom class).
