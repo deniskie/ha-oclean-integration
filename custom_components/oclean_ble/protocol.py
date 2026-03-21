@@ -12,7 +12,6 @@ from dataclasses import dataclass
 
 from .const import (
     CHANGE_INFO_UUID,
-    CMD_QUERY_EXTENDED_DATA_T1,
     CMD_QUERY_RUNNING_DATA,
     CMD_QUERY_RUNNING_DATA_T1,
     CMD_QUERY_STATUS,
@@ -66,7 +65,6 @@ TYPE1 = DeviceProtocol(
     query_commands=(
         (WRITE_CHAR_UUID, CMD_QUERY_STATUS),
         (SEND_BRUSH_CMD_UUID, CMD_QUERY_RUNNING_DATA_T1),
-        (SEND_BRUSH_CMD_UUID, CMD_QUERY_EXTENDED_DATA_T1),
     ),
     supports_pagination=False,
 )
@@ -94,7 +92,6 @@ UNKNOWN = DeviceProtocol(
         (WRITE_CHAR_UUID, CMD_QUERY_STATUS),
         (WRITE_CHAR_UUID, CMD_QUERY_RUNNING_DATA),
         (SEND_BRUSH_CMD_UUID, CMD_QUERY_RUNNING_DATA_T1),
-        (SEND_BRUSH_CMD_UUID, CMD_QUERY_EXTENDED_DATA_T1),
     ),
     supports_pagination=True,  # safe: pagination stops when no new sessions arrive
 )
