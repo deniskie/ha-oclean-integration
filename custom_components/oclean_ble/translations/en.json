@@ -2,7 +2,7 @@
   "config": {
     "step": {
       "user": {
-        "title": "Oclean Toothbrush (inofficial)",
+        "title": "Oclean Toothbrush (unofficial)",
         "description": "Set up your Oclean Smart Toothbrush. Nearby devices will be listed automatically if Bluetooth is enabled."
       },
       "pick_device": {

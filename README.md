@@ -1,4 +1,4 @@
-# Oclean Toothbrush (inofficial) – Home Assistant Integration
+# Oclean Toothbrush (unofficial) – Home Assistant Integration
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/integration)
 [![GitHub Release](https://img.shields.io/github/v/release/deniskie/ha-oclean-integration)](https://github.com/deniskie/ha-oclean-integration/releases)

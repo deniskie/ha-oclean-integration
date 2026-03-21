@@ -1,6 +1,6 @@
 {
   "domain": "oclean_ble",
-  "name": "Oclean Toothbrush (inofficial)",
+  "name": "Oclean Toothbrush (unofficial)",
   "after_dependencies": ["recorder"],
   "bluetooth": [
     {"service_uuid": "8082caa8-41a6-4021-91c6-56f9b954cc18"},
