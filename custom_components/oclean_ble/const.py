@@ -123,6 +123,7 @@ CMD_BRUSH_HEAD_MAX_DAYS = bytes.fromhex("0217")  # + 2-byte big-endian uint16 (d
 
 # Coordinator data keys (additional)
 DATA_BRUSH_HEAD_USAGE = "brush_head_usage"
+DATA_BRUSH_HEAD_DAYS = "brush_head_days"
 DATA_MODEL_ID = "model_id"  # Model Number from BLE DIS (e.g. "OCLEANY3M")
 DATA_HW_REVISION = "hw_revision"  # Hardware Revision from BLE DIS (e.g. "Rev.D")
 DATA_SW_VERSION = "sw_version"  # Software Revision from BLE DIS (e.g. "1.0.0.20")

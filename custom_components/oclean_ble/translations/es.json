@@ -81,6 +81,9 @@
       "brush_head_usage": {
         "name": "Usos del cabezal"
       },
+      "brush_head_days": {
+        "name": "Días del cabezal"
+      },
       "sw_version": {
         "name": "Versión del firmware"
       },

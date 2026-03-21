@@ -12,6 +12,7 @@ from typing import Any
 
 from .const import (
     DATA_BATTERY,
+    DATA_BRUSH_HEAD_DAYS,
     DATA_BRUSH_HEAD_USAGE,
     DATA_IS_BRUSHING,
     DATA_LAST_BRUSH_AREAS,
@@ -1103,7 +1104,7 @@ def _log_device_settings_response(payload: bytes) -> dict[str, Any]:
         head_days,
         head_times,
     )
-    return {DATA_BRUSH_HEAD_USAGE: head_times}
+    return {DATA_BRUSH_HEAD_USAGE: head_times, DATA_BRUSH_HEAD_DAYS: head_days}
 
 
 def _parse_brush_areas_y3p_response(payload: bytes) -> dict[str, Any]:

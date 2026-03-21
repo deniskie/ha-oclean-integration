@@ -81,6 +81,9 @@
       "brush_head_usage": {
         "name": "Bürstenkopfnutzung"
       },
+      "brush_head_days": {
+        "name": "Bürstenkopf-Tage"
+      },
       "sw_version": {
         "name": "Firmware-Version"
       },
