@@ -274,6 +274,9 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         # User-controlled device settings (write-only; state persisted locally).
         self._area_remind: bool | None = None
         self._brush_head_max_days: int | None = None
+        # Software brush-head session counter: counts new sessions since the last
+        # brush-head reset when the device does not expose a hardware counter via 0302.
+        self._brush_head_sw_count: int = 0
 
         # Active device protocol profile – selected after the first DIS read.
         # UNKNOWN is the safe fallback: subscribes all chars, sends all commands.
@@ -359,6 +362,7 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
             if client.is_connected:
                 await client.disconnect()
 
+        self._brush_head_sw_count = 0
         await self._save_store()
         if self.data is not None:
             self.async_set_updated_data(dataclasses.replace(self.data, brush_head_usage=0))
@@ -485,6 +489,7 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
             self._last_session_ts = stored.get("last_session_ts", 0)
             self._area_remind = stored.get("area_remind")
             self._brush_head_max_days = stored.get("brush_head_max_days")
+            self._brush_head_sw_count = stored.get("brush_head_sw_count", 0)
             last_session = stored.get("last_session", {})
             if last_session:
                 self._last_raw.update(last_session)
@@ -504,6 +509,7 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
                 "last_session_ts": self._last_session_ts,
                 "area_remind": self._area_remind,
                 "brush_head_max_days": self._brush_head_max_days,
+                "brush_head_sw_count": self._brush_head_sw_count,
                 "last_session": last_session,
             }
         )
@@ -553,6 +559,19 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
                 new_session_count,
                 self._post_brush_cooldown_s / 3600,
             )
+
+        # Software brush-head counter: fallback when device does not report headUsedTimes
+        # via 0302. Incremented per new session; hardware value from 0302 takes priority
+        # and keeps the SW counter in sync so switching between HW/SW is seamless.
+        if DATA_BRUSH_HEAD_USAGE in collected:
+            self._brush_head_sw_count = collected[DATA_BRUSH_HEAD_USAGE]
+        else:
+            if new_session_count > 0:
+                self._brush_head_sw_count += new_session_count
+                self._log.debug(
+                    "sw brush-head count incremented by %d → %d", new_session_count, self._brush_head_sw_count
+                )
+            collected[DATA_BRUSH_HEAD_USAGE] = self._brush_head_sw_count
 
         # Merge with last known persistent data, then overwrite with fresh values
         merged = {**{k: self._last_raw.get(k) for k in _PERSISTENT_KEYS}, **collected}
