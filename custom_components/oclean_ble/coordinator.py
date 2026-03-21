@@ -353,7 +353,7 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         )
         try:
             await asyncio.sleep(BLE_POST_CONNECT_DELAY)
-            await client.write_gatt_char(WRITE_CHAR_UUID, CMD_CLEAR_BRUSH_HEAD, response=True)
+            await client.write_gatt_char(self._protocol.write_char, CMD_CLEAR_BRUSH_HEAD, response=True)
             self._log.info("brush head counter reset sent")
         finally:
             if client.is_connected:
@@ -408,7 +408,7 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         cmd = CMD_AREA_REMIND + bytes([0x01 if enabled else 0x00])
         try:
             await asyncio.sleep(BLE_POST_CONNECT_DELAY)
-            await client.write_gatt_char(WRITE_CHAR_UUID, cmd, response=True)
+            await client.write_gatt_char(self._protocol.write_char, cmd, response=True)
             self._log.info("area remind set to %s", enabled)
         finally:
             if client.is_connected:
@@ -432,7 +432,7 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         cmd = CMD_BRUSH_HEAD_MAX_DAYS + days.to_bytes(2, "big")
         try:
             await asyncio.sleep(BLE_POST_CONNECT_DELAY)
-            await client.write_gatt_char(WRITE_CHAR_UUID, cmd, response=True)
+            await client.write_gatt_char(self._protocol.write_char, cmd, response=True)
             self._log.info("brush head max days set to %d", days)
         finally:
             if client.is_connected:
@@ -972,7 +972,7 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
             cal_cmd = CMD_CALIBRATE_TIME_PREFIX + struct.pack(">I", timestamp)
             self._log.debug("time calibration sent (ts=%d)", timestamp)
         try:
-            await client.write_gatt_char(WRITE_CHAR_UUID, cal_cmd, response=True)
+            await client.write_gatt_char(self._protocol.write_char, cal_cmd, response=True)
         except Exception as err:  # noqa: BLE001
             self._log.warning("time calibration failed: %s (%s)", err, type(err).__name__)
 

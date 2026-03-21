@@ -36,12 +36,16 @@ class DeviceProtocol:
                              logged at DEBUG level and do not abort the poll.
         supports_pagination: True if the device supports 0309 session pagination
                              (Type-0 / Oclean X Pro family only).
+        write_char:          GATT characteristic UUID used for one-off write commands
+                             (area_remind, brush_head_max_days, reset_brush_head,
+                             time calibration).  Type-0 uses fbb85; Type-1 uses fbb89.
     """
 
     name: str
     notify_chars: tuple[str, ...]
     query_commands: tuple[tuple[str, bytes], ...]
     supports_pagination: bool
+    write_char: str = WRITE_CHAR_UUID
 
 
 # ---------------------------------------------------------------------------
@@ -73,6 +77,7 @@ TYPE1 = DeviceProtocol(
         (SEND_BRUSH_CMD_UUID, CMD_QUERY_RUNNING_DATA_T1),
     ),
     supports_pagination=False,
+    write_char=SEND_BRUSH_CMD_UUID,
 )
 
 #: Legacy – Oclean Air 1 / OCLEANA1  (no working notify chars; battery-only)
