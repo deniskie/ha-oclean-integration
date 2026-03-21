@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import dataclasses
 import datetime
 import logging
@@ -54,6 +55,7 @@ from .const import (
     DOMAIN,
     MAX_SESSION_PAGES,
     READ_NOTIFY_CHAR_UUID,
+    RECEIVE_BRUSH_UUID,
     STORAGE_VERSION,
     WRITE_CHAR_UUID,
 )
@@ -344,6 +346,8 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
     async def async_reset_brush_head(self) -> None:
         """Connect to the device and send CMD_CLEAR_BRUSH_HEAD (020F).
 
+        Subscribes to response characteristics before sending the command so
+        any ACK notification is captured and logged for protocol research.
         Called by the "Reset Brush Head" button entity.
         Raises BleakError if the device cannot be reached.
         """
@@ -356,8 +360,31 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         )
         try:
             await asyncio.sleep(BLE_POST_CONNECT_DELAY)
+
+            def _ack_handler(_sender: Any, raw: bytearray) -> None:
+                data = bytes(raw)
+                parsed = parse_notification(data)
+                self._log.info(
+                    "020F ACK notification: raw=%s parsed=%s",
+                    data.hex(),
+                    parsed,
+                )
+
+            subscribed_ack: list[str] = []
+            for char_uuid in (READ_NOTIFY_CHAR_UUID, RECEIVE_BRUSH_UUID):
+                try:
+                    await client.start_notify(char_uuid, _ack_handler)
+                    subscribed_ack.append(char_uuid)
+                except Exception:  # noqa: BLE001
+                    pass
+
             await client.write_gatt_char(self._protocol.write_char, CMD_CLEAR_BRUSH_HEAD, response=True)
             self._log.info("brush head counter reset sent")
+            await asyncio.sleep(2.0)
+
+            for char_uuid in subscribed_ack:
+                with contextlib.suppress(Exception):
+                    await client.stop_notify(char_uuid)
         finally:
             if client.is_connected:
                 await client.disconnect()
