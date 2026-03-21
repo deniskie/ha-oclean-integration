@@ -15,6 +15,7 @@ from .entity import OcleanEntity
 NUMBER_DESCRIPTIONS: tuple[NumberEntityDescription, ...] = (
     NumberEntityDescription(
         key="brush_head_max_days",
+        name="Brush Head Lifetime",
         icon="mdi:toothbrush",
         native_min_value=30,
         native_max_value=365,

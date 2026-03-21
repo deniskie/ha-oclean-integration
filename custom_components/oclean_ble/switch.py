@@ -14,6 +14,7 @@ from .entity import OcleanEntity
 SWITCH_DESCRIPTIONS: tuple[SwitchEntityDescription, ...] = (
     SwitchEntityDescription(
         key="area_remind",
+        name="Area Reminder",
         icon="mdi:tooth-outline",
     ),
 )
