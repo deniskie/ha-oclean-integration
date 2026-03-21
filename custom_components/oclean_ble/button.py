@@ -22,6 +22,11 @@ BUTTON_DESCRIPTIONS: tuple[ButtonEntityDescription, ...] = (
         name="Sync Time",
         icon="mdi:clock-sync",
     ),
+    ButtonEntityDescription(
+        key="poll_now",
+        name="Poll Now",
+        icon="mdi:refresh",
+    ),
 )
 
 
@@ -57,3 +62,5 @@ class OcleanButton(OcleanEntity, ButtonEntity):
             await self.coordinator.async_reset_brush_head()
         elif self.entity_description.key == "sync_time":
             await self.coordinator.async_sync_time()
+        elif self.entity_description.key == "poll_now":
+            await self.coordinator.async_request_refresh()
