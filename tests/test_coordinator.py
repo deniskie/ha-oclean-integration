@@ -470,9 +470,107 @@ class TestDataPersistence:
             bt_mock.async_last_service_info.return_value = _make_service_info()
             result = await coordinator._poll_device()
 
-        # Fresh battery overrides old; old score is carried forward
+        # Fresh battery overrides old; old score is carried forward (no new session)
         assert result[DATA_BATTERY] == 61
         assert result[DATA_LAST_BRUSH_SCORE] == 88
+
+    @pytest.mark.asyncio
+    async def test_stale_enrichment_cleared_on_new_session_without_enrichment(self):
+        """OCLEANY3P inline 0307 (session_count=0): stale score/areas/pressure must be
+        cleared when a new session timestamp arrives but no enrichment data is received.
+
+        Regression test for issue #49 (comment 13): after the first *B# poll the
+        device switches to session_count=0 inline mode which omits score/areas/pressure.
+        Without this fix those fields would show the previous session's values alongside
+        the new session's timestamp, giving misleading sensor readings.
+        """
+        coordinator = _make_coordinator()
+        coordinator._store_loaded = True
+        # Simulate last-known state: previous session with enrichment fields populated.
+        coordinator._last_raw = {
+            DATA_LAST_BRUSH_TIME: 1,  # old timestamp – any 2026 date will be newer
+            DATA_LAST_BRUSH_SCORE: 88,
+            DATA_LAST_BRUSH_AREAS: {"upper_left_out": 50},
+            DATA_LAST_BRUSH_PRESSURE: 14.0,
+            DATA_LAST_BRUSH_DURATION: 120,
+        }
+
+        # 0307 inline notification from OCLEANY3P with session_count=0 (year_byte=0x1a).
+        # Encodes 2026-03-19 23:05:53, pNum=75, duration=150 s – NO score/areas.
+        # Identical to the raw bytes logged in issue #49 comment 13.
+        notif_0307_inline = bytes.fromhex("03072a422300001a03131705354b009600960002")
+
+        client = _make_bleak_client(battery_value=41)
+
+        async def fake_start_notify(uuid, handler):
+            handler(None, bytearray(notif_0307_inline))
+
+        client.start_notify = AsyncMock(side_effect=fake_start_notify)
+
+        with (
+            patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock,
+            patch(
+                "custom_components.oclean_ble.coordinator.establish_connection",
+                new_callable=AsyncMock,
+                return_value=client,
+            ),
+            patch("custom_components.oclean_ble.coordinator.asyncio.sleep", new_callable=AsyncMock),
+            patch(
+                "custom_components.oclean_ble.coordinator.import_new_sessions", new_callable=AsyncMock, return_value=0
+            ),
+        ):
+            bt_mock.async_last_service_info.return_value = _make_service_info()
+            result = await coordinator._poll_device()
+
+        # New session timestamp must be present (inline 0307 parsed correctly)
+        assert DATA_LAST_BRUSH_TIME in result
+        assert result[DATA_LAST_BRUSH_TIME] > 1, "New timestamp must be newer than the old one"
+        # Duration from the inline notification
+        assert result.get(DATA_LAST_BRUSH_DURATION) == 150
+
+        # Stale enrichment from previous session must be cleared
+        assert result.get(DATA_LAST_BRUSH_SCORE) is None, (
+            "Stale score from previous session must not be shown for new session"
+        )
+        assert result.get(DATA_LAST_BRUSH_AREAS) is None, (
+            "Stale areas from previous session must not be shown for new session"
+        )
+        assert result.get(DATA_LAST_BRUSH_PRESSURE) is None, (
+            "Stale pressure from previous session must not be shown for new session"
+        )
+
+    @pytest.mark.asyncio
+    async def test_enrichment_preserved_when_no_new_session(self):
+        """Stale enrichment must NOT be cleared when no new session is detected.
+
+        When the device returns the same session timestamp (e.g. repeated polls
+        between brushing events), score/areas/pressure from _last_raw must be kept.
+        """
+        coordinator = _make_coordinator()
+        coordinator._last_raw = {
+            DATA_BATTERY: 60,
+            DATA_LAST_BRUSH_SCORE: 77,
+            DATA_LAST_BRUSH_AREAS: {"upper_left_out": 30},
+            DATA_LAST_BRUSH_PRESSURE: 12.0,
+        }
+        # No session notification fired – collected has no DATA_LAST_BRUSH_TIME
+        client = _make_bleak_client(battery_value=60)
+
+        with (
+            patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock,
+            patch(
+                "custom_components.oclean_ble.coordinator.establish_connection",
+                new_callable=AsyncMock,
+                return_value=client,
+            ),
+            patch("custom_components.oclean_ble.coordinator.asyncio.sleep", new_callable=AsyncMock),
+        ):
+            bt_mock.async_last_service_info.return_value = _make_service_info()
+            result = await coordinator._poll_device()
+
+        assert result.get(DATA_LAST_BRUSH_SCORE) == 77, "Score must be preserved when no new session"
+        assert result.get(DATA_LAST_BRUSH_AREAS) == {"upper_left_out": 30}
+        assert result.get(DATA_LAST_BRUSH_PRESSURE) == 12.0
 
 
 # ---------------------------------------------------------------------------

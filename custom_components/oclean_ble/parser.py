@@ -503,6 +503,14 @@ def parse_y3p_stream_record(record: bytes) -> dict[str, Any]:
         minute = record[4]
         second = record[5]
 
+        if month == 0:
+            _LOGGER.debug(
+                "Oclean Y3P stream record: device clock not synced (month=0), "
+                "sync via the Oclean app to fix timestamps (raw: %s)",
+                record[:T1_C3352G_RECORD_SIZE].hex(),
+            )
+            return {}
+
         now = datetime.datetime.now()
         year = now.year
         device_dt = datetime.datetime(year, month, day, hour, minute, second)
