@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import logging.handlers
 import pathlib
 
 import voluptuous as vol
+from homeassistant import __version__ as HA_VERSION
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall
@@ -25,6 +27,8 @@ from .const import (
 from .coordinator import OcleanCoordinator
 
 _LOGGER = logging.getLogger(__name__)
+_MANIFEST = json.loads((pathlib.Path(__file__).parent / "manifest.json").read_text())
+_INTEGRATION_VERSION = _MANIFEST.get("version", "unknown")
 
 PLATFORMS: list[Platform] = [Platform.BINARY_SENSOR, Platform.BUTTON, Platform.NUMBER, Platform.SENSOR, Platform.SWITCH]
 
@@ -75,7 +79,7 @@ async def _attach_file_handler(hass: HomeAssistant) -> None:
     oclean_logger = logging.getLogger("custom_components.oclean_ble")
     oclean_logger.addHandler(handler)
     domain_data[_FILE_HANDLER_KEY] = handler
-    _LOGGER.debug("Oclean file log handler attached → %s", log_path)
+    _LOGGER.info("Oclean log file: %s", log_path)
 
 
 async def _detach_file_handler(hass: HomeAssistant) -> None:
@@ -105,10 +109,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     poll_windows = entry.options.get(CONF_POLL_WINDOWS, "")
     post_brush_cooldown_h = int(entry.options.get(CONF_POST_BRUSH_COOLDOWN, DEFAULT_POST_BRUSH_COOLDOWN))
 
-    _LOGGER.debug(
-        "Oclean config: mac=%s name=%s poll_interval=%s poll_windows=%r post_brush_cooldown_h=%d",
+    _LOGGER.info(
+        "Oclean integration v%s starting: mac=%s name=%s (HA %s)",
+        _INTEGRATION_VERSION,
         mac,
         device_name,
+        HA_VERSION,
+    )
+    _LOGGER.debug(
+        "Oclean config: poll_interval=%s poll_windows=%r post_brush_cooldown_h=%d",
         f"{poll_interval}s" if poll_interval > 0 else "manual (disabled)",
         poll_windows or "(none)",
         post_brush_cooldown_h,
