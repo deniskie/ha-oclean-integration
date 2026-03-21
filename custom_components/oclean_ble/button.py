@@ -24,7 +24,7 @@ BUTTON_DESCRIPTIONS: tuple[ButtonEntityDescription, ...] = (
     ),
     ButtonEntityDescription(
         key="poll_now",
-        name="Poll Now",
+        name="Update Now",
         icon="mdi:refresh",
     ),
 )

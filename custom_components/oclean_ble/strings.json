@@ -50,6 +50,9 @@
       },
       "sync_time": {
         "name": "Sync Time"
+      },
+      "poll_now": {
+        "name": "Update Now"
       }
     },
     "switch": {
@@ -101,6 +104,9 @@
       },
       "last_brush_power_array": {
         "name": "Last Brush Power Array"
+      },
+      "last_poll": {
+        "name": "Last Poll"
       }
     }
   },

@@ -50,6 +50,9 @@
       },
       "sync_time": {
         "name": "Sincronizar hora"
+      },
+      "poll_now": {
+        "name": "Actualizar ahora"
       }
     },
     "switch": {
@@ -104,6 +107,9 @@
       },
       "last_brush_power_array": {
         "name": "Array de potencia del último cepillado"
+      },
+      "last_poll": {
+        "name": "Última consulta"
       }
     }
   },
