@@ -1527,8 +1527,8 @@ class TestPollDeviceHwBrushAndCooldown:
 
 class TestAsyncSyncTime:
     @pytest.mark.asyncio
-    async def test_sends_calibrate_time_command(self):
-        """async_sync_time must write 020E + 4-byte timestamp and disconnect."""
+    async def test_sends_020e_for_unknown_protocol(self):
+        """async_sync_time must write 020E + 4-byte timestamp for UNKNOWN protocol."""
         coord = _make_coordinator()
         client = _make_bleak_client()
 
@@ -1547,6 +1547,44 @@ class TestAsyncSyncTime:
         cmd_bytes = client.write_gatt_char.call_args[0][1]
         assert cmd_bytes[:2] == bytes.fromhex("020E"), "Must send 020E time-calibration command"
         assert len(cmd_bytes) == 6, "020E + 4-byte timestamp = 6 bytes"
+        client.disconnect.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_sends_0201_for_type1_protocol(self):
+        """Type-1 coordinator must send 0201 + 8-byte datetime payload, not 020E.
+
+        Regression test for issue #49 comment: 020E does not sync the clock on
+        OCLEANY3P (C3352g handler). The correct command is 0201 (mo5292L).
+        """
+        from custom_components.oclean_ble.protocol import TYPE1
+
+        coord = _make_coordinator()
+        coord._protocol = TYPE1
+        client = _make_bleak_client()
+
+        with (
+            patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock,
+            patch(
+                "custom_components.oclean_ble.coordinator.establish_connection",
+                new_callable=AsyncMock,
+                return_value=client,
+            ),
+        ):
+            bt_mock.async_last_service_info.return_value = _make_service_info()
+            await coord.async_sync_time()
+
+        client.write_gatt_char.assert_awaited_once()
+        cmd_bytes = client.write_gatt_char.call_args[0][1]
+        assert cmd_bytes[:2] == bytes.fromhex("0201"), "Type-1 must send 0201 command"
+        assert len(cmd_bytes) == 10, "0201 + 8-byte datetime payload = 10 bytes"
+        # Payload sanity: year offset, month, day must be plausible
+        yy, month, day = cmd_bytes[2], cmd_bytes[3], cmd_bytes[4]
+        assert 24 <= yy <= 99, f"year-2000 byte out of range: {yy}"
+        assert 1 <= month <= 12, f"month byte out of range: {month}"
+        assert 1 <= day <= 31, f"day byte out of range: {day}"
+        # tzIndex must be in valid range (1-33)
+        tz_idx = cmd_bytes[9]
+        assert 1 <= tz_idx <= 33, f"tz_idx out of range: {tz_idx}"
         client.disconnect.assert_awaited_once()
 
     @pytest.mark.asyncio
@@ -2022,6 +2060,48 @@ class TestT1C3352gReassembly:
 # ---------------------------------------------------------------------------
 # _CoordLoggerAdapter – per-device log prefix
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# _oclean_tz_index
+# ---------------------------------------------------------------------------
+
+
+class TestOcleanTzIndex:
+    """Unit tests for the _oclean_tz_index() helper used by 0201 time calibration."""
+
+    def test_utc(self):
+        from custom_components.oclean_ble.coordinator import _oclean_tz_index
+
+        assert _oclean_tz_index(0) == 14  # GMT+00:00 is index 14
+
+    def test_cet(self):
+        from custom_components.oclean_ble.coordinator import _oclean_tz_index
+
+        assert _oclean_tz_index(60) == 15  # GMT+01:00
+
+    def test_cest(self):
+        from custom_components.oclean_ble.coordinator import _oclean_tz_index
+
+        assert _oclean_tz_index(120) == 16  # GMT+02:00
+
+    def test_negative_offset(self):
+        from custom_components.oclean_ble.coordinator import _oclean_tz_index
+
+        assert _oclean_tz_index(-300) == 8  # GMT-05:00
+
+    def test_nearest_for_nonstandard_offset(self):
+        from custom_components.oclean_ble.coordinator import _oclean_tz_index
+
+        # GMT+05:45 (Nepal) → index 23; offset = 5*60+45 = 345
+        assert _oclean_tz_index(345) == 23
+
+    def test_result_always_in_valid_range(self):
+        from custom_components.oclean_ble.coordinator import _oclean_tz_index
+
+        for offset in range(-720, 780, 30):
+            idx = _oclean_tz_index(offset)
+            assert 1 <= idx <= 33, f"index {idx} out of range for offset {offset}"
 
 
 class TestCoordLoggerAdapter:

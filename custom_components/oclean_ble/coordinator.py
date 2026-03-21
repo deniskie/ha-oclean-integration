@@ -32,6 +32,7 @@ from .const import (
     BLE_READ_FALLBACK_DELAY,
     BLE_SUBSCRIBE_TIMEOUT,
     CMD_CALIBRATE_TIME_PREFIX,
+    CMD_CALIBRATE_TIME_T1_PREFIX,
     CMD_CLEAR_BRUSH_HEAD,
     CMD_QUERY_RUNNING_DATA_NEXT,
     DATA_BATTERY,
@@ -62,7 +63,7 @@ from .parser import (
     parse_t1_c3352g_record,
     parse_y3p_stream_record,
 )
-from .protocol import UNKNOWN, DeviceProtocol, protocol_for_model
+from .protocol import TYPE1, UNKNOWN, DeviceProtocol, protocol_for_model
 from .statistics import import_new_sessions
 
 _LOGGER = logging.getLogger(__name__)
@@ -185,6 +186,49 @@ _NOTIFY_CHARS: tuple[str, ...] = UNKNOWN.notify_chars
 
 # DIS re-read interval: 24 h in seconds. Info only changes after firmware updates.
 _DIS_REFRESH_INTERVAL = 86_400
+
+# Oclean GMT offset table (1-based, 33 entries) – from DateUtils.java / C3352g.java.
+# Used to map the local UTC offset to the tzIndex byte in the 0201 calibration command.
+_TZ_OFFSETS_MIN: tuple[int, ...] = (
+    -720,
+    -660,
+    -600,
+    -540,
+    -480,
+    -420,
+    -360,
+    -300,
+    -240,
+    -210,
+    -180,
+    -120,
+    -60,
+    0,
+    60,
+    120,
+    180,
+    210,
+    240,
+    270,
+    300,
+    330,
+    345,
+    360,
+    390,
+    420,
+    480,
+    540,
+    570,
+    600,
+    660,
+    720,
+    780,
+)
+
+
+def _oclean_tz_index(offset_minutes: int) -> int:
+    """Return the 1-based Oclean timezone index closest to *offset_minutes*."""
+    return min(range(len(_TZ_OFFSETS_MIN)), key=lambda i: abs(_TZ_OFFSETS_MIN[i] - offset_minutes)) + 1
 
 
 class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
@@ -820,13 +864,50 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
                 self._log.debug("device registry update skipped: %s", err)
 
     async def _calibrate_time(self, client: BleakClient) -> None:
-        """Send time-calibration command (020E + BE timestamp)."""
-        timestamp = int(time.time())
-        time_bytes = struct.pack(">I", timestamp)
-        cal_cmd = CMD_CALIBRATE_TIME_PREFIX + time_bytes
+        """Send time-calibration command appropriate for the active protocol.
+
+        Type-0 / Unknown:  020E + 4-byte big-endian Unix timestamp  (mo5289B, C3335a.java)
+        Type-1:            0201 + 8-byte datetime payload            (mo5292L, C3352g.java)
+
+        The Type-1 payload encodes [year-2000, month, day, hour, min, sec, weekday, tzIndex]
+        as plain decimal byte values, where weekday is 0=Sunday..6=Saturday and tzIndex is
+        a 1-based index into the Oclean GMT offset table (GMT-12 … GMT+13, 33 entries).
+        """
+        if self._protocol is TYPE1:
+            now = datetime.datetime.now().astimezone()
+            offset_min = int(now.utcoffset().total_seconds() / 60)
+            tz_idx = _oclean_tz_index(offset_min)
+            weekday = (now.weekday() + 1) % 7  # Python Mon=0..Sun=6 → Oclean Sun=0..Sat=6
+            payload = bytes(
+                [
+                    now.year - 2000,
+                    now.month,
+                    now.day,
+                    now.hour,
+                    now.minute,
+                    now.second,
+                    weekday,
+                    tz_idx,
+                ]
+            )
+            cal_cmd = CMD_CALIBRATE_TIME_T1_PREFIX + payload
+            self._log.debug(
+                "time calibration sent (Type-1): %04d-%02d-%02d %02d:%02d:%02d wday=%d tz_idx=%d",
+                now.year,
+                now.month,
+                now.day,
+                now.hour,
+                now.minute,
+                now.second,
+                weekday,
+                tz_idx,
+            )
+        else:
+            timestamp = int(time.time())
+            cal_cmd = CMD_CALIBRATE_TIME_PREFIX + struct.pack(">I", timestamp)
+            self._log.debug("time calibration sent (ts=%d)", timestamp)
         try:
             await client.write_gatt_char(WRITE_CHAR_UUID, cal_cmd, response=True)
-            self._log.debug("time calibration sent (ts=%d)", timestamp)
         except Exception as err:  # noqa: BLE001
             self._log.warning("time calibration failed: %s (%s)", err, type(err).__name__)
 
