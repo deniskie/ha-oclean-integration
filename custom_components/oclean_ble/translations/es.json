@@ -93,6 +93,9 @@
       "hw_revision": {
         "name": "Revisión de hardware"
       },
+      "brush_mode": {
+        "name": "Modo de cepillado"
+      },
       "last_brush_gesture_code": {
         "name": "Código de gesto del último cepillado"
       },

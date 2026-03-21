@@ -14,6 +14,7 @@ from .const import (
     DATA_BATTERY,
     DATA_BRUSH_HEAD_DAYS,
     DATA_BRUSH_HEAD_USAGE,
+    DATA_BRUSH_MODE,
     DATA_IS_BRUSHING,
     DATA_LAST_BRUSH_AREAS,
     DATA_LAST_BRUSH_DURATION,
@@ -889,6 +890,69 @@ def _handle_device_info_ack(payload: bytes) -> dict[str, Any]:
     return {}
 
 
+def _parse_device_settings_response(payload: bytes) -> dict[str, Any]:
+    """Parse 0302 device-settings response payload (bytes after the 2-byte type marker).
+
+    Sent by device in response to CMD_QUERY_DEVICE_SETTINGS (030201).
+    Byte layout (source: APK C3367n0.java / C3385w0_fallback.java):
+      byte 0: batteryLevel (also available from 0303; redundant)
+      byte 1: networkStatus (bool)
+      byte 2: raiseWake (bool)
+      byte 3: voiceMainSwitch (bool)
+      byte 4: bindState (bool)
+      byte 5: modeNum – active brushing mode number (device-family-specific)
+      byte 6: brushSongSwitch (bool)
+      byte 7: unknown
+      byte 8: overCross (bool)
+      bytes 9-10: unknown (2-byte value)
+      byte 11: deviceTheme
+      bytes 12-15: unknown
+      byte 16: year (+ 2000) – device clock
+      bytes 17-21: month/day/hour/minute/second
+      byte 22: unknown
+      byte 23: areaRemind (bool)
+      byte 24: timezone offset
+      bytes 25-27: headMaxTimeLong (2-byte BE; unit TBD)
+      bytes 27-29: headUsedTimeLong (2-byte BE; unit TBD)
+      bytes 29-31: headUsedDays (2-byte BE; calendar days since brush-head reset)
+      byte 31: headUsedTimes (session count since brush-head reset) / deviceLanguage
+    """
+    _LOGGER.debug("Oclean 0302 device-settings raw: %s  len=%d", payload.hex(), len(payload))
+    for i, b in enumerate(payload):
+        _LOGGER.debug("  0302[%02d] = 0x%02X  (%3d)", i, b, b)
+
+    result: dict[str, Any] = {}
+    if len(payload) < 6:
+        _LOGGER.debug("Oclean device-settings response too short (%d < 6)", len(payload))
+        return result
+
+    result[DATA_BRUSH_MODE] = int(payload[5])
+
+    if len(payload) >= 32:
+        head_max = int.from_bytes(payload[25:27], "big")
+        head_used = int.from_bytes(payload[27:29], "big")
+        head_days = int.from_bytes(payload[29:31], "big")
+        head_times = payload[31]
+        _LOGGER.debug(
+            "Oclean 0302 brush-head counters –"
+            " headMaxTimeLong=%d (0x%04x, unit TBD)"
+            " headUsedTimeLong=%d (0x%04x, unit TBD)"
+            " headUsedDays=%d"
+            " headUsedTimes=%d",
+            head_max,
+            head_max,
+            head_used,
+            head_used,
+            head_days,
+            head_times,
+        )
+        result[DATA_BRUSH_HEAD_USAGE] = head_times
+        result[DATA_BRUSH_HEAD_DAYS] = head_days
+
+    _LOGGER.debug("Oclean device-settings parsed: %s", result)
+    return result
+
+
 def _parse_score_t1_response(payload: bytes) -> dict[str, Any]:
     """Parse 0000 score-push notification (Type-1 devices: Oclean X series).
 
@@ -1094,64 +1158,6 @@ def _log_4b00_response(payload: bytes) -> dict[str, Any]:
     return {}
 
 
-def _log_device_settings_response(payload: bytes) -> dict[str, Any]:
-    """Parse a 0302 Device-Settings notification; return brush-head usage counter.
-
-    The 0302 notification is sent by the device in response to
-    CMD_QUERY_DEVICE_SETTINGS (030201) and contains device settings including
-    native brush-head counters.  headUsedTimes (the session count since last
-    brush-head reset) is mapped to DATA_BRUSH_HEAD_USAGE and replaces the old
-    software counter.
-
-    Byte layout (APK source C3385w0, min. 32 bytes after the 0302 prefix):
-      byte   0:    deviceTheme
-      bytes  4- 8: reserved
-      bytes  8- 9: isBaseVoice flag (1 or 3)
-      bytes  9-10: volume-raw
-      bytes 10-11: isBaseVoiceNoise
-      bytes 11-12: isBaseVoiceLanguage
-      bytes 12-13: overPressure
-      bytes 13-14: splashPrevent
-      bytes 16-17: year_base (+2000)
-      bytes 17-18: month
-      bytes 18-19: day
-      bytes 19-20: hour
-      bytes 20-21: minute
-      bytes 21-22: second
-      bytes 23-24: deviceLanguage
-      bytes 24-25: pNum
-      bytes 25-27: headMaxTimeLong  ← unit TBD (empirical; see CMD_BRUSH_HEAD_MAX_DAYS)
-      bytes 27-29: headUsedTimeLong ← unit TBD (should be same unit as headMaxTimeLong)
-      bytes 29-31: headUsedDays     ← calendar days since brush head install
-      bytes 31-32: headUsedTimes    ← number of brushing sessions since last reset
-    """
-    _LOGGER.debug("Oclean 0302 device-settings raw: %s  len=%d", payload.hex(), len(payload))
-    for i, b in enumerate(payload):
-        _LOGGER.debug("  0302[%02d] = 0x%02X  (%3d)", i, b, b)
-
-    if len(payload) < 32:
-        _LOGGER.debug("Oclean 0302 payload too short for brush-head fields (%d < 32)", len(payload))
-        return {}
-
-    head_max = int.from_bytes(payload[25:27], "big")
-    head_used = int.from_bytes(payload[27:29], "big")
-    head_days = int.from_bytes(payload[29:31], "big")
-    head_times = payload[31]
-    _LOGGER.debug(
-        "Oclean 0302 brush-head counters –"
-        " headMaxTimeLong=%d (0x%04x, unit TBD)"
-        " headUsedTimeLong=%d (0x%04x, unit TBD)"
-        " headUsedDays=%d"
-        " headUsedTimes=%d",
-        head_max,
-        head_max,
-        head_used,
-        head_used,
-        head_days,
-        head_times,
-    )
-    return {DATA_BRUSH_HEAD_USAGE: head_times, DATA_BRUSH_HEAD_DAYS: head_days}
-
 
 def _parse_brush_areas_y3p_response(payload: bytes) -> dict[str, Any]:
     """Parse 021f per-tooth-area pressure data (OCLEANY3P / Oclean X Pro Elite).
@@ -1263,7 +1269,7 @@ def _parse_session_meta_y3p_response(payload: bytes) -> dict[str, Any]:
 # To add support for a new notification type, add one entry here.
 _PARSERS: dict[bytes, Callable[[bytes], dict[str, Any]]] = {
     RESP_STATE: _parse_state_response,
-    RESP_DEVICE_SETTINGS: _log_device_settings_response,
+    RESP_DEVICE_SETTINGS: _parse_device_settings_response,
     RESP_INFO: _parse_info_response,
     RESP_INFO_T1: _parse_info_t1_response,
     RESP_DEVICE_INFO: _handle_device_info_ack,
