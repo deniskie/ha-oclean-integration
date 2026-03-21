@@ -92,6 +92,15 @@
       },
       "hw_revision": {
         "name": "Revisión de hardware"
+      },
+      "last_brush_gesture_code": {
+        "name": "Código de gesto del último cepillado"
+      },
+      "last_brush_gesture_array": {
+        "name": "Array de gestos del último cepillado"
+      },
+      "last_brush_power_array": {
+        "name": "Array de potencia del último cepillado"
       }
     }
   },
