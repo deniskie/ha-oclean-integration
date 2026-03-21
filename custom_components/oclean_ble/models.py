@@ -21,6 +21,7 @@ class OcleanDeviceData:
     last_brush_pressure: float | None = None
     last_brush_time: int | None = None
     brush_head_usage: int | None = None
+    brush_head_days: int | None = None
     last_brush_areas: dict[str, int] | None = None
     last_brush_pnum: int | None = None
     is_brushing: bool | None = None
@@ -52,6 +53,7 @@ class OcleanDeviceData:
             last_brush_pressure=data.get("last_brush_pressure"),
             last_brush_time=data.get("last_brush_time"),
             brush_head_usage=data.get("brush_head_usage"),
+            brush_head_days=data.get("brush_head_days"),
             last_brush_areas=data.get("last_brush_areas"),
             last_brush_pnum=data.get("last_brush_pnum"),
             is_brushing=data.get("is_brushing"),

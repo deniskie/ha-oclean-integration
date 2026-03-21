@@ -47,11 +47,12 @@ def _install_ha_stubs() -> None:
     from enum import Enum, StrEnum
 
     const = _stub("homeassistant.const")
-    const.Platform = Enum("Platform", ["SENSOR", "BINARY_SENSOR", "BUTTON"])
+    const.Platform = Enum("Platform", ["SENSOR", "BINARY_SENSOR", "BUTTON", "NUMBER", "SWITCH"])
     const.PERCENTAGE = "%"
 
     class UnitOfTime:
         SECONDS = "s"
+        DAYS = "d"
 
     const.UnitOfTime = UnitOfTime
 
