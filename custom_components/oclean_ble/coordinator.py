@@ -475,6 +475,18 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
 
         # Merge with last known persistent data, then overwrite with fresh values
         merged = {**{k: self._last_raw.get(k) for k in _PERSISTENT_KEYS}, **collected}
+
+        # Clear stale enrichment fields (score/areas/pressure) when a NEW session is
+        # detected but the current poll did not deliver enrichment data.  This prevents
+        # showing a previous session's score/areas alongside the current session's
+        # timestamp (e.g. OCLEANY3P inline mode where session_count=0 omits enrichment).
+        new_ts = collected.get(DATA_LAST_BRUSH_TIME, 0)
+        prev_ts = self._last_raw.get(DATA_LAST_BRUSH_TIME, 0)
+        if new_ts and new_ts > prev_ts:
+            for key in _ENRICHMENT_KEYS:
+                if key not in collected:
+                    merged.pop(key, None)
+
         self._last_raw = merged
 
         # Persist after every successful poll so that battery, model, and session
@@ -837,12 +849,19 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
                 subscribed.add(char_uuid)
                 self._log.debug("subscribed to %s", char_uuid)
             except Exception as err:  # noqa: BLE001
-                self._log.debug(
-                    "could not subscribe to %s: %s (%s)",
-                    char_uuid,
-                    err,
-                    type(err).__name__,
-                )
+                if "Notify acquired" in str(err):
+                    self._log.warning(
+                        "could not subscribe to %s: %s – close the Oclean app to allow polling",
+                        char_uuid,
+                        err,
+                    )
+                else:
+                    self._log.debug(
+                        "could not subscribe to %s: %s (%s)",
+                        char_uuid,
+                        err,
+                        type(err).__name__,
+                    )
         return frozenset(subscribed)
 
     async def _read_response_char_fallback(
