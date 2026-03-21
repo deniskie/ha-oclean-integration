@@ -43,6 +43,7 @@ CMD_QUERY_EXTENDED_DATA_T1 = bytes.fromhex("0314")  # mo5337g1 – C3376s (Oclea
 # CMD_QUERY_RUNNING_DATA (0308) → response starts with 0308
 # CMD_DEVICE_INFO (0202) → response is "0202 4F 4B" (= "OK", just an ACK)
 RESP_STATE = bytes.fromhex("0303")  # Response to CMD_QUERY_STATUS – device status
+RESP_DEVICE_SETTINGS = bytes.fromhex("0302")  # Device-Info notification – settings + brush head counters
 RESP_INFO = bytes.fromhex("0308")  # Response to CMD_QUERY_RUNNING_DATA – brush records (Type 0)
 RESP_INFO_T1 = bytes.fromhex("0307")  # Response to CMD_QUERY_RUNNING_DATA_T1 – brush records (Type 1, Oclean X)
 RESP_DEVICE_INFO = bytes.fromhex("0202")  # Response to CMD_DEVICE_INFO – "OK" acknowledge
@@ -112,6 +113,10 @@ BLE_SUBSCRIBE_TIMEOUT = 10.0
 
 # Brush head reset command
 CMD_CLEAR_BRUSH_HEAD = bytes.fromhex("020F")
+# Area reminder command (mo5298S, OcleanBleManager.setAreaRemind)
+CMD_AREA_REMIND = bytes.fromhex("020D")  # + 0x01 (on) / 0x00 (off)
+# Brush head max lifetime command (mo5345x, OcleanBleManager.setRunningHeadMaxTime)
+CMD_BRUSH_HEAD_MAX_DAYS = bytes.fromhex("0217")  # + 2-byte big-endian uint16 (days)
 
 # Coordinator data keys (additional)
 DATA_BRUSH_HEAD_USAGE = "brush_head_usage"

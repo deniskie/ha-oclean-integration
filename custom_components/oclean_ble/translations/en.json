@@ -47,6 +47,19 @@
     "button": {
       "reset_brush_head": {
         "name": "Reset Brush Head"
+      },
+      "sync_time": {
+        "name": "Sync Time"
+      }
+    },
+    "switch": {
+      "area_remind": {
+        "name": "Area Reminder"
+      }
+    },
+    "number": {
+      "brush_head_max_days": {
+        "name": "Brush Head Max Lifetime"
       }
     },
     "sensor": {

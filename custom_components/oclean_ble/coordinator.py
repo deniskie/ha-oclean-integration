@@ -31,6 +31,8 @@ from .const import (
     BLE_POST_CONNECT_DELAY,
     BLE_READ_FALLBACK_DELAY,
     BLE_SUBSCRIBE_TIMEOUT,
+    CMD_AREA_REMIND,
+    CMD_BRUSH_HEAD_MAX_DAYS,
     CMD_CALIBRATE_TIME_PREFIX,
     CMD_CALIBRATE_TIME_T1_PREFIX,
     CMD_CLEAR_BRUSH_HEAD,
@@ -276,6 +278,10 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         self._brush_head_sw_count: int = 0
         self._brush_head_hw_supported: bool = False
 
+        # User-controlled device settings (write-only; state persisted locally).
+        self._area_remind: bool | None = None
+        self._brush_head_max_days: int | None = None
+
         # Active device protocol profile – selected after the first DIS read.
         # UNKNOWN is the safe fallback: subscribes all chars, sends all commands.
         self._protocol: DeviceProtocol = UNKNOWN
@@ -386,6 +392,64 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
             if client.is_connected:
                 await client.disconnect()
 
+    @property
+    def area_remind(self) -> bool | None:
+        """Return the last-written area-reminder state, or None if never set."""
+        return self._area_remind
+
+    @property
+    def brush_head_max_days(self) -> int | None:
+        """Return the last-written brush-head max-lifetime in days, or None if never set."""
+        return self._brush_head_max_days
+
+    async def async_set_area_remind(self, enabled: bool) -> None:
+        """Connect and write CMD_AREA_REMIND (020D) to the device.
+
+        Called by the Area Reminder switch entity.  State is persisted so the
+        switch shows the correct value after HA restarts.
+        """
+        ble_device = self._resolve_ble_device()
+        client = await establish_connection(
+            BleakClient,
+            ble_device,
+            self._device_name,
+            max_attempts=3,
+        )
+        cmd = CMD_AREA_REMIND + bytes([0x01 if enabled else 0x00])
+        try:
+            await asyncio.sleep(BLE_POST_CONNECT_DELAY)
+            await client.write_gatt_char(WRITE_CHAR_UUID, cmd, response=True)
+            self._log.info("area remind set to %s", enabled)
+        finally:
+            if client.is_connected:
+                await client.disconnect()
+        self._area_remind = enabled
+        await self._save_store()
+
+    async def async_set_brush_head_max_days(self, days: int) -> None:
+        """Connect and write CMD_BRUSH_HEAD_MAX_DAYS (0217) to the device.
+
+        Called by the Brush Head Max Lifetime number entity.  State is persisted
+        so the number shows the correct value after HA restarts.
+        """
+        ble_device = self._resolve_ble_device()
+        client = await establish_connection(
+            BleakClient,
+            ble_device,
+            self._device_name,
+            max_attempts=3,
+        )
+        cmd = CMD_BRUSH_HEAD_MAX_DAYS + days.to_bytes(2, "big")
+        try:
+            await asyncio.sleep(BLE_POST_CONNECT_DELAY)
+            await client.write_gatt_char(WRITE_CHAR_UUID, cmd, response=True)
+            self._log.info("brush head max days set to %d", days)
+        finally:
+            if client.is_connected:
+                await client.disconnect()
+        self._brush_head_max_days = days
+        await self._save_store()
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
@@ -431,6 +495,8 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
             self._last_session_ts = stored.get("last_session_ts", 0)
             self._brush_head_sw_count = stored.get("brush_head_count", 0)
             self._brush_head_hw_supported = stored.get("brush_head_hw", False)
+            self._area_remind = stored.get("area_remind")
+            self._brush_head_max_days = stored.get("brush_head_max_days")
             last_session = stored.get("last_session", {})
             if last_session:
                 self._last_raw.update(last_session)
@@ -452,6 +518,8 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
                 "last_session_ts": self._last_session_ts,
                 "brush_head_count": self._brush_head_sw_count,
                 "brush_head_hw": self._brush_head_hw_supported,
+                "area_remind": self._area_remind,
+                "brush_head_max_days": self._brush_head_max_days,
                 "last_session": last_session,
             }
         )
