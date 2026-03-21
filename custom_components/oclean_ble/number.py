@@ -58,10 +58,10 @@ class OcleanNumber(OcleanEntity, NumberEntity):
         self.entity_description = description
 
     @property
-    def native_value(self) -> float | None:
+    def native_value(self) -> int | None:
         if self.entity_description.key == "brush_head_max_days":
             v = self.coordinator.brush_head_max_days
-            return float(v) if v is not None else None
+            return int(v) if v is not None else None
         return None
 
     async def async_set_native_value(self, value: float) -> None:
