@@ -1119,7 +1119,28 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
             )
             self._log.debug("subscribed to battery notifications (0x2A19)")
         except Exception as err:  # noqa: BLE001
-            self._log.debug("battery notify subscribe failed: %s (%s)", err, type(err).__name__)
+            if "not found" in str(err).lower():
+                # ESPHome BLE proxies cache the remote GATT table and may not
+                # include the Battery Service (0x180F / 0x2A19) when the cache
+                # is stale.  A fresh DIS read forces the proxy to redo full GATT
+                # discovery, after which 0x2A19 becomes visible.
+                self._log.debug("0x2A19 not found – invalidating DIS cache to force GATT re-discovery, retrying")
+                self._dis_last_read_ts = 0.0
+                await self._read_device_info_service(client, collected)
+                try:
+                    await asyncio.wait_for(
+                        client.start_notify(BATTERY_CHAR_UUID, _batt_notify),
+                        timeout=BLE_SUBSCRIBE_TIMEOUT,
+                    )
+                    self._log.debug("subscribed to battery notifications (0x2A19) after GATT re-discovery")
+                except Exception as retry_err:  # noqa: BLE001
+                    self._log.debug(
+                        "battery notify subscribe failed after retry: %s (%s)",
+                        retry_err,
+                        type(retry_err).__name__,
+                    )
+            else:
+                self._log.debug("battery notify subscribe failed: %s (%s)", err, type(err).__name__)
 
     async def _read_battery_and_unsubscribe(self, client: BleakClient, collected: dict[str, Any]) -> None:
         """Read battery level via GATT, unless a notification already delivered it.
