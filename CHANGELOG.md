@@ -11,6 +11,31 @@
 - **`blunt_teeth` unit** – Whether the brush-head wear counter increments linearly (+1 per session) or encodes an ADC wear value is not yet confirmed.
 - **Extended 0308 format** – Implemented based on APK analysis (`AbstractC0002b.m37y`), but never observed on real hardware (all known devices use TYPE1 / 0307).
 
+### Wanted: Oclean X Pro Elite (OCLEANY3P) Test Reports
+
+If you own an **Oclean X Pro Elite**, the following can be verified with the current version.
+Enable debug logging (`logger: default: debug` in `configuration.yaml`) and share `oclean_ble.log` as a GitHub issue attachment.
+
+**1. Basic poll – does it work at all?**
+After a brushing session, trigger a manual poll and check if `last_brush_time`, `last_brush_duration`, and `last_brush_pnum` appear in HA entities.
+
+**2. Score + areas in paginated mode**
+Brush teeth, then immediately trigger "Poll Now". If the device has new sessions (`session_count > 0`), the `*B#` multi-packet response should deliver score and 8 tooth-area pressures.
+In the log look for:
+```
+C3352g record parsed
+last_brush_score / last_brush_areas
+```
+
+**3. `021f` and `5100` notifications**
+These characteristics are logged verbatim for research. After a poll with new sessions, share any lines containing `021f` or `5100` raw bytes – they likely carry per-zone pressure and session metadata.
+
+**4. Standalone writes (Area Reminder, Brush Head Lifetime, Sync Time)**
+Toggle the Area Reminder switch and set a Brush Head Lifetime value. Confirm no "Characteristic not found" errors appear and the log shows `area remind set to …` / `brush head max days set to …`.
+
+**5. `0302` device-settings response**
+Does the device respond to the 0302 command? In the log look for `0302 brush-head counters`. If present, `brush_head_days` and `brush_head_usage` (hardware) should be populated in HA.
+
 ---
 
 ## [v1.1.0] – 2026-03-21
