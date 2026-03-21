@@ -26,7 +26,7 @@ from .coordinator import OcleanCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.BINARY_SENSOR, Platform.BUTTON]
+PLATFORMS: list[Platform] = [Platform.BINARY_SENSOR, Platform.BUTTON, Platform.NUMBER, Platform.SENSOR, Platform.SWITCH]
 
 # Key under hass.data[DOMAIN] where the shared file handler is stored
 _FILE_HANDLER_KEY = "_file_handler"

@@ -47,6 +47,19 @@
     "button": {
       "reset_brush_head": {
         "name": "Reiniciar cabezal"
+      },
+      "sync_time": {
+        "name": "Sincronizar hora"
+      }
+    },
+    "switch": {
+      "area_remind": {
+        "name": "Recordatorio de zonas"
+      }
+    },
+    "number": {
+      "brush_head_max_days": {
+        "name": "Vida máx. del cabezal"
       }
     },
     "sensor": {
@@ -67,6 +80,9 @@
       },
       "brush_head_usage": {
         "name": "Usos del cabezal"
+      },
+      "brush_head_days": {
+        "name": "Días del cabezal"
       },
       "sw_version": {
         "name": "Versión del firmware"

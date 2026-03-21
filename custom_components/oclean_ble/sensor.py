@@ -20,6 +20,7 @@ from .const import (
     CONF_DEVICE_NAME,
     CONF_MAC_ADDRESS,
     DATA_BATTERY,
+    DATA_BRUSH_HEAD_DAYS,
     DATA_BRUSH_HEAD_USAGE,
     DATA_HW_REVISION,
     DATA_LAST_BRUSH_AREAS,
@@ -101,8 +102,15 @@ SENSOR_DESCRIPTIONS: tuple[SensorEntityDescription, ...] = (
         name="Brush Head Usage",
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:toothbrush",
-        # Raw wear indicator (blunt_teeth); resets to 0 after brush head replacement.
-        # Higher values = more wear. Unit unknown (possibly cumulative ADC value).
+        # headUsedTimes from 0302 response: number of brushing sessions since last reset.
+    ),
+    SensorEntityDescription(
+        key=DATA_BRUSH_HEAD_DAYS,
+        name="Brush Head Days",
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement="d",
+        icon="mdi:calendar-sync",
+        # headUsedDays from 0302 response: calendar days since last brush-head reset.
     ),
     # Device information (diagnostic) – read from BLE Device Information Service (0x180A)
     SensorEntityDescription(

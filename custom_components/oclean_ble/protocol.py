@@ -12,6 +12,8 @@ from dataclasses import dataclass
 
 from .const import (
     CHANGE_INFO_UUID,
+    CMD_DEVICE_INFO,
+    CMD_QUERY_DEVICE_SETTINGS,
     CMD_QUERY_RUNNING_DATA,
     CMD_QUERY_RUNNING_DATA_T1,
     CMD_QUERY_STATUS,
@@ -53,6 +55,8 @@ TYPE0 = DeviceProtocol(
     notify_chars=(READ_NOTIFY_CHAR_UUID, CHANGE_INFO_UUID),
     query_commands=(
         (WRITE_CHAR_UUID, CMD_QUERY_STATUS),
+        (WRITE_CHAR_UUID, CMD_DEVICE_INFO),
+        (WRITE_CHAR_UUID, CMD_QUERY_DEVICE_SETTINGS),
         (WRITE_CHAR_UUID, CMD_QUERY_RUNNING_DATA),
     ),
     supports_pagination=True,
@@ -64,6 +68,8 @@ TYPE1 = DeviceProtocol(
     notify_chars=(READ_NOTIFY_CHAR_UUID, RECEIVE_BRUSH_UUID, SEND_BRUSH_CMD_UUID),
     query_commands=(
         (WRITE_CHAR_UUID, CMD_QUERY_STATUS),
+        (WRITE_CHAR_UUID, CMD_DEVICE_INFO),
+        (WRITE_CHAR_UUID, CMD_QUERY_DEVICE_SETTINGS),
         (SEND_BRUSH_CMD_UUID, CMD_QUERY_RUNNING_DATA_T1),
     ),
     supports_pagination=False,
@@ -90,6 +96,8 @@ UNKNOWN = DeviceProtocol(
     ),
     query_commands=(
         (WRITE_CHAR_UUID, CMD_QUERY_STATUS),
+        (WRITE_CHAR_UUID, CMD_DEVICE_INFO),
+        (WRITE_CHAR_UUID, CMD_QUERY_DEVICE_SETTINGS),
         (WRITE_CHAR_UUID, CMD_QUERY_RUNNING_DATA),
         (SEND_BRUSH_CMD_UUID, CMD_QUERY_RUNNING_DATA_T1),
     ),

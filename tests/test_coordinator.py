@@ -958,14 +958,10 @@ class TestLoadStoreWithData:
         coord._store.async_load = AM(
             return_value={
                 "last_session_ts": 1_700_000_000,
-                "brush_head_count": 42,
-                "brush_head_hw": True,
             }
         )
         await coord._load_store()
         assert coord._last_session_ts == 1_700_000_000
-        assert coord._brush_head_sw_count == 42
-        assert coord._brush_head_hw_supported is True
         assert coord._store_loaded is True
 
     @pytest.mark.asyncio
@@ -974,8 +970,6 @@ class TestLoadStoreWithData:
         # Default _StoreStub returns None → no changes
         await coord._load_store()
         assert coord._last_session_ts == 0
-        assert coord._brush_head_sw_count == 0
-        assert coord._brush_head_hw_supported is False
         assert coord._store_loaded is True
 
     @pytest.mark.asyncio
@@ -991,8 +985,6 @@ class TestLoadStoreWithData:
         coord._store.async_load = AM(
             return_value={
                 "last_session_ts": 1_700_000_000,
-                "brush_head_count": 0,
-                "brush_head_hw": False,
                 "last_session": {
                     DATA_LAST_BRUSH_SCORE: 95,
                     "last_brush_time": 1_700_000_000,
@@ -1456,8 +1448,8 @@ class TestDISDeviceRegistryUpdate:
 
 class TestPollDeviceHwBrushAndCooldown:
     @pytest.mark.asyncio
-    async def test_hw_brush_head_supported_set_when_usage_in_collected(self):
-        """_brush_head_hw_supported must be set True when DATA_BRUSH_HEAD_USAGE is collected."""
+    async def test_hw_brush_head_usage_passed_through_from_collected(self):
+        """DATA_BRUSH_HEAD_USAGE from the 0302 response must appear in the poll result."""
         from custom_components.oclean_ble.const import DATA_BRUSH_HEAD_USAGE
 
         coord = _make_coordinator()
@@ -1483,9 +1475,9 @@ class TestPollDeviceHwBrushAndCooldown:
             patch.object(coord, "_setup_and_read", side_effect=fake_setup_and_read),
         ):
             bt_mock.async_last_service_info.return_value = _make_service_info()
-            await coord._poll_device()
+            result = await coord._poll_device()
 
-        assert coord._brush_head_hw_supported is True
+        assert result[DATA_BRUSH_HEAD_USAGE] == 7
 
     @pytest.mark.asyncio
     async def test_post_brush_cooldown_activated_after_new_session(self):
@@ -1611,91 +1603,18 @@ class TestAsyncSyncTime:
         client.disconnect.assert_awaited_once()
 
 
-# Software brush-head counter increment
+# Hardware brush-head counter (0302 response)
 # ---------------------------------------------------------------------------
 
 
-class TestSoftwareBrushHeadCounter:
-    def _make_poll_patch(self, coord, new_sessions: list, import_return: int):
-        async def fake_setup_and_read(_client, _collected):
-            return new_sessions
-
-        async def fake_import(_h, _m, _d, sessions, last_ts):
-            return import_return
-
-        return fake_setup_and_read, fake_import
-
+class TestHardwareBrushHeadCounter:
     @pytest.mark.asyncio
-    async def test_sw_counter_increments_when_new_sessions(self):
-        """_brush_head_sw_count must increase by the number of new sessions."""
-        coord = _make_coordinator()
-        coord._store_loaded = True
-        coord._last_session_ts = 0
-        coord._brush_head_hw_supported = False
-        client = _make_bleak_client()
-
-        fake_setup, fake_import = self._make_poll_patch(
-            coord,
-            new_sessions=[{"last_brush_time": 1_700_000_001}, {"last_brush_time": 1_700_000_002}],
-            import_return=1_700_000_002,
-        )
-
-        with (
-            patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock,
-            patch(
-                "custom_components.oclean_ble.coordinator.establish_connection",
-                new_callable=AsyncMock,
-                return_value=client,
-            ),
-            patch("custom_components.oclean_ble.coordinator.asyncio.sleep", new_callable=AsyncMock),
-            patch("custom_components.oclean_ble.coordinator.import_new_sessions", side_effect=fake_import),
-            patch.object(coord, "_setup_and_read", side_effect=fake_setup),
-        ):
-            bt_mock.async_last_service_info.return_value = _make_service_info()
-            await coord._poll_device()
-
-        assert coord._brush_head_sw_count == 2
-
-    @pytest.mark.asyncio
-    async def test_sw_counter_unchanged_when_no_new_sessions(self):
-        """_brush_head_sw_count must not change when all sessions are already known."""
-        coord = _make_coordinator()
-        coord._store_loaded = True
-        coord._last_session_ts = 1_700_000_001
-        coord._brush_head_sw_count = 5
-        coord._brush_head_hw_supported = False
-        client = _make_bleak_client()
-
-        async def fake_setup(_client, _collected):
-            return [{"last_brush_time": 1_700_000_001}]  # already known
-
-        async def fake_import(_h, _m, _d, sessions, last_ts):
-            return last_ts  # no change
-
-        with (
-            patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock,
-            patch(
-                "custom_components.oclean_ble.coordinator.establish_connection",
-                new_callable=AsyncMock,
-                return_value=client,
-            ),
-            patch("custom_components.oclean_ble.coordinator.asyncio.sleep", new_callable=AsyncMock),
-            patch("custom_components.oclean_ble.coordinator.import_new_sessions", side_effect=fake_import),
-            patch.object(coord, "_setup_and_read", side_effect=fake_setup),
-        ):
-            bt_mock.async_last_service_info.return_value = _make_service_info()
-            await coord._poll_device()
-
-        assert coord._brush_head_sw_count == 5
-
-    @pytest.mark.asyncio
-    async def test_sw_counter_not_used_when_hw_supported(self):
-        """When hw brush-head counter is supported, DATA_BRUSH_HEAD_USAGE comes from collected."""
+    async def test_brush_head_usage_from_collected_appears_in_result(self):
+        """DATA_BRUSH_HEAD_USAGE placed in collected (from 0302 parser) must reach the result."""
         from custom_components.oclean_ble.const import DATA_BRUSH_HEAD_USAGE
 
         coord = _make_coordinator()
         coord._store_loaded = True
-        coord._brush_head_hw_supported = True
         client = _make_bleak_client()
 
         async def fake_setup(_client, collected):
@@ -2274,14 +2193,12 @@ class TestReadResponseCharFallback:
 
 class TestAsyncResetBrushHead:
     @pytest.mark.asyncio
-    async def test_reset_sends_command_and_clears_counter(self):
-        """async_reset_brush_head must send CMD_CLEAR_BRUSH_HEAD and reset sw counter."""
+    async def test_reset_sends_command(self):
+        """async_reset_brush_head must send CMD_CLEAR_BRUSH_HEAD to the device."""
         from custom_components.oclean_ble.const import CMD_CLEAR_BRUSH_HEAD, WRITE_CHAR_UUID
 
         coord = _make_coordinator()
         coord._store_loaded = True
-        coord._brush_head_sw_count = 42
-
         client = _make_bleak_client()
 
         with (
@@ -2298,4 +2215,3 @@ class TestAsyncResetBrushHead:
             await coord.async_reset_brush_head()
 
         client.write_gatt_char.assert_called_once_with(WRITE_CHAR_UUID, CMD_CLEAR_BRUSH_HEAD, response=True)
-        assert coord._brush_head_sw_count == 0

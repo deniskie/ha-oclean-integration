@@ -47,6 +47,19 @@
     "button": {
       "reset_brush_head": {
         "name": "Bürstenkopf zurücksetzen"
+      },
+      "sync_time": {
+        "name": "Zeit synchronisieren"
+      }
+    },
+    "switch": {
+      "area_remind": {
+        "name": "Zahnbereichs-Erinnerung"
+      }
+    },
+    "number": {
+      "brush_head_max_days": {
+        "name": "Max. Bürstenkopf-Laufzeit"
       }
     },
     "sensor": {
@@ -67,6 +80,9 @@
       },
       "brush_head_usage": {
         "name": "Bürstenkopfnutzung"
+      },
+      "brush_head_days": {
+        "name": "Bürstenkopf-Tage"
       },
       "sw_version": {
         "name": "Firmware-Version"

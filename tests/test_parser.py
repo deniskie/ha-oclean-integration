@@ -9,6 +9,8 @@ import json
 import pytest
 
 from custom_components.oclean_ble.const import (
+    DATA_BRUSH_HEAD_DAYS,
+    DATA_BRUSH_HEAD_USAGE,
     DATA_LAST_BRUSH_DURATION,
     DATA_LAST_BRUSH_PNUM,
     DATA_LAST_BRUSH_SCORE,
@@ -29,6 +31,7 @@ from custom_components.oclean_ble.parser import (
     T1_C3352G_RECORD_SIZE,
     _device_datetime,
     _log_4b00_response,
+    _log_device_settings_response,
     _map_json_brush_data,
     _parse_0314_response,
     _parse_brush_areas_t1_response,
@@ -2077,3 +2080,43 @@ class TestParseXx03SessionRecord:
         data[9] = 0x00
         result = parse_notification(bytes(data))
         assert result == {}
+
+
+# ---------------------------------------------------------------------------
+# _log_device_settings_response – 0302 brush-head counter parser
+# ---------------------------------------------------------------------------
+
+
+class TestLogDeviceSettingsResponse:
+    """Tests for _log_device_settings_response (RESP_DEVICE_SETTINGS / 0302 parser)."""
+
+    def _make_payload(self, head_days: int = 42, head_times: int = 17) -> bytes:
+        """Build a minimal 32-byte 0302 payload with known brush-head values."""
+        payload = bytearray(32)
+        # bytes 29-31: headUsedDays (2-byte BE)
+        payload[29] = (head_days >> 8) & 0xFF
+        payload[30] = head_days & 0xFF
+        # byte 31: headUsedTimes
+        payload[31] = head_times
+        return bytes(payload)
+
+    def test_returns_brush_head_usage_and_days(self):
+        """32-byte payload must return DATA_BRUSH_HEAD_USAGE and DATA_BRUSH_HEAD_DAYS."""
+        result = _log_device_settings_response(self._make_payload(head_days=42, head_times=17))
+        assert result[DATA_BRUSH_HEAD_USAGE] == 17
+        assert result[DATA_BRUSH_HEAD_DAYS] == 42
+
+    def test_short_payload_returns_empty(self):
+        """Payloads shorter than 32 bytes must return {} (no data to extract)."""
+        assert _log_device_settings_response(bytes(31)) == {}
+        assert _log_device_settings_response(b"") == {}
+
+    def test_routed_via_parse_notification(self):
+        """parse_notification must route 0302 prefix to _log_device_settings_response."""
+        from custom_components.oclean_ble.const import RESP_DEVICE_SETTINGS
+
+        payload = self._make_payload(head_days=10, head_times=5)
+        data = RESP_DEVICE_SETTINGS + payload
+        result = parse_notification(data)
+        assert result[DATA_BRUSH_HEAD_USAGE] == 5
+        assert result[DATA_BRUSH_HEAD_DAYS] == 10
