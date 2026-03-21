@@ -35,6 +35,13 @@ _LOGGER = logging.getLogger(__name__)
 _MAC_RE = re.compile(r"^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$")
 
 
+def _poll_interval_error(poll_interval: int) -> str | None:
+    """Return an error key if poll_interval is invalid, else None."""
+    if 0 < poll_interval < MIN_POLL_INTERVAL:
+        return "invalid_poll_interval"
+    return None
+
+
 def _parse_windows_list(windows_str: str) -> list[tuple[str, str]]:
     """Parse 'HH:MM-HH:MM[, ...]' into a list of ('HH:MM:00', 'HH:MM:00') tuples.
 
@@ -97,8 +104,8 @@ class OcleanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignor
         errors: dict[str, str] = {}
         if user_input is not None:
             poll_interval = int(user_input.get(CONF_POLL_INTERVAL, DEFAULT_POLL_INTERVAL))
-            if 0 < poll_interval < MIN_POLL_INTERVAL:
-                errors[CONF_POLL_INTERVAL] = "invalid_poll_interval"
+            if err := _poll_interval_error(poll_interval):
+                errors[CONF_POLL_INTERVAL] = err
             else:
                 return self.async_create_entry(
                     title=self._name or "Oclean",
@@ -152,8 +159,8 @@ class OcleanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignor
         if user_input is not None:
             mac = user_input[CONF_MAC_ADDRESS]
             poll_interval = int(user_input.get(CONF_POLL_INTERVAL, DEFAULT_POLL_INTERVAL))
-            if 0 < poll_interval < MIN_POLL_INTERVAL:
-                errors[CONF_POLL_INTERVAL] = "invalid_poll_interval"
+            if err := _poll_interval_error(poll_interval):
+                errors[CONF_POLL_INTERVAL] = err
             else:
                 await self.async_set_unique_id(mac)
                 self._abort_if_unique_id_configured()
@@ -199,8 +206,8 @@ class OcleanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignor
                 errors[CONF_MAC_ADDRESS] = "invalid_mac"
             else:
                 poll_interval = int(user_input.get(CONF_POLL_INTERVAL, DEFAULT_POLL_INTERVAL))
-                if 0 < poll_interval < MIN_POLL_INTERVAL:
-                    errors[CONF_POLL_INTERVAL] = "invalid_poll_interval"
+                if err := _poll_interval_error(poll_interval):
+                    errors[CONF_POLL_INTERVAL] = err
                 else:
                     await self.async_set_unique_id(mac)
                     self._abort_if_unique_id_configured()
@@ -270,8 +277,8 @@ class OcleanOptionsFlow(config_entries.OptionsFlow):
         errors: dict[str, str] = {}
         if user_input is not None:
             self._poll_interval = int(user_input[CONF_POLL_INTERVAL])
-            if 0 < self._poll_interval < MIN_POLL_INTERVAL:
-                errors[CONF_POLL_INTERVAL] = "invalid_poll_interval"
+            if err := _poll_interval_error(self._poll_interval):
+                errors[CONF_POLL_INTERVAL] = err
             else:
                 self._cooldown = int(user_input.get(CONF_POST_BRUSH_COOLDOWN, DEFAULT_POST_BRUSH_COOLDOWN))
                 self._window_count = int(user_input.get(CONF_WINDOW_COUNT, 0))
