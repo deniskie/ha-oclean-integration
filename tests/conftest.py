@@ -48,6 +48,7 @@ def _install_ha_stubs() -> None:
     from enum import Enum, StrEnum
 
     const = _stub("homeassistant.const")
+    const.__version__ = "2025.1.0"
     const.Platform = Enum("Platform", ["SENSOR", "BINARY_SENSOR", "BUTTON", "NUMBER", "SWITCH"])
     const.PERCENTAGE = "%"
 
