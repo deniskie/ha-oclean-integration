@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Planned / Known Gaps
+
+- **0302 response on OCLEANY3M** – The device does not respond to the 0302 device-settings query. `brush_head_days` and hardware `brush_head_usage` remain unavailable for this model; the software counter is the only fallback.
+- **Score + Areas (inline mode)** – Score and tooth-area pressures are only available when the device has new unread sessions (paginated `*B#` response). In inline mode (no new sessions) these fields are not transmitted by the firmware.
+- **Entity translations** – Entity names are currently hardcoded. The `strings.json` / `translations/*.json` mechanism is in place but not yet verified to work end-to-end with HA's translation pipeline.
+- **`pNum` → scheme name** – No local mapping possible; the Oclean app fetches scheme names from a cloud API. Currently the numeric pNum is exposed as-is.
+- **`blunt_teeth` unit** – Whether the brush-head wear counter increments linearly (+1 per session) or encodes an ADC wear value is not yet confirmed.
+- **Extended 0308 format** – Implemented based on APK analysis (`AbstractC0002b.m37y`), but never observed on real hardware (all known devices use TYPE1 / 0307).
+
 ---
 
 ## [v1.1.0] – 2026-03-21
