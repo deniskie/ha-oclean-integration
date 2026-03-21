@@ -35,7 +35,8 @@ def _install_ha_stubs() -> None:
     """Inject lightweight stubs for all homeassistant.* modules we import."""
 
     # ---- homeassistant root ----
-    _stub("homeassistant")
+    ha_root = _stub("homeassistant")
+    ha_root.__version__ = "2025.1.0"
 
     # ---- homeassistant.core ----
     core = _stub("homeassistant.core")
