@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Migration Notes
+
+- **`sensor.oclean_x_last_brush_scheme_id` – Langzeitstatistiken löschen:** HA meldet „Entität verfügt nicht mehr über eine Zustandsklasse". Ursache: Der Sensor gibt einen lesbaren Scheme-Namen (String) zurück und kann daher keine numerischen Langzeitstatistiken führen. Die alten Statistik-Einträge in der HA-Datenbank können bedenkenlos gelöscht werden (*Einstellungen → System → Statistiken → sensor.oclean_x_last_brush_scheme_id → Löschen*).
+
 ### Planned / Known Gaps
 
 - **0302 response on OCLEANY3M** – The device does not respond to the 0302 device-settings query. `brush_head_days` and hardware `brush_head_usage` remain unavailable for this model; the software counter is the only fallback.
