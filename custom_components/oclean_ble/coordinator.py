@@ -38,6 +38,7 @@ from .const import (
     CMD_CALIBRATE_TIME_T1_PREFIX,
     CMD_CLEAR_BRUSH_HEAD,
     CMD_QUERY_RUNNING_DATA_NEXT,
+    CMD_SET_BRUSH_SCHEME_CONT,
     DATA_BATTERY,
     DATA_BRUSH_HEAD_USAGE,
     DATA_HW_REVISION,
@@ -55,6 +56,7 @@ from .const import (
     DIS_SW_REV_UUID,
     DOMAIN,
     MAX_SESSION_PAGES,
+    OCLEANY3M_SCHEMES,
     READ_NOTIFY_CHAR_UUID,
     RECEIVE_BRUSH_UUID,
     STORAGE_VERSION,
@@ -72,6 +74,33 @@ from .protocol import UNKNOWN, DeviceProtocol, protocol_for_model
 from .statistics import import_new_sessions
 
 _LOGGER = logging.getLogger(__name__)
+
+# Gear-byte encoding table used by m28p() for TYPE1 SetBrushScheme (0206).
+# Gears 1-12 map to specific encoded values; all others (13-41) encode as 0x00.
+_GEAR_ENCODE: dict[int, int] = {1: 5, 2: 6, 3: 7, 4: 8, 5: 17, 6: 18, 7: 19, 8: 20, 9: 21, 10: 22, 11: 23, 12: 24}
+
+
+def _build_scheme_packets(pnum: int, steps: list[tuple[int, int]]) -> list[bytes]:
+    """Build TYPE1 SetBrushScheme BLE packet(s) following APK AbstractC0002b.m28p() logic.
+
+    Single packet: [0x02, 0x06, pnum, stepCount, (enc_gear, gear, dur)*N, 0x00, 0x05]
+
+    If the payload exceeds 20 bytes (conservative threshold for ATT_MTU=23), the
+    APK splits it into two GATT writes:
+      Packet 1: payload[0:16] + [0x2A, 0x2B]
+      Packet 2: CMD_SET_BRUSH_SCHEME_CONT (0x020B) + payload[16:]
+    """
+    payload = bytearray([0x02, 0x06, pnum & 0xFF, len(steps) & 0xFF])
+    for gear, dur in steps:
+        payload.append(_GEAR_ENCODE.get(gear, 0))
+        payload.append(gear & 0xFF)
+        payload.append(dur & 0xFF)
+    payload += bytes([0x00, 0x05])
+    if len(payload) > 20:
+        pkt1 = bytes(payload[:16]) + bytes([0x2A, 0x2B])
+        pkt2 = CMD_SET_BRUSH_SCHEME_CONT + bytes(payload[16:])
+        return [pkt1, pkt2]
+    return [bytes(payload)]
 
 
 class _CoordLoggerAdapter(logging.LoggerAdapter):
@@ -280,6 +309,8 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         # Software brush-head session counter: counts new sessions since the last
         # brush-head reset when the device does not expose a hardware counter via 0302.
         self._brush_head_sw_count: int = 0
+        # Last-applied brush scheme pnum (OCLEANY3M only); None = never set.
+        self._active_scheme_pnum: int | None = None
 
         # Active device protocol profile – selected after the first DIS read.
         # UNKNOWN is the safe fallback: subscribes all chars, sends all commands.
@@ -483,6 +514,62 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         self._brush_head_max_days = days
         await self._save_store()
 
+    @property
+    def active_scheme_pnum(self) -> int | None:
+        """Return the pnum of the last-applied brush scheme, or None if never set."""
+        return self._active_scheme_pnum
+
+    async def async_set_brush_scheme(self, pnum: int) -> None:
+        """Connect and send the SetBrushScheme command (0206) for OCLEANY3M.
+
+        Builds the BLE packet following APK AbstractC0002b.m28p() and sends it
+        via the device's write characteristic.  For schemes with more than 4 steps
+        the payload exceeds 20 bytes and is split into two GATT writes.
+        Called by the Brush Scheme select entity.
+        Raises ValueError for unknown pnums, BleakError on connection failure.
+        """
+        scheme = OCLEANY3M_SCHEMES.get(pnum)
+        if scheme is None:
+            raise ValueError(f"Unknown OCLEANY3M scheme pnum {pnum}")
+        name, steps = scheme
+        packets = _build_scheme_packets(pnum, steps)
+
+        ble_device = self._resolve_ble_device()
+        client = await establish_connection(
+            BleakClient,
+            ble_device,
+            self._device_name,
+            max_attempts=3,
+        )
+        try:
+            await asyncio.sleep(BLE_POST_CONNECT_DELAY)
+            subscribed: list[str] = []
+            for char_uuid in self._protocol.notify_chars:
+                try:
+                    await client.start_notify(char_uuid, lambda _s, _r: None)
+                    subscribed.append(char_uuid)
+                except Exception:  # noqa: BLE001
+                    pass
+            for i, pkt in enumerate(packets):
+                await client.write_gatt_char(self._protocol.write_char, pkt, response=True)
+                if i < len(packets) - 1:
+                    await asyncio.sleep(0.05)
+            for char_uuid in subscribed:
+                with contextlib.suppress(Exception):
+                    await client.stop_notify(char_uuid)
+            self._log.info(
+                "brush scheme set to pnum=%d (%s), %d packet(s): %s",
+                pnum,
+                name,
+                len(packets),
+                " ".join(p.hex() for p in packets),
+            )
+        finally:
+            if client.is_connected:
+                await client.disconnect()
+        self._active_scheme_pnum = pnum
+        await self._save_store()
+
     async def _write_standalone(self, client: BleakClient, cmd: bytes) -> None:
         """Subscribe to notify chars, write *cmd* to write_char, then unsubscribe.
 
@@ -548,6 +635,7 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
             self._area_remind = stored.get("area_remind")
             self._brush_head_max_days = stored.get("brush_head_max_days")
             self._brush_head_sw_count = stored.get("brush_head_sw_count", 0)
+            self._active_scheme_pnum = stored.get("active_scheme_pnum")
             last_session = stored.get("last_session", {})
             if last_session:
                 self._last_raw.update(last_session)
@@ -568,6 +656,7 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
                 "area_remind": self._area_remind,
                 "brush_head_max_days": self._brush_head_max_days,
                 "brush_head_sw_count": self._brush_head_sw_count,
+                "active_scheme_pnum": self._active_scheme_pnum,
                 "last_session": last_session,
             }
         )

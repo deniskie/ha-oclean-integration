@@ -117,6 +117,10 @@ BLE_SUBSCRIBE_TIMEOUT = 10.0
 
 # Brush head reset command
 CMD_CLEAR_BRUSH_HEAD = bytes.fromhex("020F")
+# Brush scheme set command (TYPE1 devices: OCLEANY3M family)
+# Source: C3385w0.java / AbstractC0002b.m28p() — command array {"0206", "020B"}
+CMD_SET_BRUSH_SCHEME = bytes.fromhex("0206")  # packet 1 header
+CMD_SET_BRUSH_SCHEME_CONT = bytes.fromhex("020B")  # packet 2 header (MTU split only)
 # Area reminder command (mo5298S, OcleanBleManager.setAreaRemind)
 CMD_AREA_REMIND = bytes.fromhex("020D")  # + 0x01 (on) / 0x00 (off)
 # Brush head max lifetime command (mo5345x, OcleanBleManager.setRunningHeadMaxTime)
@@ -221,6 +225,34 @@ SCHEME_NAMES: dict[int, str] = {
     101: "Gestation Care",
     102: "Gum Care Cleaning",
     104: "Gum Care Cleaning",
+}
+
+# OCLEANY3M brush scheme presets.
+# Source: GET /Romap/v1/DeviceContoller/GetAllResources, dataBrushScheme.program,
+#         filtered to deviceType == "OCLEANY3M" (exact), fetched 2026-03-22.
+# dict: pnum -> (english_name, [(gear, duration_seconds), ...])
+# Gear values: 1-32 = Clean intensity 1-32, 33-36 = Whitening 1-4,
+#              37-40 = Massage 1-4, 41 = extended (above documented range).
+OCLEANY3M_SCHEMES: dict[int, tuple[str, list[tuple[int, int]]]] = {
+    0: ("Standard Clean", [(2, 30), (2, 30), (2, 30), (2, 30)]),
+    72: ("Medium-Strong Clean", [(16, 30), (16, 30), (24, 30), (16, 30), (16, 30), (37, 30)]),
+    73: ("Strong Clean", [(38, 30), (24, 30), (24, 30), (24, 30), (24, 30), (32, 30)]),
+    74: ("Post-Wash Sensitive", [(8, 30), (8, 30), (37, 30), (8, 30), (8, 30)]),
+    75: ("Daily Whitening", [(34, 30), (34, 30), (24, 30), (16, 30), (16, 30)]),
+    76: ("Medium Whitening", [(32, 30), (35, 30), (24, 30), (24, 30), (35, 30)]),
+    77: ("Super Whitening", [(32, 30), (36, 30), (32, 30), (36, 30), (32, 30)]),
+    78: ("Sensitive Clean", [(37, 30), (41, 30), (41, 30), (41, 30), (41, 30), (41, 30)]),
+    79: ("Gentle SPA", [(8, 30), (33, 30), (33, 30), (37, 30), (37, 30), (8, 30)]),
+    80: ("Standard SPA", [(38, 30), (38, 30), (34, 30), (34, 30), (16, 30), (16, 30)]),
+    81: ("Deep SPA", [(39, 30), (35, 30), (24, 30), (24, 30), (39, 30), (35, 30)]),
+    82: ("After Sweets", [(18, 30), (18, 30), (12, 30), (12, 30)]),
+    83: ("Post-Meal Fresh", [(41, 30), (41, 30), (1, 30), (41, 30), (41, 30)]),
+    84: ("Gum Massage", [(38, 30), (38, 30), (38, 30), (38, 30)]),
+    85: ("Gum Care Clean", [(8, 30), (8, 30), (37, 30), (8, 30), (8, 30), (37, 20), (8, 30)]),
+    86: ("Beginner Whitening", [(33, 30), (6, 30), (33, 30), (6, 30), (6, 30)]),
+    87: ("Braces Clean", [(8, 30), (8, 30), (8, 30), (8, 30), (8, 30), (8, 30)]),
+    88: ("Quick Clean", [(30, 20), (30, 20), (30, 20), (30, 20)]),
+    89: ("Travel", [(17, 30), (17, 30), (35, 30), (35, 30)]),
 }
 
 # Persistent storage for session history

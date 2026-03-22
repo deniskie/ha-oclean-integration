@@ -55,6 +55,11 @@
         "name": "Actualizar ahora"
       }
     },
+    "select": {
+      "brush_scheme": {
+        "name": "Programa de cepillado"
+      }
+    },
     "switch": {
       "area_remind": {
         "name": "Recordatorio de zonas"

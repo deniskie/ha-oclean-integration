@@ -30,7 +30,14 @@ _LOGGER = logging.getLogger(__name__)
 _MANIFEST = json.loads((pathlib.Path(__file__).parent / "manifest.json").read_text())
 _INTEGRATION_VERSION = _MANIFEST.get("version", "unknown")
 
-PLATFORMS: list[Platform] = [Platform.BINARY_SENSOR, Platform.BUTTON, Platform.NUMBER, Platform.SENSOR, Platform.SWITCH]
+PLATFORMS: list[Platform] = [
+    Platform.BINARY_SENSOR,
+    Platform.BUTTON,
+    Platform.NUMBER,
+    Platform.SELECT,
+    Platform.SENSOR,
+    Platform.SWITCH,
+]
 
 # Key under hass.data[DOMAIN] where the shared file handler is stored
 _FILE_HANDLER_KEY = "_file_handler"
