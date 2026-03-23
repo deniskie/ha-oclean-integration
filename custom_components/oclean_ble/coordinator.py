@@ -59,6 +59,7 @@ from .const import (
     OCLEANY3M_SCHEMES,
     READ_NOTIFY_CHAR_UUID,
     RECEIVE_BRUSH_UUID,
+    SCHEMES_BY_MODEL,
     STORAGE_VERSION,
     WRITE_CHAR_UUID,
 )
@@ -520,7 +521,7 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         return self._active_scheme_pnum
 
     async def async_set_brush_scheme(self, pnum: int) -> None:
-        """Connect and send the SetBrushScheme command (0206) for OCLEANY3M.
+        """Connect and send the SetBrushScheme command (0206) to the device.
 
         Builds the BLE packet following APK AbstractC0002b.m28p() and sends it
         via the device's write characteristic.  For schemes with more than 4 steps
@@ -528,9 +529,11 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         Called by the Brush Scheme select entity.
         Raises ValueError for unknown pnums, BleakError on connection failure.
         """
-        scheme = OCLEANY3M_SCHEMES.get(pnum)
+        model_id = self.data.model_id if self.data else None
+        scheme_dict = SCHEMES_BY_MODEL.get(model_id or "", OCLEANY3M_SCHEMES)
+        scheme = scheme_dict.get(pnum)
         if scheme is None:
-            raise ValueError(f"Unknown OCLEANY3M scheme pnum {pnum}")
+            raise ValueError(f"Unknown scheme pnum {pnum} for model {model_id}")
         name, steps = scheme
         packets = _build_scheme_packets(pnum, steps)
 

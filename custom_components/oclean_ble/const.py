@@ -224,6 +224,7 @@ SCHEME_NAMES: dict[int, str] = {
     100: "Super Cleaning",
     101: "Gestation Care",
     102: "Gum Care Cleaning",
+    103: "Travel",
     104: "Gum Care Cleaning",
 }
 
@@ -253,6 +254,46 @@ OCLEANY3M_SCHEMES: dict[int, tuple[str, list[tuple[int, int]]]] = {
     87: ("Braces Clean", [(8, 30), (8, 30), (8, 30), (8, 30), (8, 30), (8, 30)]),
     88: ("Quick Clean", [(30, 20), (30, 20), (30, 20), (30, 20)]),
     89: ("Travel", [(17, 30), (17, 30), (35, 30), (35, 30)]),
+}
+
+# OCLEANY3 brush scheme presets (TYPE1 devices: OCLEANY3, OCLEANY3S, OCLEANY3T).
+# Extends OCLEANY3M_SCHEMES with pnum 90 (Gestation Care), which is exclusive to
+# the OCLEANY3 deviceType in the GetAllResources API response.
+OCLEANY3_SCHEMES: dict[int, tuple[str, list[tuple[int, int]]]] = {
+    **OCLEANY3M_SCHEMES,
+    90: ("Gestation Care", [(12, 30), (12, 30), (20, 30), (38, 30), (12, 30), (12, 30)]),
+}
+
+# OCLEANY5 (Oclean Z1) brush scheme presets.
+# Source: GET /Romap/v1/DeviceContoller/GetAllResources, dataBrushScheme.program,
+#         filtered to deviceType == "OCLEANY5", fetched 2026-03-22.
+# BLE encoding: same AbstractC0002b.m28p() as TYPE1 — confirmed via C3350f.java line 61.
+# Write characteristic: WRITE_CHAR_UUID (fbb85), unlike TYPE1 which uses SEND_BRUSH_CMD_UUID.
+OCLEANY5_SCHEMES: dict[int, tuple[str, list[tuple[int, int]]]] = {
+    0: ("Standard Clean", [(2, 30), (2, 30), (2, 30), (2, 30)]),
+    91: ("Gentle Teeth Spa", [(33, 30), (33, 30), (37, 30), (8, 30), (37, 30), (8, 30)]),
+    92: ("Standard Teeth Spa", [(16, 30), (34, 30), (38, 30), (16, 30), (38, 30), (34, 30)]),
+    93: ("Deep Cleaning Spa", [(40, 30), (24, 30), (40, 30), (36, 30), (36, 30), (24, 30)]),
+    94: ("Newbie Whitening", [(6, 30), (33, 30), (33, 30), (6, 30), (6, 30)]),
+    95: ("Strong Whitening", [(24, 30), (34, 30), (32, 30), (24, 30), (34, 30)]),
+    96: ("Super Whitening", [(36, 30), (36, 30), (32, 30), (32, 30), (32, 30)]),
+    97: ("Sensitive Cleaning", [(41, 30), (41, 30), (41, 30), (37, 30), (41, 30), (41, 30)]),
+    98: ("Braces Cleaning", [(8, 30), (8, 30), (8, 30), (8, 30), (8, 30), (8, 30)]),
+    99: ("Strong Cleaning", [(16, 30), (37, 30), (16, 30), (16, 30), (24, 30), (16, 30)]),
+    100: ("Super Cleaning", [(38, 30), (32, 30), (24, 30), (24, 30), (24, 30), (24, 30)]),
+    101: ("Gestation Care", [(12, 30), (12, 30), (12, 30), (20, 30), (12, 30), (38, 30)]),
+    102: ("Gum Care Cleaning", [(12, 30), (18, 30), (18, 30), (12, 30)]),
+    103: ("Travel", [(17, 30), (36, 30), (36, 30), (17, 30)]),
+    104: ("Gum Care Cleaning", [(8, 30), (8, 30), (8, 30), (8, 30), (8, 30), (37, 20), (37, 30)]),
+}
+
+# Per-model scheme dict overrides.  Models not listed fall back to OCLEANY3M_SCHEMES
+# (which covers all other TYPE1 devices: OCLEANY3M*, OCLEANY3P*, OCLEANY3D*, OCLEANX20, …).
+SCHEMES_BY_MODEL: dict[str, dict[int, tuple[str, list[tuple[int, int]]]]] = {
+    "OCLEANY3": OCLEANY3_SCHEMES,  # has exclusive pnum 90
+    "OCLEANY3S": OCLEANY3_SCHEMES,
+    "OCLEANY3T": OCLEANY3_SCHEMES,
+    "OCLEANY5": OCLEANY5_SCHEMES,  # Oclean Z1 — different pnum range (91-104)
 }
 
 # Persistent storage for session history
