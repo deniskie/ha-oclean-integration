@@ -51,30 +51,67 @@ After restart, go to **Settings → Integrations → Add Integration** and searc
 
 ## Entities
 
+Entity IDs follow the pattern `<platform>.<device_name>_<suffix>` where `<device_name>` is the name you gave the device during setup (default: `oclean`).
+
 ### Sensors
 
-| Entity | Description | Unit | Status |
-|--------|-------------|------|--------|
-| `sensor.oclean_battery` | Battery level | % | ✅ Tested |
-| `sensor.oclean_last_brush_score` | Quality score of last session (0–100) | – | ✅ Tested |
-| `sensor.oclean_last_brush_time` | Timestamp of last session | timestamp | ✅ Tested |
-| `sensor.oclean_last_brush_duration` | Duration of last session | min (default) | ✅ Tested |
-| `sensor.oclean_last_brush_scheme_type` | Brush programme name (from pNum); falls back to numeric ID if name is unknown | – | ✅ Tested |
-| `sensor.oclean_brush_head_usage` | Brush head wear indicator | – | ⚠️ Unconfirmed |
-| `sensor.oclean_last_brush_pressure` | Average brushing pressure across all tooth zones | – | ⚠️ Unconfirmed |
-| `sensor.oclean_last_brush_areas` | Number of cleaned tooth zones (0–8); individual zone values as attributes. Populated from `2604` notifications (Type-1 devices) or extended 0308 format (Type-0 devices) | – | ⚠️ Unconfirmed |
-| `sensor.oclean_tooth_area_<zone>` | Pressure for one tooth zone (8 sensors: `upper_left_out`, `upper_left_in`, `lower_left_out`, `lower_left_in`, `upper_right_out`, `upper_right_in`, `lower_right_out`, `lower_right_in`). Raw value 0–255; 0 = not cleaned. Populated from `2604` notifications (Type-1 devices) or extended 0308 format (Type-0 devices) | – | ⚠️ Unconfirmed |
-| `sensor.oclean_firmware_version` | Firmware version (diagnostic) | – | ✅ Tested |
-| `sensor.oclean_model` | Device model identifier (diagnostic) | – | ✅ Tested |
-| `sensor.oclean_hardware_revision` | Hardware revision (diagnostic) | – | ✅ Tested |
+#### Session data – updated after each brushing session
+
+| Name | Suffix | Description | Unit | Status |
+|------|--------|-------------|------|--------|
+| Battery | `_battery` | Current battery level | % | ✅ Tested |
+| Last Session | `_last_session` | Timestamp of the last brushing session | timestamp | ✅ Tested |
+| Score | `_score` | Brushing quality score of the last session (0–100) | – | ✅ Tested |
+| Duration | `_duration` | Duration of the last session | s (displayed as min) | ✅ Tested |
+| Last Scheme | `_last_scheme` | Brushing programme used in the last session – human-readable name (e.g. "Clean", "Sensitive") from the pNum lookup table; falls back to the raw number if unknown | – | ✅ Tested |
+| Pressure | `_pressure` | Average brushing pressure across all tooth zones in the last session (raw ADC value 0–255) | – | ⚠️ Unconfirmed |
+| Cleaned Zones | `_cleaned_zones` | Number of tooth zones (0–8) with non-zero pressure in the last session; individual per-zone pressures available as entity attributes | – | ⚠️ Unconfirmed |
+| Zone \<name\> | `_zone_<name>` | Pressure for one individual tooth zone in the last session (raw value 0–255; 0 = not brushed / no data). Eight sensors, one per zone: `upper_left_out`, `upper_left_in`, `lower_left_out`, `lower_left_in`, `upper_right_out`, `upper_right_in`, `lower_right_out`, `lower_right_in` | – | ⚠️ Unconfirmed |
+
+#### Device settings – updated every poll from the device
+
+| Name | Suffix | Description | Unit | Status |
+|------|--------|-------------|------|--------|
+| Mode | `_mode` | Active brushing mode currently set on the device (`modeNum` from 0302 response, byte 5). Device-family-specific integer – e.g. 1 = Standard, 2 = Sensitive; exact mapping varies by model. Unlike "Last Scheme", this reflects the device's current configuration, not the last session. | – | ⚠️ Unconfirmed |
+| Head Sessions | `_head_sessions` | Number of brushing sessions since the last brush head reset (`headUsedTimes` from 0302 response) | – | ⚠️ Unconfirmed |
+| Head Age | `_head_age` | Calendar days elapsed since the last brush head reset (`headUsedDays` from 0302 response) | d | ⚠️ Unconfirmed |
+
+#### Diagnostic – device information, always shown
+
+| Name | Suffix | Description | Unit | Status |
+|------|--------|-------------|------|--------|
+| Model | `_model` | Device model ID from BLE Device Information Service (e.g. `OCLEANY3M`) | – | ✅ Tested |
+| Firmware | `_firmware` | Firmware version string from BLE DIS (e.g. `1.0.0.20`) | – | ✅ Tested |
+| HW Revision | `_hw_revision` | Hardware revision string from BLE DIS (e.g. `Rev.D`) | – | ✅ Tested |
+| MAC Address | `_mac_address` | Bluetooth MAC address of the device | – | ✅ Tested |
+| Last Poll | `_last_poll` | Timestamp of the last completed BLE poll | timestamp | ✅ Tested |
+
+### Binary Sensors
+
+| Name | Suffix | Description | Status |
+|------|--------|-------------|--------|
+| Brushing | `_brushing` | `on` while a brushing session is in progress (from 0303 STATUS notification, bit 0 of byte 0) | ⚠️ Unconfirmed |
+
+### Switches
+
+| Name | Suffix | Description | Status |
+|------|--------|-------------|--------|
+| Area Reminder | `_area_reminder` | Enables/disables the tooth-zone completion reminder on the device (writes CMD 020D; state persisted locally – assumes state, no read-back) | ⚠️ Unconfirmed |
+| Over-Pressure Alert | `_over_pressure` | Enables/disables the brushing over-pressure alert on the device (writes CMD 0212; state persisted locally – assumes state, no read-back) | ⚠️ Unconfirmed |
+
+### Numbers
+
+| Name | Suffix | Description | Unit | Status |
+|------|--------|-------------|------|--------|
+| Brush Head Lifetime | `_brush_head_lifetime` | Maximum brush head lifetime in days. When "Head Age" or "Head Sessions" exceeds this value, a replacement reminder is shown in HA (writes CMD 0217; state persisted locally) | d | ⚠️ Unconfirmed |
 
 ### Buttons
 
-| Entity | Description | Status |
-|--------|-------------|--------|
-| `button.oclean_reset_brush_head` | Resets the brush head wear counter | ⚠️ Unconfirmed |
-| `button.oclean_sync_time` | Syncs the current time to the device clock | ✅ Tested |
-| `button.oclean_poll_now` | Triggers an immediate BLE poll | ✅ Tested |
+| Name | Suffix | Description | Status |
+|------|--------|-------------|--------|
+| Reset Brush Head | `_reset_brush_head` | Resets the brush head wear counter on the device (CMD 020F) and clears the local session counter | ⚠️ Unconfirmed |
+| Sync Time | `_sync_time` | Synchronises the current time to the device clock | ✅ Tested |
+| Update Now | `_update_now` | Triggers an immediate BLE poll (same as the `oclean_ble.poll` action) | ✅ Tested |
 
 **Legend:**
 - ✅ **Tested** – confirmed working on real hardware with multiple sessions
