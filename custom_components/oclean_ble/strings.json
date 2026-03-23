@@ -55,6 +55,11 @@
         "name": "Update Now"
       }
     },
+    "binary_sensor": {
+      "is_brushing": {
+        "name": "Brushing"
+      }
+    },
     "select": {
       "brush_scheme": {
         "name": "Brush Scheme"
