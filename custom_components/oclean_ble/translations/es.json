@@ -70,43 +70,34 @@
         "name": "Batería"
       },
       "last_brush_score": {
-        "name": "Puntuación del último cepillado"
+        "name": "Puntuación"
       },
       "last_brush_duration": {
-        "name": "Duración del último cepillado"
+        "name": "Duración"
       },
       "last_brush_pressure": {
-        "name": "Presión del último cepillado"
+        "name": "Presión"
       },
       "last_brush_time": {
-        "name": "Hora del último cepillado"
+        "name": "Última sesión"
       },
       "brush_head_usage": {
-        "name": "Usos del cabezal"
+        "name": "Sesiones del cabezal"
       },
       "brush_head_days": {
-        "name": "Días del cabezal"
+        "name": "Edad del cabezal"
       },
-      "sw_version": {
-        "name": "Versión del firmware"
+      "brush_mode": {
+        "name": "Modo"
       },
       "model_id": {
         "name": "Modelo"
       },
       "hw_revision": {
-        "name": "Revisión de hardware"
+        "name": "Revisión HW"
       },
-      "brush_mode": {
-        "name": "Modo de cepillado"
-      },
-      "last_brush_gesture_code": {
-        "name": "Código de gesto del último cepillado"
-      },
-      "last_brush_gesture_array": {
-        "name": "Array de gestos del último cepillado"
-      },
-      "last_brush_power_array": {
-        "name": "Array de potencia del último cepillado"
+      "sw_version": {
+        "name": "Firmware"
       },
       "last_poll": {
         "name": "Última consulta"

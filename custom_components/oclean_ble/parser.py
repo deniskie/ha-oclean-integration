@@ -380,6 +380,12 @@ def _parse_m18f_record(record: bytes) -> dict[str, Any]:
             _extract_nibbles(record[30]) + _extract_nibbles(record[31]) + _extract_nibbles(record[32])
         )
         _LOGGER.debug("Oclean 0307 m18f record point=%d (raw byte 34, APK: not used)", record[34])
+        _LOGGER.debug(
+            "Oclean 0307 m18f research: gestureCode=%d gestureArray=%s powerArray=%s",
+            result[DATA_LAST_BRUSH_GESTURE_CODE],
+            result[DATA_LAST_BRUSH_GESTURE_ARRAY],
+            result[DATA_LAST_BRUSH_POWER_ARRAY],
+        )
 
         _LOGGER.debug(
             "Oclean 0307 m18f parsed: ts=%d pNum=%d duration=%s score=%s gestureCode=%d (raw: %s)",
@@ -491,6 +497,12 @@ def parse_t1_c3352g_record(record: bytes) -> dict[str, Any]:
             _extract_nibbles(record[30]) + _extract_nibbles(record[31]) + _extract_nibbles(record[32])
         )
         _LOGGER.debug("Oclean C3352g record point=%d (raw byte 34, APK: not used)", record[34])
+        _LOGGER.debug(
+            "Oclean C3352g record research: gestureCode=%d gestureArray=%s powerArray=%s",
+            result[DATA_LAST_BRUSH_GESTURE_CODE],
+            result[DATA_LAST_BRUSH_GESTURE_ARRAY],
+            result[DATA_LAST_BRUSH_POWER_ARRAY],
+        )
 
         _LOGGER.debug(
             "Oclean C3352g record parsed: ts=%d pNum=%d duration=%s score=%s gestureCode=%d (raw: %s)",
@@ -582,6 +594,12 @@ def parse_y3p_stream_record(record: bytes) -> dict[str, Any]:
             _extract_nibbles(record[30]) + _extract_nibbles(record[31]) + _extract_nibbles(record[32])
         )
         _LOGGER.debug("Oclean Y3P stream record point=%d (raw byte 34, APK: not used)", record[34])
+        _LOGGER.debug(
+            "Oclean Y3P stream record research: gestureCode=%d gestureArray=%s powerArray=%s",
+            result[DATA_LAST_BRUSH_GESTURE_CODE],
+            result[DATA_LAST_BRUSH_GESTURE_ARRAY],
+            result[DATA_LAST_BRUSH_POWER_ARRAY],
+        )
 
         _LOGGER.debug(
             "Oclean Y3P stream record: ts=%d duration=%s score=%s gestureCode=%d (raw: %s)",
@@ -1156,7 +1174,6 @@ def _log_4b00_response(payload: bytes) -> dict[str, Any]:
     for i, b in enumerate(payload):
         _LOGGER.debug("  4b00[%02d] = 0x%02X  (%3d)", i, b, b)
     return {}
-
 
 
 def _parse_brush_areas_y3p_response(payload: bytes) -> dict[str, Any]:
