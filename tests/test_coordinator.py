@@ -2417,3 +2417,127 @@ class TestStandaloneWrites:
         assert client.start_notify.await_count == len(TYPE1.notify_chars)
         # stop_notify must match
         assert client.stop_notify.await_count == len(TYPE1.notify_chars)
+
+
+# ---------------------------------------------------------------------------
+# TYPE_Z1 hybrid routing
+# ---------------------------------------------------------------------------
+
+
+class TestTypeZ1Protocol:
+    """Verify Type-Z1 (Oclean Z1 / OCLEANY5) hybrid command routing.
+
+    Type-Z1 routes 0303/0202/0302 via fbb85 (WRITE_CHAR_UUID) and 0307 via
+    fbb89 (SEND_BRUSH_CMD_UUID).  Time calibration uses the 0201 + 8-byte
+    datetime format (same as TYPE1, because uses_t1_calibration=True).
+    Standalone writes (area_remind, brush_head_max_days) use fbb85 as write_char.
+    """
+
+    @pytest.mark.asyncio
+    async def test_query_commands_hybrid_routing(self):
+        """Each query command must be sent to the characteristic declared in TYPE_Z1."""
+        from custom_components.oclean_ble.const import (
+            CMD_DEVICE_INFO,
+            CMD_QUERY_DEVICE_SETTINGS,
+            CMD_QUERY_RUNNING_DATA_T1,
+            CMD_QUERY_STATUS,
+            SEND_BRUSH_CMD_UUID,
+            WRITE_CHAR_UUID,
+        )
+        from custom_components.oclean_ble.protocol import TYPE_Z1
+
+        coord = _make_coordinator()
+        coord._protocol = TYPE_Z1
+        coord._store_loaded = True
+        client = _make_bleak_client()
+        event = asyncio.Event()
+        event.set()
+
+        await coord._send_query_commands(client, event)
+
+        calls = {(args[0][0], args[0][1]): True for args in client.write_gatt_char.call_args_list}
+        # 0303, 0202, 0302 must go via fbb85
+        assert (WRITE_CHAR_UUID, CMD_QUERY_STATUS) in calls
+        assert (WRITE_CHAR_UUID, CMD_DEVICE_INFO) in calls
+        assert (WRITE_CHAR_UUID, CMD_QUERY_DEVICE_SETTINGS) in calls
+        # 0307 must go via fbb89
+        assert (SEND_BRUSH_CMD_UUID, CMD_QUERY_RUNNING_DATA_T1) in calls
+
+    @pytest.mark.asyncio
+    async def test_time_calibration_uses_0201_format(self):
+        """TYPE_Z1 uses_t1_calibration=True → sync_time must send 0201 + 8-byte payload."""
+        from custom_components.oclean_ble.protocol import TYPE_Z1
+
+        coord = _make_coordinator()
+        coord._protocol = TYPE_Z1
+        client = _make_bleak_client()
+
+        with (
+            patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock,
+            patch(
+                "custom_components.oclean_ble.coordinator.establish_connection",
+                new_callable=AsyncMock,
+                return_value=client,
+            ),
+        ):
+            bt_mock.async_last_service_info.return_value = _make_service_info()
+            await coord.async_sync_time()
+
+        client.write_gatt_char.assert_awaited_once()
+        cmd_bytes = client.write_gatt_char.call_args[0][1]
+        assert cmd_bytes[:2] == bytes.fromhex("0201"), "TYPE_Z1 must send 0201 calibration command"
+        assert len(cmd_bytes) == 10, "0201 + 8-byte datetime payload = 10 bytes"
+
+    @pytest.mark.asyncio
+    async def test_standalone_write_uses_fbb85(self):
+        """TYPE_Z1 write_char is fbb85 → area_remind must write to WRITE_CHAR_UUID."""
+        from custom_components.oclean_ble.const import CMD_AREA_REMIND, WRITE_CHAR_UUID
+        from custom_components.oclean_ble.protocol import TYPE_Z1
+
+        coord = _make_coordinator()
+        coord._protocol = TYPE_Z1
+        client = _make_bleak_client()
+
+        with (
+            patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock,
+            patch(
+                "custom_components.oclean_ble.coordinator.establish_connection",
+                new_callable=AsyncMock,
+                return_value=client,
+            ),
+            patch("custom_components.oclean_ble.coordinator.asyncio.sleep", new_callable=AsyncMock),
+            patch.object(coord, "_save_store", new_callable=AsyncMock),
+        ):
+            bt_mock.async_last_service_info.return_value = _make_service_info()
+            await coord.async_set_area_remind(True)
+
+        char_used = client.write_gatt_char.call_args[0][0]
+        assert char_used == WRITE_CHAR_UUID, "TYPE_Z1 standalone writes must use fbb85"
+        cmd_bytes = client.write_gatt_char.call_args[0][1]
+        assert cmd_bytes == CMD_AREA_REMIND + bytes([0x01])
+
+    @pytest.mark.asyncio
+    async def test_notify_chars_subscribed_for_standalone_write(self):
+        """_write_standalone on TYPE_Z1 must subscribe to fbb86 + fbb90 before writing."""
+        from custom_components.oclean_ble.const import CMD_AREA_REMIND
+        from custom_components.oclean_ble.protocol import TYPE_Z1
+
+        coord = _make_coordinator()
+        coord._protocol = TYPE_Z1
+        client = _make_bleak_client()
+
+        with (
+            patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock,
+            patch(
+                "custom_components.oclean_ble.coordinator.establish_connection",
+                new_callable=AsyncMock,
+                return_value=client,
+            ),
+            patch("custom_components.oclean_ble.coordinator.asyncio.sleep", new_callable=AsyncMock),
+            patch.object(coord, "_save_store", new_callable=AsyncMock),
+        ):
+            bt_mock.async_last_service_info.return_value = _make_service_info()
+            await coord.async_set_area_remind(True)
+
+        assert client.start_notify.await_count == len(TYPE_Z1.notify_chars)
+        assert client.stop_notify.await_count == len(TYPE_Z1.notify_chars)
