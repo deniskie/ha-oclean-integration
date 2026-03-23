@@ -118,13 +118,14 @@ SENSOR_DESCRIPTIONS: tuple[SensorEntityDescription, ...] = (
         icon="mdi:calendar-sync",
         # headUsedDays from 0302 response: calendar days since last brush-head reset.
     ),
-    # Device information (diagnostic) – read from BLE Device Information Service (0x180A)
+    # Device settings – read from 0302 device-settings response
     SensorEntityDescription(
-        key=DATA_SW_VERSION,
-        name="Firmware Version",
-        icon="mdi:chip",
-        entity_category=EntityCategory.DIAGNOSTIC,
+        key=DATA_BRUSH_MODE,
+        name="Brush Mode",
+        icon="mdi:tune",
+        state_class=SensorStateClass.MEASUREMENT,
     ),
+    # Device information (diagnostic) – read from BLE Device Information Service (0x180A)
     SensorEntityDescription(
         key=DATA_MODEL_ID,
         name="Model",
@@ -137,14 +138,13 @@ SENSOR_DESCRIPTIONS: tuple[SensorEntityDescription, ...] = (
         icon="mdi:wrench",
         entity_category=EntityCategory.DIAGNOSTIC,
     ),
-    # Device settings (diagnostic) – read from 0302 device-settings response
     SensorEntityDescription(
-        key=DATA_BRUSH_MODE,
-        name="Brush Mode",
-        icon="mdi:tune",
-        state_class=SensorStateClass.MEASUREMENT,
+        key=DATA_SW_VERSION,
+        name="Firmware Version",
+        icon="mdi:chip",
         entity_category=EntityCategory.DIAGNOSTIC,
     ),
+    # NOTE: MAC Address is handled by OcleanMacSensor below (needs self._mac).
     SensorEntityDescription(
         key=DATA_LAST_POLL,
         name="Last Poll",
