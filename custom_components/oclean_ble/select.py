@@ -67,8 +67,7 @@ class OcleanSchemeSelect(OcleanEntity, SelectEntity):
         mac: str,
         device_name: str,
     ) -> None:
-        super().__init__(coordinator, mac, device_name)
-        self._attr_unique_id = f"{mac}_brush_scheme"
+        super().__init__(coordinator, mac, device_name, "brush_scheme")
 
     @property
     def available(self) -> bool:
