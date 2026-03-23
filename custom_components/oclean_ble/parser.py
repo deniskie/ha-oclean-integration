@@ -1314,6 +1314,7 @@ _JSON_KEY_MAP: tuple[tuple[str, tuple[str, ...], bool], ...] = (
     (DATA_LAST_BRUSH_DURATION, ("duration", "brushDuration", "brush_duration", "time"), True),
     (DATA_LAST_BRUSH_PRESSURE, ("pressure", "avgPressure", "avg_pressure"), True),
     (DATA_LAST_BRUSH_TIME, ("timestamp", "endTime", "end_time", "brushTime"), False),
+    (DATA_BRUSH_MODE, ("modeNum", "mode_num", "brushMode"), True),
 )
 
 

@@ -306,6 +306,21 @@ def _install_ha_stubs() -> None:
     bs.BinarySensorEntityDescription = BinarySensorEntityDescription
     bs.BinarySensorEntity = BinarySensorEntity
 
+    # ---- homeassistant.components.switch ----
+    sw = _stub("homeassistant.components.switch")
+
+    class SwitchEntityDescription:
+        def __init__(self, *, key, name="", icon=None, **kwargs):
+            self.key = key
+            self.name = name
+            self.icon = icon
+
+    class SwitchEntity:
+        pass
+
+    sw.SwitchEntityDescription = SwitchEntityDescription
+    sw.SwitchEntity = SwitchEntity
+
     # ---- bleak (stub if not installed) ----
     if "bleak" not in sys.modules or not hasattr(sys.modules["bleak"], "BleakError"):
         bleak = _stub("bleak")
