@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from homeassistant.components.number import NumberEntity, NumberEntityDescription, NumberMode
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import UnitOfTime
+from homeassistant.const import EntityCategory, UnitOfTime
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -22,6 +22,7 @@ NUMBER_DESCRIPTIONS: tuple[NumberEntityDescription, ...] = (
         native_step=1,
         native_unit_of_measurement=UnitOfTime.DAYS,
         mode=NumberMode.BOX,
+        entity_category=EntityCategory.DIAGNOSTIC,
     ),
 )
 
