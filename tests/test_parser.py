@@ -1769,9 +1769,14 @@ def _make_c3385w0_record(
     pnum: int = 0,
     duration: int = 120,
     score: int = 91,
-    areas: tuple = (5, 20, 75, 0, 0, 0, 0, 0),
+    areas: tuple = (5, 20, 75, 0, 0),
 ) -> bytes:
-    """Build a full 42-byte C3385w0 session record with tooth-zone area data."""
+    """Build a full 42-byte C3385w0 session record with tooth-zone area data.
+
+    Only areas 1-5 (bytes 11-15) are stored in the *B# record per APK analysis.
+    Byte 16 is discarded by the APK; bytes 18-19 are gestureArray[0-1], not areas.
+    Areas 6-8 arrive via the 2604 enrichment push and are not part of this record.
+    """
     record = bytearray(42)
     record[0] = year - 2000
     record[1] = month
@@ -1782,15 +1787,9 @@ def _make_c3385w0_record(
     record[6] = pnum
     record[7] = (duration >> 8) & 0xFF
     record[8] = duration & 0xFF
-    # Area bytes: 11-16 (area1-6) + 18-19 (area7-8)
-    record[11] = areas[0]
-    record[12] = areas[1]
-    record[13] = areas[2]
-    record[14] = areas[3]
-    record[15] = areas[4]
-    record[16] = areas[5]
-    record[18] = areas[6]
-    record[19] = areas[7]
+    # Area bytes 11-15: area1-5 only (APK-confirmed)
+    for i, v in enumerate(areas[:5]):
+        record[11 + i] = v
     record[33] = score
     return bytes(record)
 
@@ -1813,18 +1812,24 @@ class TestParseT1C3385w0Record:
         assert result["last_brush_score"] == 85
 
     def test_extracts_area_zones(self):
-        """Bytes 11-16 and 18-19 are real tooth-zone area coverage values."""
-        record = _make_c3385w0_record(areas=(5, 20, 75, 0, 0, 0, 0, 0))
+        """Bytes 11-15 are tooth-zone area coverage values (areas 1-5 only).
+
+        Areas 6-8 are not in the *B# record; they arrive via the 2604 push.
+        """
+        record = _make_c3385w0_record(areas=(5, 20, 75, 0, 0))
         result = parse_t1_c3385w0_record(record)
         assert "last_brush_areas" in result
         areas = result["last_brush_areas"]
         assert areas["upper_left_out"] == 5
         assert areas["upper_left_in"] == 20
         assert areas["lower_left_out"] == 75
+        assert areas["upper_right_in"] == 0  # area6: not in *B# record
+        assert areas["lower_right_out"] == 0  # area7: not in *B# record
+        assert areas["lower_right_in"] == 0  # area8: not in *B# record
 
     def test_zero_areas_not_stored(self):
         """All-zero area bytes → areas/pressure omitted from result."""
-        record = _make_c3385w0_record(areas=(0, 0, 0, 0, 0, 0, 0, 0))
+        record = _make_c3385w0_record(areas=(0, 0, 0, 0, 0))
         result = parse_t1_c3385w0_record(record)
         assert "last_brush_areas" not in result
         assert "last_brush_pressure" not in result

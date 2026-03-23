@@ -424,12 +424,11 @@ def parse_t1_c3385w0_record(record: bytes) -> dict[str, Any]:
       byte  6:   pNum (brush-scheme ID)                    ✓
       bytes 7-8: duration BE uint16 (seconds)              ✓
       bytes 9-10: validDuration BE (not stored as sensor)  ✓
-      bytes 11-15: area1..area5 (tooth zones)              ✓ confirmed vs real device data
-      byte 16:   APK skips this byte (result discarded)    ? included in area parsing pending
-                 further real-device verification
+      bytes 11-15: area1..area5 (tooth zones)              ✓ APK + real device confirmed
+      byte 16:   discarded by APK (not an area byte)       ✓ APK L1620 result not assigned
       byte 17:   timezone index → getTimeZoneString()      ✓ APK L1638+L1812 (not stored)
-      bytes 18-19: area7..area8 (tooth zones)              ✓
-      bytes 18-29: gestureArray[0..11] (12 elements)       ✓ APK-confirmed offsets
+      bytes 18-29: gestureArray[0..11] (12 elements)       ✓ APK-confirmed; NOT area7-8
+                   (areas 6-8 absent from *B# record; arrive via 2604 enrichment push)
       byte 30:   gestureCode (2-bit value at a.b.a(·, 2))  ✓ APK-confirmed; not yet extracted
                  + powerArray nibbles a.b.a(·, 0/1/3)
       bytes 31-32: powerArray nibble source                ✓ APK-confirmed; not yet extracted
@@ -483,11 +482,11 @@ def parse_t1_c3385w0_record(record: bytes) -> dict[str, Any]:
         if 0 < score <= 100:
             result[DATA_LAST_BRUSH_SCORE] = score
 
-        # Area pressures: bytes 11-16 (area1-6) + bytes 18-19 (area7-8)
-        # Confirmed from real OCLEANY3MH device log (C3385w0 format).
-        area_bytes = bytes(
-            [record[11], record[12], record[13], record[14], record[15], record[16], record[18], record[19]]
-        )
+        # Area pressures: bytes 11-15 only (area1-5, confirmed APK C3385w0_fallback.java).
+        # Byte 16 is discarded by the APK; bytes 18-19 are gestureArray[0-1], NOT areas.
+        # Areas 6-8 (upper_right_in, lower_right_out, lower_right_in) are not stored in
+        # the *B# record and are filled from the 2604 enrichment push when it arrives.
+        area_bytes = bytes(record[11:16]) + bytes(3)  # areas 1-5 + zeros for areas 6-8
         area_dict, _zones_cleaned, avg_pressure = _build_area_stats(area_bytes)
         if any(v > 0 for v in area_bytes):
             result[DATA_LAST_BRUSH_AREAS] = area_dict
