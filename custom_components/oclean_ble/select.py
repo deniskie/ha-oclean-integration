@@ -88,12 +88,21 @@ class OcleanSchemeSelect(OcleanEntity, SelectEntity):
 
     @property
     def current_option(self) -> str | None:
-        """Return the name of the currently-active scheme, or None if unknown."""
-        pnum = self.coordinator.active_scheme_pnum
-        if pnum is None or self.coordinator.data is None:
+        """Return the name of the currently-active scheme, or None if unknown.
+
+        Prefers the last explicitly-set pnum; falls back to the device-reported
+        brush_mode from the 0302 device-settings response so the entity shows a
+        meaningful value on first start before the user has selected anything.
+        """
+        if self.coordinator.data is None:
             return None
         schemes = _schemes_for_model(self.coordinator.data.model_id)
         if schemes is None:
+            return None
+        pnum = self.coordinator.active_scheme_pnum
+        if pnum is None:
+            pnum = self.coordinator.data.brush_mode
+        if pnum is None:
             return None
         entry = schemes.get(pnum)
         return entry[0] if entry else None

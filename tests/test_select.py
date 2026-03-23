@@ -15,15 +15,20 @@ from custom_components.oclean_ble.select import OcleanSchemeSelect, _schemes_for
 # ---------------------------------------------------------------------------
 
 
-def _make_data(model_id: str | None) -> OcleanDeviceData:
+def _make_data(model_id: str | None, brush_mode: int | None = None) -> OcleanDeviceData:
     data = MagicMock(spec=OcleanDeviceData)
     data.model_id = model_id
+    data.brush_mode = brush_mode
     return data
 
 
-def _make_entity(model_id: str | None, active_pnum: int | None = None) -> OcleanSchemeSelect:
+def _make_entity(
+    model_id: str | None,
+    active_pnum: int | None = None,
+    brush_mode: int | None = None,
+) -> OcleanSchemeSelect:
     coordinator = MagicMock()
-    coordinator.data = _make_data(model_id) if model_id is not None else None
+    coordinator.data = _make_data(model_id, brush_mode) if model_id is not None else None
     coordinator.active_scheme_pnum = active_pnum
     return OcleanSchemeSelect(coordinator, "AA:BB:CC:DD:EE:FF", "TestBrush")
 
@@ -161,8 +166,22 @@ class TestCurrentOption:
         entity = _make_entity(None, active_pnum=72)
         assert entity.current_option is None
 
-    def test_none_when_pnum_is_none(self):
-        entity = _make_entity("OCLEANY3M", active_pnum=None)
+    def test_none_when_pnum_is_none_and_no_brush_mode(self):
+        entity = _make_entity("OCLEANY3M", active_pnum=None, brush_mode=None)
+        assert entity.current_option is None
+
+    def test_fallback_to_brush_mode_when_active_pnum_none(self):
+        """On first start, brush_mode from 0302 response is used as initial value."""
+        entity = _make_entity("OCLEANY3M", active_pnum=None, brush_mode=72)
+        assert entity.current_option == OCLEANY3M_SCHEMES[72][0]
+
+    def test_active_pnum_takes_priority_over_brush_mode(self):
+        entity = _make_entity("OCLEANY3M", active_pnum=73, brush_mode=72)
+        assert entity.current_option == OCLEANY3M_SCHEMES[73][0]
+
+    def test_brush_mode_not_in_scheme_returns_none(self):
+        """Device reports a brush_mode pnum not in our scheme dict → unknown."""
+        entity = _make_entity("OCLEANY3M", active_pnum=None, brush_mode=999)
         assert entity.current_option is None
 
     def test_y3m_returns_correct_name(self):
