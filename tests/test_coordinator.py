@@ -1382,6 +1382,86 @@ class TestSubscribeBatteryNotifications:
 
 
 # ---------------------------------------------------------------------------
+# _subscribe_notifications – Notify-acquired retry logic
+# ---------------------------------------------------------------------------
+
+
+class TestSubscribeNotificationsRetry:
+    @pytest.mark.asyncio
+    async def test_success_on_first_attempt(self):
+        """All notify_chars subscribed successfully without retries."""
+        from custom_components.oclean_ble.protocol import TYPE1
+
+        coord = _make_coordinator()
+        coord._protocol = TYPE1
+        client = _make_bleak_client()
+        handler = lambda _char, _data: None  # noqa: E731
+        subscribed = await coord._subscribe_notifications(client, handler)
+        assert subscribed == frozenset(TYPE1.notify_chars)
+        client.stop_notify.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_notify_acquired_releases_and_retries(self):
+        """On 'Notify acquired', stop_notify is called and start_notify is retried."""
+        from custom_components.oclean_ble.protocol import TYPE1
+
+        coord = _make_coordinator()
+        coord._protocol = TYPE1
+        client = _make_bleak_client()
+
+        call_counts: dict[str, int] = {}
+
+        async def _fake_start_notify(uuid, _handler):
+            call_counts[uuid] = call_counts.get(uuid, 0) + 1
+            if call_counts[uuid] == 1:
+                raise Exception("[org.bluez.Error.NotPermitted] Notify acquired")
+            # second call succeeds (no exception)
+
+        client.start_notify = AsyncMock(side_effect=_fake_start_notify)
+        handler = lambda _char, _data: None  # noqa: E731
+        subscribed = await coord._subscribe_notifications(client, handler)
+
+        # All chars must be in the subscribed set (retry succeeded)
+        assert subscribed == frozenset(TYPE1.notify_chars)
+        # stop_notify must have been called once per char that had Notify acquired
+        assert client.stop_notify.await_count == len(TYPE1.notify_chars)
+
+    @pytest.mark.asyncio
+    async def test_notify_acquired_retry_also_fails_logs_warning(self):
+        """When retry also fails, char is NOT in subscribed set and no exception raised."""
+        from custom_components.oclean_ble.protocol import TYPE1
+
+        coord = _make_coordinator()
+        coord._protocol = TYPE1
+        client = _make_bleak_client()
+        client.start_notify = AsyncMock(side_effect=Exception("[org.bluez.Error.NotPermitted] Notify acquired"))
+        handler = lambda _char, _data: None  # noqa: E731
+        subscribed = await coord._subscribe_notifications(client, handler)
+
+        # No char successfully subscribed
+        assert len(subscribed) == 0
+        # stop_notify attempted for each char
+        assert client.stop_notify.await_count == len(TYPE1.notify_chars)
+
+    @pytest.mark.asyncio
+    async def test_other_error_does_not_retry(self):
+        """A non-'Notify acquired' error skips the retry path and leaves char unsubscribed."""
+        from custom_components.oclean_ble.protocol import TYPE1
+
+        coord = _make_coordinator()
+        coord._protocol = TYPE1
+        client = _make_bleak_client()
+        client.start_notify = AsyncMock(
+            side_effect=Exception("[org.bluez.Error.NotSupported] Operation is not supported")
+        )
+        handler = lambda _char, _data: None  # noqa: E731
+        subscribed = await coord._subscribe_notifications(client, handler)
+
+        assert len(subscribed) == 0
+        client.stop_notify.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
 # _read_device_info_service – device registry update path (lines 556-576)
 # ---------------------------------------------------------------------------
 

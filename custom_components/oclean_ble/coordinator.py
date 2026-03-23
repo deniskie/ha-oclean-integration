@@ -1062,6 +1062,12 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         Returns the set of UUIDs successfully subscribed.  Callers use this to
         detect devices (e.g. OCLEANA1) that don't support CCCD-based notifications
         on READ_NOTIFY_CHAR_UUID and must be polled via direct READ instead.
+
+        When BlueZ reports "Notify acquired" (stale CCCD subscription from a
+        previous connection that did not disconnect cleanly), the method calls
+        stop_notify to release the existing subscription and retries once.
+        This situation is common after a connection drop (proxy timeout, device
+        moved out of range) where the normal disconnect path was not taken.
         """
         subscribed: set[str] = set()
         for char_uuid in self._protocol.notify_chars:
@@ -1074,11 +1080,29 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
                 self._log.debug("subscribed to %s", char_uuid)
             except Exception as err:  # noqa: BLE001
                 if "Notify acquired" in str(err):
-                    self._log.warning(
-                        "could not subscribe to %s: %s – close the Oclean app to allow polling",
+                    # Stale CCCD subscription from a previous dropped connection.
+                    # Release it and retry once.
+                    self._log.debug(
+                        "Notify acquired on %s – releasing stale subscription and retrying",
                         char_uuid,
-                        err,
                     )
+                    with contextlib.suppress(Exception):
+                        await client.stop_notify(char_uuid)
+                    await asyncio.sleep(0.3)
+                    try:
+                        await asyncio.wait_for(
+                            client.start_notify(char_uuid, handler),
+                            timeout=BLE_SUBSCRIBE_TIMEOUT,
+                        )
+                        subscribed.add(char_uuid)
+                        self._log.debug("subscribed to %s (after stale-subscription release)", char_uuid)
+                    except Exception as retry_err:  # noqa: BLE001
+                        self._log.warning(
+                            "could not subscribe to %s even after releasing stale subscription: %s"
+                            " – if the Oclean app is open, close it and wait for the next poll",
+                            char_uuid,
+                            retry_err,
+                        )
                 else:
                     self._log.debug(
                         "could not subscribe to %s: %s (%s)",
