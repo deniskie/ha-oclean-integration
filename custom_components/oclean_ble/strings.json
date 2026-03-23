@@ -55,6 +55,11 @@
         "name": "Update Now"
       }
     },
+    "select": {
+      "brush_scheme": {
+        "name": "Brush Scheme"
+      }
+    },
     "switch": {
       "area_remind": {
         "name": "Area Reminder"

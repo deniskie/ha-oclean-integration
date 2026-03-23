@@ -49,7 +49,7 @@ def _install_ha_stubs() -> None:
 
     const = _stub("homeassistant.const")
     const.__version__ = "2025.1.0"
-    const.Platform = Enum("Platform", ["SENSOR", "BINARY_SENSOR", "BUTTON", "NUMBER", "SWITCH"])
+    const.Platform = Enum("Platform", ["SENSOR", "BINARY_SENSOR", "BUTTON", "NUMBER", "SELECT", "SWITCH"])
     const.PERCENTAGE = "%"
 
     class UnitOfTime:
@@ -200,6 +200,16 @@ def _install_ha_stubs() -> None:
 
     dr.DeviceInfo = DeviceInfo
 
+    # ---- homeassistant.helpers.entity ----
+    he = _stub("homeassistant.helpers.entity")
+    from enum import StrEnum as _StrEnum
+
+    class _EntityCategory(_StrEnum):
+        CONFIG = "config"
+        DIAGNOSTIC = "diagnostic"
+
+    he.EntityCategory = _EntityCategory
+
     # ---- homeassistant.helpers.entity_platform ----
     ep = _stub("homeassistant.helpers.entity_platform")
     ep.AddEntitiesCallback = object
@@ -256,6 +266,25 @@ def _install_ha_stubs() -> None:
     sensor.SensorStateClass = SensorStateClass
     sensor.SensorEntityDescription = SensorEntityDescription
     sensor.SensorEntity = SensorEntity
+
+    # ---- homeassistant.components.select ----
+    sel = _stub("homeassistant.components.select")
+
+    class SelectEntity:
+        _attr_assumed_state = False
+        _attr_icon = None
+        _attr_entity_category = None
+        _attr_translation_key = None
+        _attr_options: list[str] = []
+
+        @property
+        def options(self) -> list[str]:
+            return self._attr_options
+
+        def async_write_ha_state(self) -> None:
+            pass
+
+    sel.SelectEntity = SelectEntity
 
     # ---- homeassistant.components.binary_sensor ----
     bs = _stub("homeassistant.components.binary_sensor")

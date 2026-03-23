@@ -55,6 +55,11 @@
         "name": "Jetzt aktualisieren"
       }
     },
+    "select": {
+      "brush_scheme": {
+        "name": "Putzprogramm"
+      }
+    },
     "switch": {
       "area_remind": {
         "name": "Zahnbereichs-Erinnerung"

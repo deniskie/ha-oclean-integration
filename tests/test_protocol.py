@@ -128,6 +128,12 @@ class TestType1Profile:
         char, cmd = next(p for p in TYPE1.query_commands if p[1] == CMD_QUERY_RUNNING_DATA_T1)
         assert char == SEND_BRUSH_CMD_UUID
 
+    def test_standalone_write_char_is_fbb85(self):
+        """APK C3376s.java: f12501k = fbb85 for all standalone writes (0206, 0201, 0209, 0217).
+        Only 0307 uses f12582C = fbb89. write_char must be WRITE_CHAR_UUID so brush
+        scheme and other config commands reach the device."""
+        assert TYPE1.write_char == WRITE_CHAR_UUID
+
 
 # ===========================================================================
 # LEGACY – Oclean Air 1 / OCLEANA1
