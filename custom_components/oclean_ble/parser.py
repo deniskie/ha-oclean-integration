@@ -415,21 +415,33 @@ def parse_t1_c3385w0_record(record: bytes) -> dict[str, Any]:
     sequence with a non-zero year_base byte (byte 0 != 0x00).
 
     Byte layout (confirmed from real OCLEANY3MH device log + APK C3385w0_fallback.java):
-      byte  0:   year_base (full_year − 2000)   ✓
-      byte  1:   month (1-12)                   ✓
-      byte  2:   day   (1-31)                   ✓
-      byte  3:   hour  (0-23)                   ✓
-      byte  4:   minute (0-59)                  ✓
-      byte  5:   second (0-59)                  ✓
-      byte  6:   pNum (brush-scheme ID)         ✓
-      bytes 7-8: duration BE uint16 (seconds)   ✓
-      bytes 9-10: validDuration BE              ✓
-      bytes 11-16: area1..area6 (tooth zones)   ✓ confirmed vs real device data
-      byte 17:   unused/padding                 ✓
-      bytes 18-19: area7..area8 (tooth zones)   ✓
-      bytes 20-32: gesture/power/pressure data  ? (offsets not confirmed for C3385w0)
-      byte 33:   score (0-100, 0xFF = absent)   ✓
-      bytes 34-41: reserved                     ?
+      byte  0:   year_base (full_year − 2000)              ✓
+      byte  1:   month (1-12)                              ✓
+      byte  2:   day   (1-31)                              ✓
+      byte  3:   hour  (0-23)                              ✓
+      byte  4:   minute (0-59)                             ✓
+      byte  5:   second (0-59)                             ✓
+      byte  6:   pNum (brush-scheme ID)                    ✓
+      bytes 7-8: duration BE uint16 (seconds)              ✓
+      bytes 9-10: validDuration BE (not stored as sensor)  ✓
+      bytes 11-15: area1..area5 (tooth zones)              ✓ confirmed vs real device data
+      byte 16:   APK skips this byte (result discarded)    ? included in area parsing pending
+                 further real-device verification
+      byte 17:   timezone index → getTimeZoneString()      ✓ APK L1638+L1812 (not stored)
+      bytes 18-19: area7..area8 (tooth zones)              ✓
+      bytes 18-29: gestureArray[0..11] (12 elements)       ✓ APK-confirmed offsets
+      byte 30:   gestureCode (2-bit value at a.b.a(·, 2))  ✓ APK-confirmed; not yet extracted
+                 + powerArray nibbles a.b.a(·, 0/1/3)
+      bytes 31-32: powerArray nibble source                ✓ APK-confirmed; not yet extracted
+      byte 33:   score (0-100, 0xFF = absent)              ✓
+      byte 34:   point (not used as sensor)                ✓ APK-confirmed
+      bytes 35-41: reserved                                ?
+
+    Note: pressureRatio in the APK C3385w0 class maps to bytes 11-15, which are
+    the same bytes as area1-5. It is therefore not a distinct sensor field.
+
+    gestureCode, gestureArray and powerArray are not currently extracted (byte
+    offsets are APK-confirmed but no real-device correlation available yet).
 
     All out-of-range values are silently omitted from the result.
     """
