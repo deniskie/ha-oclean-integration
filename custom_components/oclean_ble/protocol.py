@@ -46,6 +46,7 @@ class DeviceProtocol:
     query_commands: tuple[tuple[str, bytes], ...]
     supports_pagination: bool
     write_char: str = WRITE_CHAR_UUID
+    uses_t1_calibration: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -78,6 +79,28 @@ TYPE1 = DeviceProtocol(
     ),
     supports_pagination=False,
     write_char=SEND_BRUSH_CMD_UUID,
+    uses_t1_calibration=True,
+)
+
+#: Type-Z1 – Oclean Z1 / OCLEANY5
+#: APK handler: C3350f mode=1 (p105g/C3350f.java)
+#: Query commands routed to fbb85 except 0307 which goes to fbb89.
+#: Notify characteristics: fbb86 + fbb90 (fbb89 is write-only, subscribe fails).
+#: Time calibration uses the TYPE1 format (0201 + 8-byte datetime, mo5292L).
+#: Area-remind command: 0209 + byte (mo5305l0, same for all modes in C3350f).
+#: Brush-head-max-days: 0217 + 2-byte LE short (mo5345x mode=1).
+TYPE_Z1 = DeviceProtocol(
+    name="Type-Z1",
+    notify_chars=(READ_NOTIFY_CHAR_UUID, RECEIVE_BRUSH_UUID),
+    query_commands=(
+        (WRITE_CHAR_UUID, CMD_QUERY_STATUS),
+        (WRITE_CHAR_UUID, CMD_DEVICE_INFO),
+        (WRITE_CHAR_UUID, CMD_QUERY_DEVICE_SETTINGS),
+        (SEND_BRUSH_CMD_UUID, CMD_QUERY_RUNNING_DATA_T1),
+    ),
+    supports_pagination=False,
+    write_char=WRITE_CHAR_UUID,
+    uses_t1_calibration=True,
 )
 
 #: Legacy – Oclean Air 1 / OCLEANA1  (no working notify chars; battery-only)
@@ -148,6 +171,12 @@ _MODEL_MAP: dict[str, DeviceProtocol] = {
     "OCLEANY3": TYPE1,  # Oclean X Pro          – corrected (logs 2026-03-10, issue #49)
     "OCLEANY3S": TYPE1,  # Oclean X Pro (S)      – APK DeviceType 9
     "OCLEANY3T": TYPE1,  # Oclean X Pro (T)      – APK DeviceType 10
+    # ------------------------------------------------------------------
+    # Type-Z1 – Oclean Z1 / OCLEANY5
+    # APK handler: C3350f mode=1
+    # 0303/0202/0302 via fbb85; 0307 via fbb89; notify on fbb86+fbb90.
+    # ------------------------------------------------------------------
+    "OCLEANY5": TYPE_Z1,  # Oclean Z1 – confirmed (issue #69, 2026-03-23)
     # ------------------------------------------------------------------
     # Legacy – fbb86 has no CCCD; battery read via direct characteristic read
     # APK handler: C3385w0 mode=0 (Air 1 family)

@@ -68,7 +68,7 @@ from .parser import (
     parse_t1_c3352g_record,
     parse_y3p_stream_record,
 )
-from .protocol import TYPE1, UNKNOWN, DeviceProtocol, protocol_for_model
+from .protocol import UNKNOWN, DeviceProtocol, protocol_for_model
 from .statistics import import_new_sessions
 
 _LOGGER = logging.getLogger(__name__)
@@ -1015,7 +1015,7 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         as plain decimal byte values, where weekday is 0=Sunday..6=Saturday and tzIndex is
         a 1-based index into the Oclean GMT offset table (GMT-12 … GMT+13, 33 entries).
         """
-        if self._protocol is TYPE1:
+        if self._protocol.uses_t1_calibration:
             now = datetime.datetime.now().astimezone()
             utc_offset = now.utcoffset()
             offset_min = int(utc_offset.total_seconds() / 60) if utc_offset is not None else 0
