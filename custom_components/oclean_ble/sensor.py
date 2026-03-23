@@ -92,6 +92,7 @@ SENSOR_DESCRIPTIONS: tuple[SensorEntityDescription, ...] = (
         name="Pressure",
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:gauge",
+        entity_category=EntityCategory.DIAGNOSTIC,
         # 0–255 raw ADC value
     ),
     SensorEntityDescription(
@@ -113,6 +114,7 @@ SENSOR_DESCRIPTIONS: tuple[SensorEntityDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement="d",
         icon="mdi:calendar-sync",
+        entity_category=EntityCategory.DIAGNOSTIC,
         # headUsedDays from 0302 response: calendar days since last brush-head reset.
     ),
     # Device settings – read from 0302 device-settings response
@@ -121,6 +123,7 @@ SENSOR_DESCRIPTIONS: tuple[SensorEntityDescription, ...] = (
         name="Mode",
         icon="mdi:tune",
         state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
     ),
     # Device information (diagnostic) – read from BLE Device Information Service (0x180A)
     SensorEntityDescription(
@@ -310,6 +313,7 @@ class OcleanToothAreaSensor(OcleanEntity, SensorEntity):
 
     _attr_icon = "mdi:tooth"
     _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     def __init__(
         self,
