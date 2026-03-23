@@ -69,6 +69,7 @@ from .parser import (
     parse_battery,
     parse_notification,
     parse_t1_c3352g_record,
+    parse_t1_c3385w0_record,
     parse_y3p_stream_record,
 )
 from .protocol import UNKNOWN, DeviceProtocol, protocol_for_model
@@ -813,9 +814,11 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         raw continuation packets until all record_count × 42 bytes are received.
         The handler detects the header, accumulates continuation chunks, and
         flushes complete records through the appropriate parse function when the
-        buffer is full.  OCLEANY3 encodes year_base (year−2000) at record byte 0
-        and uses ``parse_t1_c3352g_record``.  OCLEANY3P always writes 0x00 at
-        byte 0 (year inferred from wall clock) and uses ``parse_y3p_stream_record``.
+        buffer is full.  OCLEANY3M/OCLEANY3 encode year_base (year−2000) at byte 0
+        and use ``parse_t1_c3385w0_record`` (tooth-zone areas at bytes 11-19).
+        OCLEANY3P with non-zero year_base uses ``parse_t1_c3352g_record`` (bytes 11-19
+        are pressureRatio, not areas; area data comes from 021f push notifications).
+        OCLEANY3P with year_base=0x00 uses ``parse_y3p_stream_record``.
         """
         _log = self._log  # capture for use in the closure
 
@@ -824,7 +827,7 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
             "in_progress": False,
             "buf": bytearray(),
             "expected": 0,
-            "parse_fn": parse_t1_c3352g_record,
+            "parse_fn": parse_t1_c3385w0_record,
         }
 
         # Magic header bytes for the *B# multi-packet format (after 0307 prefix).
@@ -855,7 +858,7 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
             _t1["in_progress"] = False
             _t1["buf"] = bytearray()
             _t1["expected"] = 0
-            _t1["parse_fn"] = parse_t1_c3352g_record
+            _t1["parse_fn"] = parse_t1_c3385w0_record
             num_records = len(buf) // T1_C3352G_RECORD_SIZE
             _log.debug("*B# reassembly complete: parsing %d record(s)", num_records)
             for i in range(num_records):
@@ -900,13 +903,21 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
                     _t1["buf"] = inline
                     _t1["expected"] = total_expected
                     _t1["in_progress"] = True
-                    _t1["parse_fn"] = parse_y3p_stream_record if payload[5] == 0x00 else parse_t1_c3352g_record
+                    if payload[5] == 0x00:
+                        _t1["parse_fn"] = parse_y3p_stream_record
+                        _parser_name = "Y3P-stream"
+                    elif (collected.get(DATA_MODEL_ID) or "").startswith("OCLEANY3P"):
+                        _t1["parse_fn"] = parse_t1_c3352g_record
+                        _parser_name = "C3352g (Y3P)"
+                    else:
+                        _t1["parse_fn"] = parse_t1_c3385w0_record
+                        _parser_name = "C3385w0 (Y3M/Y3)"
                     _log.debug(
                         "*B# header: count=%d, expected=%d bytes, inline=%d bytes, parser=%s",
                         record_count,
                         total_expected,
                         len(inline),
-                        "Y3P" if payload[5] == 0x00 else "C3352g",
+                        _parser_name,
                     )
                     if len(inline) >= total_expected:
                         _flush_t1_buffer()
