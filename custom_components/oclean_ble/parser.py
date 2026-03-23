@@ -427,8 +427,7 @@ def parse_t1_c3385w0_record(record: bytes) -> dict[str, Any]:
       bytes 11-16: area1..area6 (tooth zones)   ✓ confirmed vs real device data
       byte 17:   unused/padding                 ✓
       bytes 18-19: area7..area8 (tooth zones)   ✓
-      bytes 18-30: gestureArray (13 values)     ?
-      bytes 30-32: powerArray nibble source     ?
+      bytes 20-32: gesture/power/pressure data  ? (offsets not confirmed for C3385w0)
       byte 33:   score (0-100, 0xFF = absent)   ✓
       bytes 34-41: reserved                     ?
 
@@ -482,22 +481,12 @@ def parse_t1_c3385w0_record(record: bytes) -> dict[str, Any]:
             result[DATA_LAST_BRUSH_AREAS] = area_dict
             result[DATA_LAST_BRUSH_PRESSURE] = avg_pressure
 
-        # gestureCode / pressureRatio / gestureArray / powerArray
-        result[DATA_LAST_BRUSH_GESTURE_CODE] = int(record[14])
-        result[DATA_LAST_BRUSH_PRESSURE_RATIO] = list(record[11:16])
-        result[DATA_LAST_BRUSH_GESTURE_ARRAY] = list(record[18:31])
-        result[DATA_LAST_BRUSH_POWER_ARRAY] = (
-            _extract_nibbles(record[30]) + _extract_nibbles(record[31]) + _extract_nibbles(record[32])
-        )
-        _LOGGER.debug("Oclean C3385w0 record point=%d (raw byte 34, APK: not used)", record[34])
-
         _LOGGER.debug(
-            "Oclean C3385w0 record parsed: ts=%d pNum=%d duration=%s score=%s gestureCode=%d (raw: %s)",
+            "Oclean C3385w0 record parsed: ts=%d pNum=%d duration=%s score=%s (raw: %s)",
             timestamp_s,
             result[DATA_LAST_BRUSH_PNUM],
             result.get(DATA_LAST_BRUSH_DURATION, "n/a"),
             result.get(DATA_LAST_BRUSH_SCORE, "n/a"),
-            result[DATA_LAST_BRUSH_GESTURE_CODE],
             record[:T1_C3352G_RECORD_SIZE].hex(),
         )
         return result

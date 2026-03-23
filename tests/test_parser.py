@@ -1829,13 +1829,6 @@ class TestParseT1C3385w0Record:
         assert "last_brush_areas" not in result
         assert "last_brush_pressure" not in result
 
-    def test_gesture_code_from_byte14(self):
-        """gestureCode for C3385w0 is byte 14 (area slot 4), confirmed APK."""
-        record = bytearray(_make_c3385w0_record())
-        record[14] = 0x1E  # 30
-        result = parse_t1_c3385w0_record(bytes(record))
-        assert result["last_brush_gesture_code"] == 30
-
     def test_score_0xff_not_stored(self):
         record = _make_c3385w0_record(score=0xFF)
         result = parse_t1_c3385w0_record(record)
