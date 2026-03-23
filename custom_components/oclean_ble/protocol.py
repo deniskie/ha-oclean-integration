@@ -38,7 +38,12 @@ class DeviceProtocol:
                              (Type-0 / Oclean X Pro family only).
         write_char:          GATT characteristic UUID used for one-off write commands
                              (area_remind, brush_head_max_days, reset_brush_head,
-                             time calibration).  Type-0 uses fbb85; Type-1 uses fbb89.
+                             time calibration).  Type-0 and Type-Z1 use fbb85;
+                             Type-1 uses fbb89.
+        uses_t1_calibration: True if time calibration uses the 0201 + 8-byte datetime
+                             payload (Type-1 / Type-Z1 format, mo5292L in APK).  False
+                             uses the 020E + 4-byte big-endian Unix timestamp (Type-0
+                             default).
     """
 
     name: str

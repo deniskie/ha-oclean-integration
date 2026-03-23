@@ -623,22 +623,34 @@ public final boolean mo5322F0(OnOcleanCommandListener listener) {
 
 ## 8. Device Type Matrix
 
-| Class | Type | Devices (Examples) | Special Features |
-|-------|------|-------------------|-----------------|
+| Class | Type | Model-IDs (confirmed) | Special Features |
+|-------|------|----------------------|-----------------|
 | `C3335a` | 0 | Standard models (older) | `CHANGE_INFO_UUID` for notifications |
-| `C3340b1` | 0/1 | Oclean X, F, Z1 | Base implementation for Type 0 Running Data |
+| `C3340b1` | 0/1 | Oclean X, F, Z1 | Base implementation for Type-0 Running Data |
 | `C3350f` | 0/1 | Premium with screen | Switch via `f12514u` (0 or 1) |
-| `C3352g` | 0/1 | Mixed types | JADX decompilation incomplete |
+| `C3352g` | 1 | **OCLEANY3P** (Oclean X Pro Elite) | Mode=0: standard Type-1 variants; **mode=2: OCLEANY3P** – uses `m8523d()` reassembly (40-byte fixed records), custom time-sync path. Commands via fbb89, responses on fbb90. |
 | `C3354h` | 1 | Premium | Direct implementation without switch |
 | `C3367n0` | 1+ | Extended with screen | Many additional commands (0241–0245, 02A1–02A5) |
 | `C3376s` | 1 | Oclean X Pro, W10 | Full Type-1 implementation |
 | `C3381u0` | 1 | Further premium models | Identical to C3376s |
-| `C3385w0` | 0/1 | Switch-based | Similar to C3350f |
+| `C3385w0` | 0/1 | **OCLEANA1** (mode=0), **OCLEANY3M** (mode=0), **OCLEANY3/Y3T/Y3N** (mode=1) | mode=0: 18-byte simple records via `m8521b()`; mode=1: 32-byte extended records via `m8522c()` |
 | `C3387x0` | Extended | With screen + 0313 | Additional extended commands |
 | `C3339b0` | Extended | Another variant | `0231`, `0234`–`0237`, `0239`, `0240` |
 | `C3346d1` | F (WiFi) | WiFi models | Own UUIDs + F2xx/F3xx commands |
 | `C3389y0` | Special | Conditional | `0306` with type check |
 | `C3391z0` | Special | – | `0301`, `0302` for multi-page queries |
+
+**Confirmed model-to-class mapping (from `DeviceType` enum + APK source index):**
+
+| Model-ID | Device Name | APK Class | Mode | Session Format |
+|----------|-------------|-----------|------|----------------|
+| `OCLEANY3M` | Oclean X | `C3385w0` | 0 | 18-byte simple (`m8521b`) |
+| `OCLEANY3` | Oclean X Pro | `C3385w0` | 1 | 32-byte extended (`m8522c`) |
+| `OCLEANY3T` | Oclean X Pro variant | `C3385w0` | 1 | 32-byte extended (`m8522c`) |
+| `OCLEANY3N` | Oclean X Pro variant | `C3385w0` | 1 | 32-byte extended (`m8522c`) |
+| `OCLEANY3P` | Oclean X Pro Elite | `C3352g` | 2 | 40-byte fixed (`m8523d`) |
+| `OCLEANA1` | Oclean Air 1 | `C3385w0` | 0 | 18-byte simple; **fbb86 has no CCCD** → direct read fallback |
+| `OCLEANA1a`–`f` | Air 1 variants | `C3385w0` | 0 | same as OCLEANA1 |
 
 **Type-specific command differences:**
 
@@ -654,33 +666,117 @@ public final boolean mo5322F0(OnOcleanCommandListener listener) {
 
 ## 9. Connection & Synchronization Flow
 
-### 9.1 Standard Flow (Home Assistant BLE Integration)
+### 9.1 Type-0 Flow (OCLEANY3, OCLEANA1, older models)
 
 ```
 1. BLE Connect (establish_connection, max 3 attempts)
-2. await asyncio.sleep(2.0)          ← GATT cache warmup for proxy backends
-3. WRITE 020E + 4-byte BE timestamp  ← Time calibration
-4. start_notify READ_NOTIFY_CHAR
-5. start_notify RECEIVE_BRUSH_UUID   ← Type 1 only (ignored if not present)
-6. start_notify CHANGE_INFO_UUID     ← Type 0 only (ignored if not present)
-7. start_notify SEND_BRUSH_CMD_UUID  ← Type 1 only (ignored if not present)
-8. WRITE 0303                        ← Device status (is_brushing, capacity)
-9. WRITE 0202                        ← Device info (ACK)
-10. WRITE 0308                       ← Brush sessions (Running Data)
-11. await asyncio.sleep(3.0)         ← Wait for notifications
-12. READ 00002a19-...                ← Battery characteristic (standard BLE)
-13. stop_notify (all)
-14. Disconnect
+2. await asyncio.sleep(2.0)              ← GATT cache warmup for proxy backends
+3. WRITE 020E + 4-byte BE timestamp      ← Time calibration
+4. start_notify fbb86 (READ_NOTIFY_CHAR) ← Main response channel
+5. start_notify CHANGE_INFO_UUID         ← Type-0 only (device push notifications)
+   ⚠ OCLEANA1: fbb86 has no CCCD → subscribe fails silently
+     → after WRITE 0303/0308, use READ fbb86 directly as fallback
+6. WRITE 0303 → fbb85                    ← Device status (is_brushing, battery)
+   Device → fbb86: 0303 response (byte 0 = status, byte 3 = battery)
+7. WRITE 0308 → fbb85                    ← Request brush sessions
+   Device → fbb86: 0308 response(s) (one notification per session record)
+8. WRITE 0309 if more pages              ← Pagination (same 0308 format)
+9. READ 0x2A19                           ← Battery characteristic (standard BLE)
+10. stop_notify (all); Disconnect
 ```
 
-### 9.2 Real-Time Brushing Flow (Push from Device)
+### 9.2 Type-1 Flow (OCLEANY3P, OCLEANY3M)
+
+```
+1. BLE Connect (establish_connection, max 3 attempts)
+2. await asyncio.sleep(2.0)              ← GATT cache warmup for proxy backends
+3. WRITE 0201 + 8-byte datetime          ← Time calibration (mo5292L format: YY MM DD HH MM SS weekday 00)
+4. start_notify fbb86 (READ_NOTIFY_CHAR) ← For 0303 status responses
+5. start_notify fbb90 (RECEIVE_BRUSH)    ← For *B# session data (Type-1 only)
+   ⚠ fbb89 (SEND_BRUSH_CMD): WRITE-only, cannot subscribe ("Operation not supported")
+6. WRITE 0303 → fbb89                    ← Device status
+   Device → fbb86: 0303 response
+7. WRITE 0307 → fbb89                    ← Request brush sessions (Type-1 command channel)
+   Device → fbb90: *B# header + session data (multi-packet, see §9.3)
+8. WRITE 0314 → fbb89                    ← Extended data request (score/areas follow-up)
+9. READ 0x2A19                           ← Battery characteristic
+10. stop_notify (all); Disconnect
+```
+
+### 9.2a Type-Z1 Flow (OCLEANY5 / Oclean Z1)
+
+APK handler: `C3350f.java` mode=1. Hybrid routing: status/settings commands go to fbb85,
+session data command goes to fbb89. Time calibration uses the same 0201 + 8-byte format as Type-1.
+Area-remind command: 0209 + 1 byte (same as all C3350f modes). Brush-head-max-days: 0217 + 2-byte LE short.
+
+```
+1. BLE Connect (establish_connection, max 3 attempts)
+2. await asyncio.sleep(2.0)              ← GATT cache warmup for proxy backends
+3. WRITE 0201 + 8-byte datetime          ← Time calibration (mo5292L format, same as Type-1)
+4. start_notify fbb86 (READ_NOTIFY_CHAR) ← For 0303/0202/0302 responses
+5. start_notify fbb90 (RECEIVE_BRUSH)    ← For 0307 session data
+   ⚠ fbb89 (SEND_BRUSH_CMD): WRITE-only, cannot subscribe ("Operation not supported")
+6. WRITE 0303 → fbb85                    ← Device status
+   Device → fbb86: 0303 response
+7. WRITE 0202 → fbb85                    ← Device info
+   Device → fbb86: 0202 response
+8. WRITE 0302 → fbb85                    ← Device settings (brush-head counters)
+   Device → fbb86: 0302 response
+9. WRITE 0307 → fbb89                    ← Request brush sessions
+   Device → fbb90: session data
+10. READ 0x2A19                          ← Battery characteristic
+11. stop_notify (all); Disconnect
+```
+
+### 9.3 `*B#` Multi-Packet Reassembly (Type-1, C5733b.java)
+
+When the device has stored sessions, the 0307 response on fbb90 uses a **multi-packet reassembly protocol**:
+
+```
+First packet (arrives on fbb90):
+  Bytes 0–1:  "03 07"  (response type marker, binary)
+  Bytes 2–4:  "2A 42 23"  → ASCII "*B#"  (magic header)
+  Bytes 5–6:  RecordCount  (BE uint16, number of sessions)
+  Bytes 7–8:  RecordLen    (BE uint16 for m8522c/m8523d; 1 byte for m8521b)
+  Bytes 9+:   Inline data (first partial record)
+
+Continuation packets (raw bytes, no header):
+  → Appended to reassembly buffer until:
+     cumulative_bytes >= RecordCount × RecordLen
+
+State machine (C5733b):
+  State 10 = awaiting continuation
+  State 11 = complete → parse records
+  State 12 = error
+```
+
+**Three reassembly variants in the APK:**
+
+| Method | Record Size | Used by | Format |
+|--------|-------------|---------|--------|
+| `m8521b()` | 1-byte length field | OCLEANY3M (C3385w0 mode=0) | 18-byte simple |
+| `m8522c()` | 2-byte BE length field | OCLEANY3, Y3T, Y3N (C3385w0 mode=1) | 32-byte extended |
+| `m8523d()` | Hardcoded 40 bytes | **OCLEANY3P** (C3352g mode=2) | 40-byte fixed |
+
+**`session_count` behavior (OCLEANY3P):**
+
+The `RecordCount` field in the `*B#` header has two meanings depending on its value:
+
+| RecordCount | Meaning | Data available |
+|-------------|---------|----------------|
+| `0` | **Inline-only mode**: device sends only the last session's time/pNum/duration directly in the 0307 response on fbb86 (no *B# reassembly on fbb90) | Duration, timestamp, pNum **only** – no score/areas/pressure |
+| `> 0` | **Full-record mode**: device pushes N complete records via fbb90 *B# reassembly | Duration + score + 8 tooth-area pressures + pressure value |
+
+> **Important:** When `session_count=0`, score/areas/pressure are **not available** – this is a device firmware limitation, not a parsing bug. The integration must not carry forward stale enrichment fields from the previous session.
+
+### 9.4 Real-Time Brushing Flow (Push from Device)
 
 ```
 Device → App: 0303 response (is_brushing=1)        ← Brush start
-Device → App: 0308 notifications (real-time data)  ← During brushing
+Device → App: 0308 notifications (real-time data)  ← During brushing (Type-0)
 Device → App: 0303 response (is_brushing=0)        ← Brush end
-App → Device: WRITE 0308                           ← Request full session
-Device → App: 0308 response (final session data)   ← Complete record
+App → Device: WRITE 0308 / 0307                    ← Request full session
+Device → App: 0308 / *B# response                  ← Complete record
 ```
 
 ---
@@ -718,6 +814,12 @@ Device → App: 0308 response (final session data)   ← Complete record
 | 0308 Bytes 18–19 (simple) | ✅ Resolved | In the **extended** format these positions are RESERVED (byte 18) and tz_offset (byte 19); only present in extended records (not in simple 20-byte format). |
 | 0340 K3GUIDE | ✅ Resolved | Real-time zone guidance notification. 6 bytes: liftUp, liftDown, rightUp, rightDown, currentPosition (BrushAreaType 1–8 / 255=stop), workingState. Source: `C3367n0.java:737–745`, `ChangeType.K3GUIDE=8`. |
 | Type-1 RECEIVE_BRUSH_UUID | ✅ Resolved | 20-byte binary push packet. Format confirmed via `AbstractC0002b.m18f` (OCLEANY3M): `*B#` magic header (bytes 0–2), session count (bytes 3–4), timestamp (bytes 5–10), pNum (byte 11), duration/validDuration/pressureArea[0–1] (bytes 12–17). Not the same format as 0308. |
+| C3352g / OCLEANY3P reassembly | ✅ Resolved | **C3352g mode=2** is the OCLEANY3P handler. Uses `m8523d()` reassembly (40-byte fixed records). `RecordCount=0` → inline mode (fbb86, duration/time/pNum only); `RecordCount>0` → full *B# records via fbb90 (score/areas/pressure). |
+| OCLEANY3P `session_count=0` missing fields | ✅ Resolved | Device firmware limitation. When `RecordCount=0`, score/areas/pressure are never transmitted. Stale enrichment fields from previous session must be cleared on new session detection. |
+| OCLEANY3P month=0 parse error | ✅ Resolved | After factory reset without Oclean app sync, device stores month=0 in session records (unsynced clock). Caught gracefully; user must sync via Oclean app to restore timestamps. |
+| OCLEANA1 fbb86 subscribe failure | ✅ Resolved | fbb86 on OCLEANA1 has no CCCD → `start_notify` fails. Fixed via direct `read_gatt_char(fbb86)` fallback after sending 0307 command (wait 1.5 s, then read). |
+| `0303` Bytes 1–2 | ✅ Resolved | **Not parsed by app.** Confirmed unused in `C3367n0.java`. Byte 2 varies continuously (0x0f–0x1d), likely an internal counter. |
+| "Notify acquired" BleakDBusError | ✅ Resolved | Oclean app holds fbb86/fbb90 subscription → integration cannot subscribe. Raised to WARNING log level with user guidance: "close the Oclean app to allow polling". |
 
 ### 11.2 Remaining Unknowns
 
@@ -754,5 +856,5 @@ To resolve the remaining unknowns:
 
 ---
 
-*Created: 2026-02-21 | Updated: 2026-02-21 | Basis: APK reverse-engineering `com.yunding.noopsychebrushforeign`*
+*Created: 2026-02-21 | Updated: 2026-03-21 | Basis: APK reverse-engineering `com.yunding.noopsychebrushforeign` + empirical BLE logs*
 *Total documented commands: 78+ (Standard 02xx/03xx: ~45, WiFi F2xx/F3xx/F7xx: ~20, Special: ~10)*
