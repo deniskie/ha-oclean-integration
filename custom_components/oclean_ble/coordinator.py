@@ -546,10 +546,20 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         )
         try:
             await asyncio.sleep(BLE_POST_CONNECT_DELAY)
+
+            def _ack_handler(_sender: Any, raw: bytearray) -> None:
+                data = bytes(raw)
+                parsed = parse_notification(data)
+                self._log.debug(
+                    "0206 ACK notification: raw=%s parsed=%s",
+                    data.hex(),
+                    parsed,
+                )
+
             subscribed: list[str] = []
-            for char_uuid in self._protocol.notify_chars:
+            for char_uuid in (READ_NOTIFY_CHAR_UUID, RECEIVE_BRUSH_UUID):
                 try:
-                    await client.start_notify(char_uuid, lambda _s, _r: None)
+                    await client.start_notify(char_uuid, _ack_handler)
                     subscribed.append(char_uuid)
                 except Exception:  # noqa: BLE001
                     pass
@@ -557,9 +567,6 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
                 await client.write_gatt_char(self._protocol.write_char, pkt, response=True)
                 if i < len(packets) - 1:
                     await asyncio.sleep(0.05)
-            for char_uuid in subscribed:
-                with contextlib.suppress(Exception):
-                    await client.stop_notify(char_uuid)
             self._log.info(
                 "brush scheme set to pnum=%d (%s), %d packet(s): %s",
                 pnum,
@@ -567,6 +574,14 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
                 len(packets),
                 " ".join(p.hex() for p in packets),
             )
+            # Wait for the device to process the command and send an ACK
+            # notification before disconnecting.  The APK (C3344d) blocks until
+            # a notification arrives; without this wait the device may discard
+            # the in-flight command when the connection drops.
+            await asyncio.sleep(2.0)
+            for char_uuid in subscribed:
+                with contextlib.suppress(Exception):
+                    await client.stop_notify(char_uuid)
         finally:
             if client.is_connected:
                 await client.disconnect()
