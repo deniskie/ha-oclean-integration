@@ -78,13 +78,13 @@ class OcleanSchemeSelect(OcleanEntity, SelectEntity):
 
     @property
     def options(self) -> list[str]:
-        """Return selectable scheme names for the current device model."""
+        """Return selectable scheme names for the current device model, sorted A-Z."""
         if self.coordinator.data is None:
             return []
         schemes = _schemes_for_model(self.coordinator.data.model_id)
         if schemes is None:
             return []
-        return [name for _, (name, _) in sorted(schemes.items())]
+        return sorted(name for _, (name, _) in schemes.items())
 
     @property
     def current_option(self) -> str | None:

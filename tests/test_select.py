@@ -129,10 +129,9 @@ class TestOptions:
         entity = _make_entity("OCLEANY3M")
         assert len(entity.options) == len(OCLEANY3M_SCHEMES)
 
-    def test_y3m_options_sorted_by_pnum(self):
+    def test_y3m_options_sorted_alphabetically(self):
         entity = _make_entity("OCLEANY3M")
-        expected = [name for _, (name, _) in sorted(OCLEANY3M_SCHEMES.items())]
-        assert entity.options == expected
+        assert entity.options == sorted(entity.options)
 
     def test_y3_options_include_gestation_care(self):
         entity = _make_entity("OCLEANY3")
