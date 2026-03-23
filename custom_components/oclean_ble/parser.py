@@ -407,33 +407,137 @@ def _parse_m18f_record(record: bytes) -> dict[str, Any]:
         return {}
 
 
+def parse_t1_c3385w0_record(record: bytes) -> dict[str, Any]:
+    """Parse one 42-byte session record for OCLEANY3M / OCLEANY3 (C3385w0 class).
+
+    Used by OCLEANY3M (Oclean X) and OCLEANY3 (Oclean X Pro) when the coordinator
+    reassembles the continuation packets from a ``0307 *B# count`` notification
+    sequence with a non-zero year_base byte (byte 0 != 0x00).
+
+    Byte layout (confirmed from real OCLEANY3MH device log + APK C3385w0_fallback.java):
+      byte  0:   year_base (full_year − 2000)              ✓
+      byte  1:   month (1-12)                              ✓
+      byte  2:   day   (1-31)                              ✓
+      byte  3:   hour  (0-23)                              ✓
+      byte  4:   minute (0-59)                             ✓
+      byte  5:   second (0-59)                             ✓
+      byte  6:   pNum (brush-scheme ID)                    ✓
+      bytes 7-8: duration BE uint16 (seconds)              ✓
+      bytes 9-10: validDuration BE (not stored as sensor)  ✓
+      bytes 11-15: area1..area5 (tooth zones)              ✓ APK + real device confirmed
+      byte 16:   discarded by APK (not an area byte)       ✓ APK L1620 result not assigned
+      byte 17:   timezone index → getTimeZoneString()      ✓ APK L1638+L1812 (not stored)
+      bytes 18-29: gestureArray[0..11] (12 elements)       ✓ APK-confirmed; NOT area7-8
+                   (areas 6-8 absent from *B# record; arrive via 2604 enrichment push)
+      byte 30:   gestureCode (2-bit value at a.b.a(·, 2))  ✓ APK-confirmed; not yet extracted
+                 + powerArray nibbles a.b.a(·, 0/1/3)
+      bytes 31-32: powerArray nibble source                ✓ APK-confirmed; not yet extracted
+      byte 33:   score (0-100, 0xFF = absent)              ✓
+      byte 34:   point (not used as sensor)                ✓ APK-confirmed
+      bytes 35-41: reserved                                ?
+
+    Note: pressureRatio in the APK C3385w0 class maps to bytes 11-15, which are
+    the same bytes as area1-5. It is therefore not a distinct sensor field.
+
+    gestureCode, gestureArray and powerArray are not currently extracted (byte
+    offsets are APK-confirmed but no real-device correlation available yet).
+
+    All out-of-range values are silently omitted from the result.
+    """
+    if len(record) < T1_C3352G_RECORD_SIZE:
+        _LOGGER.debug("Oclean C3385w0 record too short (%d bytes): %s", len(record), record.hex())
+        return {}
+
+    year_base = record[0]
+    year = year_base + _YEAR_2000
+    if year < _MIN_YEAR:
+        _LOGGER.debug(
+            "Oclean C3385w0 record: implausible year_base 0x%02x (year %d < %d), raw: %s",
+            year_base,
+            year,
+            _MIN_YEAR,
+            record[:T1_C3352G_RECORD_SIZE].hex(),
+        )
+        return {}
+
+    try:
+        month = record[1]
+        day = record[2]
+        hour = record[3]
+        minute = record[4]
+        second = record[5]
+
+        device_dt = datetime.datetime(year, month, day, hour, minute, second)
+
+        timestamp_s = int(time.mktime(device_dt.timetuple()))
+        result: dict[str, Any] = {DATA_LAST_BRUSH_TIME: timestamp_s}
+
+        result[DATA_LAST_BRUSH_PNUM] = int(record[6])
+
+        duration_s = (record[7] << 8) | record[8]
+        if duration_s > 0:
+            result[DATA_LAST_BRUSH_DURATION] = duration_s
+
+        score = record[33]
+        if 0 < score <= 100:
+            result[DATA_LAST_BRUSH_SCORE] = score
+
+        # Areas are NOT extracted from the *B# record: the format only contains 5 of 8
+        # tooth-zone bytes (bytes 11-15), and bytes 18-19 are gestureArray[0-1], not areas.
+        # All 8 areas arrive via the 2604 enrichment push (_parse_brush_areas_t1_response).
+
+        _LOGGER.debug(
+            "Oclean C3385w0 record parsed: ts=%d pNum=%d duration=%s score=%s (raw: %s)",
+            timestamp_s,
+            result[DATA_LAST_BRUSH_PNUM],
+            result.get(DATA_LAST_BRUSH_DURATION, "n/a"),
+            result.get(DATA_LAST_BRUSH_SCORE, "n/a"),
+            record[:T1_C3352G_RECORD_SIZE].hex(),
+        )
+        return result
+
+    except (IndexError, ValueError, OverflowError) as err:
+        _LOGGER.debug(
+            "Oclean C3385w0 record parse error: %s (raw: %s)",
+            err,
+            record[:T1_C3352G_RECORD_SIZE].hex() if len(record) >= T1_C3352G_RECORD_SIZE else record.hex(),
+        )
+        return {}
+
+
 def parse_t1_c3352g_record(record: bytes) -> dict[str, Any]:
     """Parse one 42-byte session record from the C3352g *B# multi-packet stream.
 
-    Used by OCLEANY3 (Oclean X Pro) and OCLEANY3P (Oclean X Pro Elite) when the
-    coordinator reassembles the continuation packets from a ``0307 *B# count``
-    notification sequence.
+    Used by OCLEANY3P (Oclean X Pro Elite) when the coordinator reassembles the
+    continuation packets from a ``0307 *B# count`` notification sequence with a
+    non-zero year_base byte.  OCLEANY3M / OCLEANY3 use ``parse_t1_c3385w0_record``
+    instead.
 
-    Uses the same 42-byte layout as C3385w0 (confirmed via APK source comparison of
-    C3352g_fallback.java and C3385w0_fallback.java). Byte 0 is a **year base** byte
-    (add 2000 to obtain the full year), identical to the C3385w0 / OCLEANY3M format.
+    Byte layout confirmed via APK source analysis of C3352g_fallback.java
+    (second code path, bytesToIntBe trace):
 
-    Byte layout (confirmed ✓ from APK, uncertain ?):
-      byte  0:   year_base (full_year − 2000)   ✓ same as C3385w0
+      byte  0:   year_base (full_year − 2000)   ✓
       byte  1:   month (1-12)                   ✓
       byte  2:   day   (1-31)                   ✓
       byte  3:   hour  (0-23)                   ✓
       byte  4:   minute (0-59)                  ✓
       byte  5:   second (0-59)                  ✓
-      byte  6:   pNum (brush-scheme ID)         ✓ confirmed in APK
-      bytes 7-8: duration BE uint16 (seconds)   ✓ confirmed in APK
-      bytes 9-10: validDuration BE              ✓ confirmed in APK
-      bytes 11-16: area1..area6 pressures       ✓ confirmed in APK
-      byte 17:   unused/padding                 ✓
-      bytes 18-19: area7..area8 pressures       ✓ confirmed in APK
-      bytes 20-32: gesture/power bitfield data  ?
-      byte 33:   score (0-100, 0xFF = absent)   ✓ confirmed in APK
+      byte  6:   pNum (brush-scheme ID)         ✓
+      bytes 7-8: duration BE uint16 (seconds)   ✓
+      bytes 9-10: validDuration BE              ✓
+      bytes 11-15: pressureRatio[0..4]          ✓ (5 pressure-bucket counts)
+      byte 16:   unused                         ✓
+      byte 17:   (unknown)
+      byte 18:   unused                         ✓
+      byte 19:   gestureCode                    ✓ (= gestureArray[0])
+      bytes 19-30: gestureArray[0..11]          ✓ (12 gesture values)
+      bytes 30-32: powerArray nibble source     ?
+      byte 33:   score (0-100, 0xFF = absent)   ✓
       bytes 34-41: reserved                     ?
+
+    NOTE: bytes 11-19 are **pressureRatio / gestureCode** data, NOT tooth-zone
+    area coverage.  Per-zone area data arrives via separate 021f push
+    notifications and is handled by _parse_brush_areas_y3p_response().
 
     All out-of-range values are silently omitted from the result.
     """
@@ -473,26 +577,20 @@ def parse_t1_c3352g_record(record: bytes) -> dict[str, Any]:
         if duration_s > 0:
             result[DATA_LAST_BRUSH_DURATION] = duration_s
 
-        # Score at byte 33 (uncertain offset – same as C3385w0)
+        # Score at byte 33 (confirmed APK: C3352g_fallback.java r57=byte[33])
         score = record[33]
         if 0 < score <= 100:
             result[DATA_LAST_BRUSH_SCORE] = score
 
-        # Area pressures: bytes 11-16 (area1-6) + bytes 18-19 (area7-8)
-        # (uncertain offsets – same as C3385w0, likely valid since year byte absent
-        # shifts only byte 0 relative to C3385w0)
-        area_bytes = bytes(
-            [record[11], record[12], record[13], record[14], record[15], record[16], record[18], record[19]]
-        )
-        area_dict, _zones_cleaned, avg_pressure = _build_area_stats(area_bytes)
-        if any(v > 0 for v in area_bytes):
-            result[DATA_LAST_BRUSH_AREAS] = area_dict
-            result[DATA_LAST_BRUSH_PRESSURE] = avg_pressure
-
-        # gestureCode / pressureRatio / gestureArray / powerArray (APK: C3385w0_fallback)
-        result[DATA_LAST_BRUSH_GESTURE_CODE] = int(record[14])
+        # pressureRatio: bytes 11-15 (5 pressure-bucket counts, confirmed APK)
+        # gestureCode:   byte 19 (confirmed APK: r15=byte[19], JSON key "gestureCode")
+        # gestureArray:  bytes 19-30 (12 values, gestureCode is element 0)
+        # powerArray:    nibbles from bytes 30-32
+        # NOTE: bytes 11-19 are pressure/gesture data, NOT tooth-zone areas.
+        #       Area data comes from 021f push notifications only.
+        result[DATA_LAST_BRUSH_GESTURE_CODE] = int(record[19])
         result[DATA_LAST_BRUSH_PRESSURE_RATIO] = list(record[11:16])
-        result[DATA_LAST_BRUSH_GESTURE_ARRAY] = list(record[18:31])
+        result[DATA_LAST_BRUSH_GESTURE_ARRAY] = list(record[19:31])
         result[DATA_LAST_BRUSH_POWER_ARRAY] = (
             _extract_nibbles(record[30]) + _extract_nibbles(record[31]) + _extract_nibbles(record[32])
         )
