@@ -143,7 +143,7 @@ grep -c "DIS read" oclean_ble.log
 | Oclean X Pro Elite | OCLEANY3P | TYPE1 | fbb89 | fbb90 | Score via `0000`, areas via `021f`, meta via `5100` |
 | Oclean Air 1 | OCLEANA1 | LEGACY | fbb85 (WRITE_CHAR_UUID) | fbb86 READ (no CCCD) | None |
 
-**All TYPE1 devices** send every BLE command (0303/0202/0302/0307) via `fbb89` (`SEND_BRUSH_CMD_UUID`). Responses arrive as notifications on `fbb90` (`RECEIVE_BRUSH_UUID`) or `fbb86` (`READ_NOTIFY_CHAR_UUID`). The `write_char` field on `DeviceProtocol` controls which characteristic is used for one-off standalone writes (area_remind, brush_head_max_days, reset_brush_head, time calibration).
+**All TYPE1 devices** send query commands (0303/0202/0302/0307) via `fbb89` (`SEND_BRUSH_CMD_UUID`) during polls. Responses arrive as notifications on `fbb90` (`RECEIVE_BRUSH_UUID`) or `fbb86` (`READ_NOTIFY_CHAR_UUID`). The `write_char` field on `DeviceProtocol` controls which characteristic is used for one-off standalone writes (area_remind, brush_head_max_days, reset_brush_head, time calibration, brush scheme). For TYPE1, standalone writes use `fbb85` (`WRITE_CHAR_UUID`) — APK `C3376s.java` confirms `f12501k = fbb85` for all standalone commands; only `0307` uses `f12582C = fbb89`.
 
 **OCLEANY3M**: Score and areas arrive as unsolicited enrichment pushes (`0000`, `2604`) on fbb90 after the 0307 session response. In inline mode (no new sessions), the 13-byte truncated record omits score – enrichment pushes may or may not follow depending on firmware.
 

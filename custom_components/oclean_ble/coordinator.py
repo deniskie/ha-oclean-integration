@@ -576,9 +576,9 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
     async def _write_standalone(self, client: BleakClient, cmd: bytes) -> None:
         """Subscribe to notify chars, write *cmd* to write_char, then unsubscribe.
 
-        On TYPE1 devices (fbb89 write-only) the device only exposes the write
-        characteristic after at least one notify subscription is active (fbb90).
-        This mirrors the poll setup so standalone writes succeed on all protocols.
+        On TYPE1 devices the standalone write_char is fbb85 (APK C3376s f12501k).
+        Subscribing to fbb90/fbb86 first mirrors the poll setup and ensures the
+        device is ready to accept writes on all protocols.
         """
         subscribed: list[str] = []
         for char_uuid in self._protocol.notify_chars:
