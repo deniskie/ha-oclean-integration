@@ -106,6 +106,39 @@
       },
       "last_poll": {
         "name": "Última consulta"
+      },
+      "cleaned_zones": {
+        "name": "Zonas limpiadas"
+      },
+      "last_scheme": {
+        "name": "Último programa"
+      },
+      "mac_address": {
+        "name": "Dirección MAC"
+      },
+      "zone_upper_left_out": {
+        "name": "Zona Superior Izquierda Exterior"
+      },
+      "zone_upper_left_in": {
+        "name": "Zona Superior Izquierda Interior"
+      },
+      "zone_lower_left_out": {
+        "name": "Zona Inferior Izquierda Exterior"
+      },
+      "zone_lower_left_in": {
+        "name": "Zona Inferior Izquierda Interior"
+      },
+      "zone_upper_right_out": {
+        "name": "Zona Superior Derecha Exterior"
+      },
+      "zone_upper_right_in": {
+        "name": "Zona Superior Derecha Interior"
+      },
+      "zone_lower_right_out": {
+        "name": "Zona Inferior Derecha Exterior"
+      },
+      "zone_lower_right_in": {
+        "name": "Zona Inferior Derecha Interior"
       }
     }
   },

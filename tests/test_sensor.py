@@ -283,9 +283,9 @@ class TestOcleanToothAreaSensor:
         sensor = _make_tooth_sensor(self._zone, data={DATA_LAST_BRUSH_AREAS: {}})
         assert sensor.native_value is None
 
-    def test_attr_name_derived_from_zone(self):
+    def test_translation_key_derived_from_zone(self):
         sensor = _make_tooth_sensor("upper_left_out", data=None)
-        assert "Upper Left Out" in sensor._attr_name
+        assert sensor._attr_translation_key == "zone_upper_left_out"
 
     def test_available_false_when_session_exists_no_areas(self):
         sensor = _make_tooth_sensor(

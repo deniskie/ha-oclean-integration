@@ -65,7 +65,7 @@ _SESSION_DERIVED_KEYS: frozenset[str] = frozenset(
 SENSOR_DESCRIPTIONS: tuple[SensorEntityDescription, ...] = (
     SensorEntityDescription(
         key=DATA_BATTERY,
-        name="Battery",
+        translation_key=DATA_BATTERY,
         device_class=SensorDeviceClass.BATTERY,
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=PERCENTAGE,
@@ -73,14 +73,14 @@ SENSOR_DESCRIPTIONS: tuple[SensorEntityDescription, ...] = (
     ),
     SensorEntityDescription(
         key=DATA_LAST_BRUSH_SCORE,
-        name="Score",
+        translation_key=DATA_LAST_BRUSH_SCORE,
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:star",
         # 0–100 dimensionless
     ),
     SensorEntityDescription(
         key=DATA_LAST_BRUSH_DURATION,
-        name="Duration",
+        translation_key=DATA_LAST_BRUSH_DURATION,
         device_class=SensorDeviceClass.DURATION,
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfTime.SECONDS,
@@ -89,7 +89,7 @@ SENSOR_DESCRIPTIONS: tuple[SensorEntityDescription, ...] = (
     ),
     SensorEntityDescription(
         key=DATA_LAST_BRUSH_PRESSURE,
-        name="Pressure",
+        translation_key=DATA_LAST_BRUSH_PRESSURE,
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:gauge",
         entity_category=EntityCategory.DIAGNOSTIC,
@@ -97,20 +97,20 @@ SENSOR_DESCRIPTIONS: tuple[SensorEntityDescription, ...] = (
     ),
     SensorEntityDescription(
         key=DATA_LAST_BRUSH_TIME,
-        name="Last Session",
+        translation_key=DATA_LAST_BRUSH_TIME,
         device_class=SensorDeviceClass.TIMESTAMP,
         icon="mdi:clock-outline",
     ),
     SensorEntityDescription(
         key=DATA_BRUSH_HEAD_USAGE,
-        name="Head Sessions",
+        translation_key=DATA_BRUSH_HEAD_USAGE,
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:toothbrush",
         # headUsedTimes from 0302 response: number of brushing sessions since last reset.
     ),
     SensorEntityDescription(
         key=DATA_BRUSH_HEAD_DAYS,
-        name="Head Age",
+        translation_key=DATA_BRUSH_HEAD_DAYS,
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement="d",
         icon="mdi:calendar-sync",
@@ -120,7 +120,7 @@ SENSOR_DESCRIPTIONS: tuple[SensorEntityDescription, ...] = (
     # Device settings – read from 0302 device-settings response
     SensorEntityDescription(
         key=DATA_BRUSH_MODE,
-        name="Mode",
+        translation_key=DATA_BRUSH_MODE,
         icon="mdi:tune",
         state_class=SensorStateClass.MEASUREMENT,
         entity_category=EntityCategory.DIAGNOSTIC,
@@ -128,26 +128,26 @@ SENSOR_DESCRIPTIONS: tuple[SensorEntityDescription, ...] = (
     # Device information (diagnostic) – read from BLE Device Information Service (0x180A)
     SensorEntityDescription(
         key=DATA_MODEL_ID,
-        name="Model",
+        translation_key=DATA_MODEL_ID,
         icon="mdi:identifier",
         entity_category=EntityCategory.DIAGNOSTIC,
     ),
     SensorEntityDescription(
         key=DATA_HW_REVISION,
-        name="HW Revision",
+        translation_key=DATA_HW_REVISION,
         icon="mdi:wrench",
         entity_category=EntityCategory.DIAGNOSTIC,
     ),
     SensorEntityDescription(
         key=DATA_SW_VERSION,
-        name="Firmware",
+        translation_key=DATA_SW_VERSION,
         icon="mdi:chip",
         entity_category=EntityCategory.DIAGNOSTIC,
     ),
     # NOTE: MAC Address is handled by OcleanMacSensor below (needs self._mac).
     SensorEntityDescription(
         key=DATA_LAST_POLL,
-        name="Last Poll",
+        translation_key=DATA_LAST_POLL,
         device_class=SensorDeviceClass.TIMESTAMP,
         icon="mdi:clock-check-outline",
         entity_category=EntityCategory.DIAGNOSTIC,
@@ -234,7 +234,7 @@ class OcleanBrushAreasSensor(OcleanEntity, SensorEntity):
                 upper_right_out/in, lower_right_out/in.
     """
 
-    _attr_name = "Cleaned Zones"
+    _attr_translation_key = "cleaned_zones"
     _attr_icon = "mdi:tooth-outline"
     _attr_state_class = SensorStateClass.MEASUREMENT
 
@@ -272,7 +272,7 @@ class OcleanSchemeSensor(OcleanEntity, SensorEntity):
     if the programme ID is not in the lookup table.
     """
 
-    _attr_name = "Last Scheme"
+    _attr_translation_key = "last_scheme"
     _attr_icon = "mdi:clipboard-list"
 
     def __init__(
@@ -324,7 +324,7 @@ class OcleanToothAreaSensor(OcleanEntity, SensorEntity):
     ) -> None:
         super().__init__(coordinator, mac, device_name, f"tooth_area_{zone_name}")
         self._zone_name = zone_name
-        self._attr_name = "Zone " + zone_name.replace("_", " ").title()
+        self._attr_translation_key = f"zone_{zone_name}"
 
     @property
     def native_value(self) -> int | None:
@@ -343,7 +343,7 @@ class OcleanToothAreaSensor(OcleanEntity, SensorEntity):
 class OcleanMacSensor(OcleanEntity, SensorEntity):
     """Diagnostic sensor exposing the device Bluetooth MAC address."""
 
-    _attr_name = "MAC Address"
+    _attr_translation_key = "mac_address"
     _attr_icon = "mdi:bluetooth"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
