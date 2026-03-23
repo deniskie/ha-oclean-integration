@@ -286,6 +286,21 @@ def _install_ha_stubs() -> None:
 
     sel.SelectEntity = SelectEntity
 
+    # ---- homeassistant.components.switch ----
+    sw = _stub("homeassistant.components.switch")
+
+    class SwitchEntityDescription:
+        def __init__(self, *, key, name="", icon=None, **kwargs):
+            self.key = key
+            self.name = name
+            self.icon = icon
+
+    class SwitchEntity:
+        pass
+
+    sw.SwitchEntityDescription = SwitchEntityDescription
+    sw.SwitchEntity = SwitchEntity
+
     # ---- homeassistant.components.binary_sensor ----
     bs = _stub("homeassistant.components.binary_sensor")
 

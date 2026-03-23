@@ -6,8 +6,12 @@ and assert on the resulting OcleanDeviceData field values.
 
 Device model:  OCLEANY3MH (Oclean X)
 Protocol:      Type-1 – 0307 *B# multi-packet reassembly
-Session path:  0307 header + continuation packets → parse_t1_c3352g_record()
+Session path:  0307 header + continuation packets → parse_t1_c3385w0_record()
                (not 2604 / 0000 push notifications)
+
+Note: last_brush_areas and last_brush_pressure are NOT extracted from the *B# record.
+OCLEANY3M records only contain 5 tooth-zone bytes (11-15); all 8 areas come
+exclusively from the 2604 enrichment push (_parse_brush_areas_t1_response).
 
 Real poll sequence captured in log (2026-03-11 20:08:22):
   0303020e461b0100                        → battery=27, is_brushing=False
@@ -20,11 +24,6 @@ Expected parsed values (confirmed from log line 26):
   last_brush_duration = 120
   last_brush_score    = 91
   last_brush_pnum     = 0
-  last_brush_pressure = 12
-  last_brush_areas    = {upper_left_out: 5, upper_left_in: 20,
-                          lower_left_out: 75, lower_left_in: 0,
-                          upper_right_out: 0, upper_right_in: 0,
-                          lower_right_out: 0, lower_right_in: 0}
 """
 
 from __future__ import annotations
@@ -39,7 +38,6 @@ from custom_components.oclean_ble.const import (
     DATA_LAST_BRUSH_PRESSURE,
     DATA_LAST_BRUSH_SCORE,
     DATA_LAST_BRUSH_TIME,
-    TOOTH_AREA_NAMES,
 )
 from tests.integration_helpers import make_coordinator, run_poll
 from tests.simulator import OcleanDeviceSimulator
@@ -67,17 +65,6 @@ _EXPECTED_TS = 1773219743
 _EXPECTED_DURATION = 120
 _EXPECTED_SCORE = 91
 _EXPECTED_PNUM = 0
-_EXPECTED_PRESSURE = 12
-_EXPECTED_AREAS = {
-    "upper_left_out": 5,
-    "upper_left_in": 20,
-    "lower_left_out": 75,
-    "lower_left_in": 0,
-    "upper_right_out": 0,
-    "upper_right_in": 0,
-    "lower_right_out": 0,
-    "lower_right_in": 0,
-}
 
 _MAC = "70:28:45:83:2A:C9"
 
@@ -147,22 +134,17 @@ class TestOcleanY3MRealData:
         assert result[DATA_LAST_BRUSH_PNUM] == _EXPECTED_PNUM
 
     @pytest.mark.asyncio
-    async def test_session_areas_correct(self):
-        """All 8 tooth-area pressures decoded from *B# record match the device log."""
-        result = await run_poll(_coordinator(), _full_session_client())
-        assert result[DATA_LAST_BRUSH_AREAS] == _EXPECTED_AREAS
+    async def test_areas_not_in_star_b_record(self):
+        """Areas are not extracted from the *B# record – they come from the 2604 push.
 
-    @pytest.mark.asyncio
-    async def test_session_pressure_is_average(self):
-        """last_brush_pressure is the average of the non-zero area values."""
+        OCLEANY3M *B# records only contain 5 tooth-zone bytes (11-15); areas 6-8
+        are absent and area data is only authoritative from the 2604 enrichment push
+        (_parse_brush_areas_t1_response).  Without a 2604 notification this poll
+        must not set last_brush_areas or last_brush_pressure.
+        """
         result = await run_poll(_coordinator(), _full_session_client())
-        assert result[DATA_LAST_BRUSH_PRESSURE] == _EXPECTED_PRESSURE
-
-    @pytest.mark.asyncio
-    async def test_all_area_names_present(self):
-        """last_brush_areas dict contains exactly the 8 canonical zone names."""
-        result = await run_poll(_coordinator(), _full_session_client())
-        assert set(result[DATA_LAST_BRUSH_AREAS].keys()) == set(TOOTH_AREA_NAMES)
+        assert DATA_LAST_BRUSH_AREAS not in result
+        assert DATA_LAST_BRUSH_PRESSURE not in result
 
     @pytest.mark.asyncio
     async def test_no_session_when_only_0303_received(self):

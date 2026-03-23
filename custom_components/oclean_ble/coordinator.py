@@ -37,6 +37,7 @@ from .const import (
     CMD_CALIBRATE_TIME_PREFIX,
     CMD_CALIBRATE_TIME_T1_PREFIX,
     CMD_CLEAR_BRUSH_HEAD,
+    CMD_OVER_PRESSURE,
     CMD_QUERY_RUNNING_DATA_NEXT,
     CMD_SET_BRUSH_SCHEME_CONT,
     DATA_BATTERY,
@@ -69,6 +70,7 @@ from .parser import (
     parse_battery,
     parse_notification,
     parse_t1_c3352g_record,
+    parse_t1_c3385w0_record,
     parse_y3p_stream_record,
 )
 from .protocol import UNKNOWN, DeviceProtocol, protocol_for_model
@@ -306,6 +308,7 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
 
         # User-controlled device settings (write-only; state persisted locally).
         self._area_remind: bool | None = None
+        self._over_pressure: bool | None = None
         self._brush_head_max_days: int | None = None
         # Software brush-head session counter: counts new sessions since the last
         # brush-head reset when the device does not expose a hardware counter via 0302.
@@ -463,6 +466,11 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         return self._area_remind
 
     @property
+    def over_pressure(self) -> bool | None:
+        """Return the last-written over-pressure alert state, or None if never set."""
+        return self._over_pressure
+
+    @property
     def brush_head_max_days(self) -> int | None:
         """Return the last-written brush-head max-lifetime in days, or None if never set."""
         return self._brush_head_max_days
@@ -489,6 +497,30 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
             if client.is_connected:
                 await client.disconnect()
         self._area_remind = enabled
+        await self._save_store()
+
+    async def async_set_over_pressure(self, enabled: bool) -> None:
+        """Connect and write CMD_OVER_PRESSURE (0212) to the device.
+
+        Called by the Over-Pressure Alert switch entity.  State is persisted so
+        the switch shows the correct value after HA restarts.
+        """
+        ble_device = self._resolve_ble_device()
+        client = await establish_connection(
+            BleakClient,
+            ble_device,
+            self._device_name,
+            max_attempts=3,
+        )
+        cmd = CMD_OVER_PRESSURE + bytes([0x01 if enabled else 0x00])
+        try:
+            await asyncio.sleep(BLE_POST_CONNECT_DELAY)
+            await self._write_standalone(client, cmd)
+            self._log.info("over pressure set to %s", enabled)
+        finally:
+            if client.is_connected:
+                await client.disconnect()
+        self._over_pressure = enabled
         await self._save_store()
 
     async def async_set_brush_head_max_days(self, days: int) -> None:
@@ -651,6 +683,7 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         if stored:
             self._last_session_ts = stored.get("last_session_ts", 0)
             self._area_remind = stored.get("area_remind")
+            self._over_pressure = stored.get("over_pressure")
             self._brush_head_max_days = stored.get("brush_head_max_days")
             self._brush_head_sw_count = stored.get("brush_head_sw_count", 0)
             self._active_scheme_pnum = stored.get("active_scheme_pnum")
@@ -672,6 +705,7 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
             {
                 "last_session_ts": self._last_session_ts,
                 "area_remind": self._area_remind,
+                "over_pressure": self._over_pressure,
                 "brush_head_max_days": self._brush_head_max_days,
                 "brush_head_sw_count": self._brush_head_sw_count,
                 "active_scheme_pnum": self._active_scheme_pnum,
@@ -813,9 +847,11 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         raw continuation packets until all record_count × 42 bytes are received.
         The handler detects the header, accumulates continuation chunks, and
         flushes complete records through the appropriate parse function when the
-        buffer is full.  OCLEANY3 encodes year_base (year−2000) at record byte 0
-        and uses ``parse_t1_c3352g_record``.  OCLEANY3P always writes 0x00 at
-        byte 0 (year inferred from wall clock) and uses ``parse_y3p_stream_record``.
+        buffer is full.  OCLEANY3M/OCLEANY3 encode year_base (year−2000) at byte 0
+        and use ``parse_t1_c3385w0_record`` (tooth-zone areas at bytes 11-19).
+        OCLEANY3P with non-zero year_base uses ``parse_t1_c3352g_record`` (bytes 11-19
+        are pressureRatio, not areas; area data comes from 021f push notifications).
+        OCLEANY3P with year_base=0x00 uses ``parse_y3p_stream_record``.
         """
         _log = self._log  # capture for use in the closure
 
@@ -824,7 +860,7 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
             "in_progress": False,
             "buf": bytearray(),
             "expected": 0,
-            "parse_fn": parse_t1_c3352g_record,
+            "parse_fn": parse_t1_c3385w0_record,
         }
 
         # Magic header bytes for the *B# multi-packet format (after 0307 prefix).
@@ -855,7 +891,7 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
             _t1["in_progress"] = False
             _t1["buf"] = bytearray()
             _t1["expected"] = 0
-            _t1["parse_fn"] = parse_t1_c3352g_record
+            _t1["parse_fn"] = parse_t1_c3385w0_record
             num_records = len(buf) // T1_C3352G_RECORD_SIZE
             _log.debug("*B# reassembly complete: parsing %d record(s)", num_records)
             for i in range(num_records):
@@ -900,13 +936,21 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
                     _t1["buf"] = inline
                     _t1["expected"] = total_expected
                     _t1["in_progress"] = True
-                    _t1["parse_fn"] = parse_y3p_stream_record if payload[5] == 0x00 else parse_t1_c3352g_record
+                    if payload[5] == 0x00:
+                        _t1["parse_fn"] = parse_y3p_stream_record
+                        _parser_name = "Y3P-stream"
+                    elif (collected.get(DATA_MODEL_ID) or "").startswith("OCLEANY3P"):
+                        _t1["parse_fn"] = parse_t1_c3352g_record
+                        _parser_name = "C3352g (Y3P)"
+                    else:
+                        _t1["parse_fn"] = parse_t1_c3385w0_record
+                        _parser_name = "C3385w0 (Y3M/Y3)"
                     _log.debug(
                         "*B# header: count=%d, expected=%d bytes, inline=%d bytes, parser=%s",
                         record_count,
                         total_expected,
                         len(inline),
-                        "Y3P" if payload[5] == 0x00 else "C3352g",
+                        _parser_name,
                     )
                     if len(inline) >= total_expected:
                         _flush_t1_buffer()

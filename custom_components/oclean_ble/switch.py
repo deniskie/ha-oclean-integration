@@ -19,6 +19,11 @@ SWITCH_DESCRIPTIONS: tuple[SwitchEntityDescription, ...] = (
         icon="mdi:tooth-outline",
         entity_category=EntityCategory.DIAGNOSTIC,
     ),
+    SwitchEntityDescription(
+        key="over_pressure",
+        name="Over-Pressure Alert",
+        icon="mdi:alert-circle-outline",
+    ),
 )
 
 
@@ -58,12 +63,18 @@ class OcleanSwitch(OcleanEntity, SwitchEntity):
     def is_on(self) -> bool | None:
         if self.entity_description.key == "area_remind":
             return self.coordinator.area_remind
+        if self.entity_description.key == "over_pressure":
+            return self.coordinator.over_pressure
         return None
 
     async def async_turn_on(self, **kwargs) -> None:
         if self.entity_description.key == "area_remind":
             await self.coordinator.async_set_area_remind(True)
+        elif self.entity_description.key == "over_pressure":
+            await self.coordinator.async_set_over_pressure(True)
 
     async def async_turn_off(self, **kwargs) -> None:
         if self.entity_description.key == "area_remind":
             await self.coordinator.async_set_area_remind(False)
+        elif self.entity_description.key == "over_pressure":
+            await self.coordinator.async_set_over_pressure(False)

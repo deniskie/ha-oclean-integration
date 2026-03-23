@@ -52,6 +52,7 @@ from custom_components.oclean_ble.parser import (
     parse_battery,
     parse_notification,
     parse_t1_c3352g_record,
+    parse_t1_c3385w0_record,
     parse_y3p_stream_record,
 )
 
@@ -1604,7 +1605,6 @@ def _make_c3352g_record(
     second: int = 0,
     pnum: int = 42,
     duration: int = 120,
-    areas: tuple = (5, 14, 1, 8, 12, 10, 3, 7),
     score: int = 82,
 ) -> bytes:
     """Build a full 42-byte C3352g session record (year_base at byte 0)."""
@@ -1618,10 +1618,6 @@ def _make_c3352g_record(
     record[6] = pnum
     record[7] = (duration >> 8) & 0xFF
     record[8] = duration & 0xFF
-    for i, v in enumerate(areas[:6]):
-        record[11 + i] = v
-    for i, v in enumerate(areas[6:8]):
-        record[18 + i] = v
     record[33] = score
     return bytes(record)
 
@@ -1639,14 +1635,14 @@ class TestParseT1C3352gRecord:
         expected = _expected_t1_ts(2026, 3, 9, 7, 0, 0)
         assert result["last_brush_time"] == expected
 
-    def test_extracts_pnum_duration_score_areas(self):
+    def test_extracts_pnum_duration_score(self):
         record = _make_c3352g_record(pnum=55, duration=150, score=75)
         result = parse_t1_c3352g_record(record)
         assert result["last_brush_pnum"] == 55
         assert result["last_brush_duration"] == 150
         assert result["last_brush_score"] == 75
-        assert "last_brush_areas" in result
-        assert "last_brush_pressure" in result
+        assert "last_brush_areas" not in result
+        assert "last_brush_pressure" not in result
 
     def test_score_0xff_not_stored(self):
         record = _make_c3352g_record(score=0xFF)
@@ -1663,8 +1659,9 @@ class TestParseT1C3352gRecord:
         result = parse_t1_c3352g_record(record)
         assert "last_brush_score" not in result
 
-    def test_zero_areas_not_stored(self):
-        record = _make_c3352g_record(areas=(0, 0, 0, 0, 0, 0, 0, 0))
+    def test_areas_never_stored(self):
+        """C3352g record bytes are pressureRatio/gestureCode data, not zone areas."""
+        record = _make_c3352g_record()
         result = parse_t1_c3352g_record(record)
         assert "last_brush_areas" not in result
         assert "last_brush_pressure" not in result
@@ -1690,6 +1687,33 @@ class TestParseT1C3352gRecord:
         record[1] = 0  # month=0 is invalid for datetime
         assert parse_t1_c3352g_record(bytes(record)) == {}
 
+    def test_gesture_code_from_byte19(self):
+        """gestureCode comes from byte 19, confirmed via APK C3352g_fallback.java trace."""
+        record = bytearray(_make_c3352g_record())
+        record[14] = 0x1E  # old wrong byte (30) – must NOT become gestureCode
+        record[19] = 0x14  # correct byte (20) – must become gestureCode
+        result = parse_t1_c3352g_record(bytes(record))
+        assert result["last_brush_gesture_code"] == 20
+
+    def test_gesture_array_12_elements_from_byte19(self):
+        """gestureArray is 12 bytes starting at byte 19 (confirmed APK)."""
+        record = bytearray(_make_c3352g_record())
+        for i in range(12):
+            record[19 + i] = i + 1
+        result = parse_t1_c3352g_record(bytes(record))
+        assert result["last_brush_gesture_array"] == list(range(1, 13))
+
+    def test_pressure_ratio_from_bytes11_to_15(self):
+        """pressureRatio comes from bytes 11-15 (confirmed APK)."""
+        record = bytearray(_make_c3352g_record())
+        record[11] = 0
+        record[12] = 1
+        record[13] = 4
+        record[14] = 30
+        record[15] = 0
+        result = parse_t1_c3352g_record(bytes(record))
+        assert result["last_brush_pressure_ratio"] == [0, 1, 4, 30, 0]
+
     def test_year_extracted_from_byte0(self):
         """Year comes from byte 0 (+ 2000), not from wall-clock inference."""
         record = _make_c3352g_record(year=2024, month=6, day=15, hour=9, minute=0, second=0)
@@ -1700,31 +1724,150 @@ class TestParseT1C3352gRecord:
         assert dt.day == 15
 
     def test_real_observed_bytes(self):
-        """Decode a realistic 42-byte *B# record: year_base=26 (2026), Aug 27 00:33:40, 120 s.
+        """Decode a real 42-byte *B# record from OCLEANY3P (issue #49, 2026-03-22).
 
-        This mirrors the byte layout confirmed from the APK:
-          byte 0 = 0x1A (26 + 2000 = 2026), bytes 1-5 = M/D/H/Min/S,
-          bytes 7-8 = duration BE = 0x0078 = 120 s.
+        Raw record (from *B# reassembly log):
+          1a03161722234c009600960001041e00000f00141f171a050e0f0d080f0c0e00006200ffffffffffffff
+        Confirmed field values:
+          ts  = 2026-03-22 23:34:35  (bytes 0-5)
+          pNum = 76                  (byte 6 = 0x4c)
+          duration = 150 s           (bytes 7-8 = 0x0096)
+          gestureCode = 20           (byte 19 = 0x14, APK-confirmed)
+          score = 98                 (byte 33 = 0x62)
+          pressureRatio = [0,1,4,30,0]  (bytes 11-15)
+          NO last_brush_areas        (bytes 11-19 are not zone data)
         """
-        record = bytearray(42)
-        record[0] = 0x1A  # year_base = 26 → 2026
-        record[1] = 8  # month
-        record[2] = 27  # day
-        record[3] = 0  # hour
-        record[4] = 33  # minute
-        record[5] = 40  # second
-        record[7] = 0x00  # duration high byte
-        record[8] = 0x78  # duration low byte = 120
-        assert len(record) == 42
-        result = parse_t1_c3352g_record(bytes(record))
-        assert result.get("last_brush_duration") == 120
+        raw = bytes.fromhex("1a03161722234c009600960001041e00000f00141f171a050e0f0d080f0c0e00006200ffffffffffffff")
+        assert len(raw) == 42
+        result = parse_t1_c3352g_record(raw)
+        assert result["last_brush_score"] == 98
+        assert result["last_brush_duration"] == 150
+        assert result["last_brush_pnum"] == 76
+        assert result["last_brush_gesture_code"] == 20
+        assert result["last_brush_pressure_ratio"] == [0, 1, 4, 30, 0]
+        assert "last_brush_areas" not in result
+        assert "last_brush_pressure" not in result
         dt = datetime.datetime.fromtimestamp(result["last_brush_time"])
         assert dt.year == 2026
-        assert dt.month == 8
-        assert dt.day == 27
-        assert dt.hour == 0
-        assert dt.minute == 33
-        assert dt.second == 40
+        assert dt.month == 3
+        assert dt.day == 22
+
+
+# ---------------------------------------------------------------------------
+# parse_t1_c3385w0_record – C3385w0 *B# multi-packet record (OCLEANY3M / OCLEANY3)
+# ---------------------------------------------------------------------------
+
+
+def _make_c3385w0_record(
+    *,
+    year: int = 2026,
+    month: int = 3,
+    day: int = 11,
+    hour: int = 20,
+    minute: int = 2,
+    second: int = 23,
+    pnum: int = 0,
+    duration: int = 120,
+    score: int = 91,
+    areas: tuple = (5, 20, 75, 0, 0),
+) -> bytes:
+    """Build a full 42-byte C3385w0 session record with tooth-zone area data.
+
+    Only areas 1-5 (bytes 11-15) are stored in the *B# record per APK analysis.
+    Byte 16 is discarded by the APK; bytes 18-19 are gestureArray[0-1], not areas.
+    Areas 6-8 arrive via the 2604 enrichment push and are not part of this record.
+    """
+    record = bytearray(42)
+    record[0] = year - 2000
+    record[1] = month
+    record[2] = day
+    record[3] = hour
+    record[4] = minute
+    record[5] = second
+    record[6] = pnum
+    record[7] = (duration >> 8) & 0xFF
+    record[8] = duration & 0xFF
+    # Area bytes 11-15: area1-5 only (APK-confirmed)
+    for i, v in enumerate(areas[:5]):
+        record[11 + i] = v
+    record[33] = score
+    return bytes(record)
+
+
+class TestParseT1C3385w0Record:
+    """Tests for parse_t1_c3385w0_record (C3385w0 *B# multi-packet, OCLEANY3M/OCLEANY3)."""
+
+    def test_extracts_timestamp(self):
+        record = _make_c3385w0_record(year=2026, month=3, day=11, hour=20, minute=2, second=23)
+        result = parse_t1_c3385w0_record(record)
+        assert "last_brush_time" in result
+        expected = _expected_t1_ts(2026, 3, 11, 20, 2, 23)
+        assert result["last_brush_time"] == expected
+
+    def test_extracts_pnum_duration_score(self):
+        record = _make_c3385w0_record(pnum=5, duration=90, score=85)
+        result = parse_t1_c3385w0_record(record)
+        assert result["last_brush_pnum"] == 5
+        assert result["last_brush_duration"] == 90
+        assert result["last_brush_score"] == 85
+
+    def test_areas_not_in_record(self):
+        """Areas are never extracted from the *B# record.
+
+        The C3385w0 format only has 5 of 8 area bytes (bytes 11-15);
+        all 8 areas arrive via the 2604 enrichment push instead.
+        """
+        record = _make_c3385w0_record(areas=(5, 20, 75, 0, 0))
+        result = parse_t1_c3385w0_record(record)
+        assert "last_brush_areas" not in result
+        assert "last_brush_pressure" not in result
+
+    def test_score_0xff_not_stored(self):
+        record = _make_c3385w0_record(score=0xFF)
+        result = parse_t1_c3385w0_record(record)
+        assert "last_brush_score" not in result
+
+    def test_score_0_not_stored(self):
+        record = _make_c3385w0_record(score=0)
+        result = parse_t1_c3385w0_record(record)
+        assert "last_brush_score" not in result
+
+    def test_zero_duration_not_stored(self):
+        record = _make_c3385w0_record(duration=0)
+        result = parse_t1_c3385w0_record(record)
+        assert "last_brush_duration" not in result
+
+    def test_too_short_returns_empty(self):
+        assert parse_t1_c3385w0_record(bytes(41)) == {}
+        assert parse_t1_c3385w0_record(b"") == {}
+
+    def test_year_base_zero_returns_empty(self):
+        record = bytearray(_make_c3385w0_record())
+        record[0] = 0x00
+        assert parse_t1_c3385w0_record(bytes(record)) == {}
+
+    def test_real_observed_bytes_from_ocleany3mh(self):
+        """Decode a real 42-byte *B# record from OCLEANY3MH (integration test reference).
+
+        Source: logs/20260311_#19_NicGray78_v2.log (session at 2026-03-11 20:02:23)
+        Packet bytes reassembled from:
+          03072a422300011a030b14021700007800780514  (header, inline bytes 0-12)
+          4b0000001f00000000001c14190c0a0a0a000000  (continuation bytes 13-32)
+          5b030301ffffffffff1a0306071e0f0000780078  (continuation bytes 33-41+)
+        """
+        # Full 42-byte record extracted from above packets (bytes 0-41)
+        # year_base=0x1a(26→2026), month=3, day=0xb(11), hour=0x14(20), min=2, sec=0x17(23)
+        raw = bytes.fromhex(
+            "1a030b14021700007800780514"  # bytes 0-12  (header inline)
+            "4b0000001f00000000001c14190c0a0a0a000000"  # bytes 13-32 (cont1)
+            "5b030301ffffffff1a"  # bytes 33-41 (first 9 bytes of cont2; byte33=0x5b=91=score)
+        )
+        assert len(raw) == 42
+        result = parse_t1_c3385w0_record(raw)
+        assert result["last_brush_score"] == 91
+        assert result["last_brush_duration"] == 120
+        assert result["last_brush_pnum"] == 0
+        assert "last_brush_areas" not in result  # areas come from 2604 push, not *B# record
 
 
 # ---------------------------------------------------------------------------
