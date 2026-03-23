@@ -83,7 +83,10 @@ TYPE1 = DeviceProtocol(
         (SEND_BRUSH_CMD_UUID, CMD_QUERY_RUNNING_DATA_T1),
     ),
     supports_pagination=False,
-    write_char=SEND_BRUSH_CMD_UUID,
+    # APK C3376s.java: all standalone writes (0201 calibration, 0206 brush scheme,
+    # 0209 area-remind, 0217 brush-head-max-days, …) use f12501k = fbb85.
+    # Only the 0307 query command uses f12582C = fbb89.
+    write_char=WRITE_CHAR_UUID,
     uses_t1_calibration=True,
 )
 
