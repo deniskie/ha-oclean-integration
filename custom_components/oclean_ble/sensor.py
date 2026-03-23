@@ -175,6 +175,7 @@ async def async_setup_entry(
     entities.append(OcleanGestureCodeSensor(coordinator, mac, device_name))
     entities.append(OcleanGestureArraySensor(coordinator, mac, device_name))
     entities.append(OcleanPowerArraySensor(coordinator, mac, device_name))
+    entities.append(OcleanMacSensor(coordinator, mac, device_name))
     async_add_entities(entities)
 
 
@@ -351,7 +352,6 @@ class OcleanGestureCodeSensor(OcleanEntity, SensorEntity):
     _attr_name = "Last Brush Gesture Code"
     _attr_icon = "mdi:gesture"
     _attr_state_class = SensorStateClass.MEASUREMENT
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     def __init__(self, coordinator: OcleanCoordinator, mac: str, device_name: str) -> None:
         super().__init__(coordinator, mac, device_name, DATA_LAST_BRUSH_GESTURE_CODE)
@@ -379,7 +379,6 @@ class OcleanGestureArraySensor(OcleanEntity, SensorEntity):
     _attr_name = "Last Brush Gesture Array"
     _attr_icon = "mdi:chart-bar"
     _attr_state_class = SensorStateClass.MEASUREMENT
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     def __init__(self, coordinator: OcleanCoordinator, mac: str, device_name: str) -> None:
         super().__init__(coordinator, mac, device_name, DATA_LAST_BRUSH_GESTURE_ARRAY)
@@ -419,7 +418,6 @@ class OcleanPowerArraySensor(OcleanEntity, SensorEntity):
     _attr_name = "Last Brush Power Array"
     _attr_icon = "mdi:lightning-bolt"
     _attr_state_class = SensorStateClass.MEASUREMENT
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     def __init__(self, coordinator: OcleanCoordinator, mac: str, device_name: str) -> None:
         super().__init__(coordinator, mac, device_name, DATA_LAST_BRUSH_POWER_ARRAY)
@@ -447,3 +445,22 @@ class OcleanPowerArraySensor(OcleanEntity, SensorEntity):
     @property
     def available(self) -> bool:
         return self._session_field_available(self._get_array())
+
+
+class OcleanMacSensor(OcleanEntity, SensorEntity):
+    """Diagnostic sensor exposing the device Bluetooth MAC address."""
+
+    _attr_name = "MAC Address"
+    _attr_icon = "mdi:bluetooth"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator: OcleanCoordinator, mac: str, device_name: str) -> None:
+        super().__init__(coordinator, mac, device_name, "mac_address")
+
+    @property
+    def native_value(self) -> str:
+        return self._mac
+
+    @property
+    def available(self) -> bool:
+        return True
