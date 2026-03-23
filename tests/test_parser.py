@@ -1811,25 +1811,13 @@ class TestParseT1C3385w0Record:
         assert result["last_brush_duration"] == 90
         assert result["last_brush_score"] == 85
 
-    def test_extracts_area_zones(self):
-        """Bytes 11-15 are tooth-zone area coverage values (areas 1-5 only).
+    def test_areas_not_in_record(self):
+        """Areas are never extracted from the *B# record.
 
-        Areas 6-8 are not in the *B# record; they arrive via the 2604 push.
+        The C3385w0 format only has 5 of 8 area bytes (bytes 11-15);
+        all 8 areas arrive via the 2604 enrichment push instead.
         """
         record = _make_c3385w0_record(areas=(5, 20, 75, 0, 0))
-        result = parse_t1_c3385w0_record(record)
-        assert "last_brush_areas" in result
-        areas = result["last_brush_areas"]
-        assert areas["upper_left_out"] == 5
-        assert areas["upper_left_in"] == 20
-        assert areas["lower_left_out"] == 75
-        assert areas["upper_right_in"] == 0  # area6: not in *B# record
-        assert areas["lower_right_out"] == 0  # area7: not in *B# record
-        assert areas["lower_right_in"] == 0  # area8: not in *B# record
-
-    def test_zero_areas_not_stored(self):
-        """All-zero area bytes → areas/pressure omitted from result."""
-        record = _make_c3385w0_record(areas=(0, 0, 0, 0, 0))
         result = parse_t1_c3385w0_record(record)
         assert "last_brush_areas" not in result
         assert "last_brush_pressure" not in result
@@ -1879,9 +1867,7 @@ class TestParseT1C3385w0Record:
         assert result["last_brush_score"] == 91
         assert result["last_brush_duration"] == 120
         assert result["last_brush_pnum"] == 0
-        assert result["last_brush_areas"]["upper_left_out"] == 5
-        assert result["last_brush_areas"]["upper_left_in"] == 20
-        assert result["last_brush_areas"]["lower_left_out"] == 75
+        assert "last_brush_areas" not in result  # areas come from 2604 push, not *B# record
 
 
 # ---------------------------------------------------------------------------

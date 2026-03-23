@@ -482,15 +482,9 @@ def parse_t1_c3385w0_record(record: bytes) -> dict[str, Any]:
         if 0 < score <= 100:
             result[DATA_LAST_BRUSH_SCORE] = score
 
-        # Area pressures: bytes 11-15 only (area1-5, confirmed APK C3385w0_fallback.java).
-        # Byte 16 is discarded by the APK; bytes 18-19 are gestureArray[0-1], NOT areas.
-        # Areas 6-8 (upper_right_in, lower_right_out, lower_right_in) are not stored in
-        # the *B# record and are filled from the 2604 enrichment push when it arrives.
-        area_bytes = bytes(record[11:16]) + bytes(3)  # areas 1-5 + zeros for areas 6-8
-        area_dict, _zones_cleaned, avg_pressure = _build_area_stats(area_bytes)
-        if any(v > 0 for v in area_bytes):
-            result[DATA_LAST_BRUSH_AREAS] = area_dict
-            result[DATA_LAST_BRUSH_PRESSURE] = avg_pressure
+        # Areas are NOT extracted from the *B# record: the format only contains 5 of 8
+        # tooth-zone bytes (bytes 11-15), and bytes 18-19 are gestureArray[0-1], not areas.
+        # All 8 areas arrive via the 2604 enrichment push (_parse_brush_areas_t1_response).
 
         _LOGGER.debug(
             "Oclean C3385w0 record parsed: ts=%d pNum=%d duration=%s score=%s (raw: %s)",
