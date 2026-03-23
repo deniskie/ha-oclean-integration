@@ -70,40 +70,34 @@
         "name": "Battery"
       },
       "last_brush_score": {
-        "name": "Last Brush Score"
+        "name": "Score"
       },
       "last_brush_duration": {
-        "name": "Last Brush Duration"
+        "name": "Duration"
       },
       "last_brush_pressure": {
-        "name": "Last Brush Pressure"
+        "name": "Pressure"
       },
       "last_brush_time": {
-        "name": "Last Brush Time"
+        "name": "Last Session"
       },
       "brush_head_usage": {
-        "name": "Brush Head Usage"
+        "name": "Head Sessions"
       },
       "brush_head_days": {
-        "name": "Brush Head Days"
+        "name": "Head Age"
       },
-      "sw_version": {
-        "name": "Firmware Version"
+      "brush_mode": {
+        "name": "Mode"
       },
       "model_id": {
         "name": "Model"
       },
       "hw_revision": {
-        "name": "Hardware Revision"
+        "name": "HW Revision"
       },
-      "last_brush_gesture_code": {
-        "name": "Last Brush Gesture Code"
-      },
-      "last_brush_gesture_array": {
-        "name": "Last Brush Gesture Array"
-      },
-      "last_brush_power_array": {
-        "name": "Last Brush Power Array"
+      "sw_version": {
+        "name": "Firmware"
       },
       "last_poll": {
         "name": "Last Poll"

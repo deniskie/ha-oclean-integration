@@ -76,14 +76,14 @@ SENSOR_DESCRIPTIONS: tuple[SensorEntityDescription, ...] = (
     ),
     SensorEntityDescription(
         key=DATA_LAST_BRUSH_SCORE,
-        name="Last Brush Score",
+        name="Score",
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:star",
         # 0–100 dimensionless
     ),
     SensorEntityDescription(
         key=DATA_LAST_BRUSH_DURATION,
-        name="Last Brush Duration",
+        name="Duration",
         device_class=SensorDeviceClass.DURATION,
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfTime.SECONDS,
@@ -92,27 +92,27 @@ SENSOR_DESCRIPTIONS: tuple[SensorEntityDescription, ...] = (
     ),
     SensorEntityDescription(
         key=DATA_LAST_BRUSH_PRESSURE,
-        name="Last Brush Pressure",
+        name="Pressure",
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:gauge",
         # 0–255 raw ADC value
     ),
     SensorEntityDescription(
         key=DATA_LAST_BRUSH_TIME,
-        name="Last Brush Time",
+        name="Last Session",
         device_class=SensorDeviceClass.TIMESTAMP,
         icon="mdi:clock-outline",
     ),
     SensorEntityDescription(
         key=DATA_BRUSH_HEAD_USAGE,
-        name="Brush Head Usage",
+        name="Head Sessions",
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:toothbrush",
         # headUsedTimes from 0302 response: number of brushing sessions since last reset.
     ),
     SensorEntityDescription(
         key=DATA_BRUSH_HEAD_DAYS,
-        name="Brush Head Days",
+        name="Head Age",
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement="d",
         icon="mdi:calendar-sync",
@@ -121,7 +121,7 @@ SENSOR_DESCRIPTIONS: tuple[SensorEntityDescription, ...] = (
     # Device settings – read from 0302 device-settings response
     SensorEntityDescription(
         key=DATA_BRUSH_MODE,
-        name="Brush Mode",
+        name="Mode",
         icon="mdi:tune",
         state_class=SensorStateClass.MEASUREMENT,
     ),
@@ -134,13 +134,13 @@ SENSOR_DESCRIPTIONS: tuple[SensorEntityDescription, ...] = (
     ),
     SensorEntityDescription(
         key=DATA_HW_REVISION,
-        name="Hardware Revision",
+        name="HW Revision",
         icon="mdi:wrench",
         entity_category=EntityCategory.DIAGNOSTIC,
     ),
     SensorEntityDescription(
         key=DATA_SW_VERSION,
-        name="Firmware Version",
+        name="Firmware",
         icon="mdi:chip",
         entity_category=EntityCategory.DIAGNOSTIC,
     ),
@@ -172,9 +172,6 @@ async def async_setup_entry(
     entities.append(OcleanBrushAreasSensor(coordinator, mac, device_name))
     entities.append(OcleanSchemeSensor(coordinator, mac, device_name))
     entities.extend(OcleanToothAreaSensor(coordinator, mac, device_name, zone_name) for zone_name in TOOTH_AREA_NAMES)
-    entities.append(OcleanGestureCodeSensor(coordinator, mac, device_name))
-    entities.append(OcleanGestureArraySensor(coordinator, mac, device_name))
-    entities.append(OcleanPowerArraySensor(coordinator, mac, device_name))
     entities.append(OcleanMacSensor(coordinator, mac, device_name))
     async_add_entities(entities)
 
@@ -237,7 +234,7 @@ class OcleanBrushAreasSensor(OcleanEntity, SensorEntity):
                 upper_right_out/in, lower_right_out/in.
     """
 
-    _attr_name = "Last Brush Areas"
+    _attr_name = "Cleaned Zones"
     _attr_icon = "mdi:tooth-outline"
     _attr_state_class = SensorStateClass.MEASUREMENT
 
@@ -275,7 +272,7 @@ class OcleanSchemeSensor(OcleanEntity, SensorEntity):
     if the programme ID is not in the lookup table.
     """
 
-    _attr_name = "Last Brush Scheme Type"
+    _attr_name = "Last Scheme"
     _attr_icon = "mdi:clipboard-list"
 
     def __init__(
@@ -326,7 +323,7 @@ class OcleanToothAreaSensor(OcleanEntity, SensorEntity):
     ) -> None:
         super().__init__(coordinator, mac, device_name, f"tooth_area_{zone_name}")
         self._zone_name = zone_name
-        self._attr_name = "Tooth Area " + zone_name.replace("_", " ").title()
+        self._attr_name = "Zone " + zone_name.replace("_", " ").title()
 
     @property
     def native_value(self) -> int | None:

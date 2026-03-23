@@ -70,43 +70,34 @@
         "name": "Akku"
       },
       "last_brush_score": {
-        "name": "Letzter Putzscore"
+        "name": "Score"
       },
       "last_brush_duration": {
-        "name": "Letzte Putzdauer"
+        "name": "Dauer"
       },
       "last_brush_pressure": {
-        "name": "Letzter Putzdruck"
+        "name": "Druck"
       },
       "last_brush_time": {
-        "name": "Letzter Putzzeitpunkt"
+        "name": "Letzte Sitzung"
       },
       "brush_head_usage": {
-        "name": "Bürstenkopfnutzung"
+        "name": "Kopf-Sitzungen"
       },
       "brush_head_days": {
-        "name": "Bürstenkopf-Tage"
+        "name": "Kopf-Alter"
       },
-      "sw_version": {
-        "name": "Firmware-Version"
+      "brush_mode": {
+        "name": "Modus"
       },
       "model_id": {
         "name": "Modell"
       },
       "hw_revision": {
-        "name": "Hardware-Revision"
+        "name": "HW-Revision"
       },
-      "brush_mode": {
-        "name": "Putzmodus"
-      },
-      "last_brush_gesture_code": {
-        "name": "Letzter Gestencode"
-      },
-      "last_brush_gesture_array": {
-        "name": "Letztes Gestenarray"
-      },
-      "last_brush_power_array": {
-        "name": "Letztes Kraftarray"
+      "sw_version": {
+        "name": "Firmware"
       },
       "last_poll": {
         "name": "Letzte Abfrage"
