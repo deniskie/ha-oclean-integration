@@ -45,6 +45,44 @@ Does the device respond to the 0302 command? In the log look for `0302 brush-hea
 
 ---
 
+## [v1.1.1] – 2026-03-23
+
+### New Features
+
+- **Oclean Z1 support** – Added support for the Oclean Z1 (`OCLEANY5`). Uses a new `TYPE_Z1` protocol profile with hybrid command routing: 0303 / 0202 / 0302 via `fbb85`, 0307 via `fbb89`. Notify on `fbb86` + `fbb90`. Time calibration uses the TYPE1 format (closes #69).
+- **Brush Scheme select** – New select entity to change the active brushing programme directly from HA. Supported on all TYPE1 devices (Oclean X family) and TYPE_Z1 (Oclean Z1). Model-specific scheme lists are used automatically.
+- **Last Poll sensor** – New diagnostic timestamp sensor showing when the device was last successfully polled over BLE.
+
+### Improvements
+
+- **Sensor renames** – All sensor names have been shortened for a cleaner dashboard display:
+
+  | Before | After |
+  |---|---|
+  | Last Brush Score | Score |
+  | Last Brush Duration | Duration |
+  | Last Brush Pressure | Pressure |
+  | Last Brush Time | Last Session |
+  | Brush Head Usage | Head Sessions |
+  | Brush Head Days | Head Age |
+  | Brush Mode | Mode |
+  | Hardware Revision | HW Revision |
+  | Firmware Version | Firmware |
+  | Last Brush Areas | Cleaned Zones |
+  | Last Brush Scheme Type | Last Scheme |
+  | Tooth Area X | Zone X |
+
+- **Diagnostic block** – The following entities were moved to the diagnostic section to keep the main sensor block focused on brushing data: Pressure, Head Age, Mode, all Zone sensors (8×), Brushing binary sensor, Area Reminder switch, Brush Head Lifetime number.
+- **Research sensors removed** – Gesture Code, Gesture Array, and Power Array are no longer exposed as HA entities. Their raw values are still logged at DEBUG level (prefix `research:`) for protocol analysis.
+- **"Notify acquired" retry** – When BlueZ reports a stale CCCD subscription from a previous dropped connection, the integration now releases it via `stop_notify` and retries automatically instead of logging a warning (closes #49).
+- **Button renamed** – "Poll Now" renamed to "Update Now" for clarity.
+
+### Bug Fixes
+
+- **Wrong area bytes on OCLEANY3P** – The C3352g and C3385w0 record parsers were incorrectly sharing byte-layout logic. Split into separate parsers; area pressure bytes are now read from the correct offsets for each device family.
+
+---
+
 ## [v1.1.0] – 2026-03-21
 
 ### New Features
