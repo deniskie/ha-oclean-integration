@@ -26,10 +26,7 @@ from .const import (
     DATA_HW_REVISION,
     DATA_LAST_BRUSH_AREAS,
     DATA_LAST_BRUSH_DURATION,
-    DATA_LAST_BRUSH_GESTURE_ARRAY,
-    DATA_LAST_BRUSH_GESTURE_CODE,
     DATA_LAST_BRUSH_PNUM,
-    DATA_LAST_BRUSH_POWER_ARRAY,
     DATA_LAST_BRUSH_PRESSURE,
     DATA_LAST_BRUSH_SCORE,
     DATA_LAST_BRUSH_TIME,
@@ -337,111 +334,6 @@ class OcleanToothAreaSensor(OcleanEntity, SensorEntity):
     def available(self) -> bool:
         """Return True if coordinator is available or we have stale area data."""
         return self._session_field_available(_get_areas(self.coordinator.data))
-
-
-class OcleanGestureCodeSensor(OcleanEntity, SensorEntity):
-    """Sensor for the gestureCode byte from 42-byte 0307 session records.
-
-    gestureCode = byte 14 of the 42-byte record (APK: iBytesToIntBe13 / m14b component 3).
-    Raw value 0-255; exact semantics TBD pending empirical analysis.
-    """
-
-    _attr_name = "Last Brush Gesture Code"
-    _attr_icon = "mdi:gesture"
-    _attr_state_class = SensorStateClass.MEASUREMENT
-
-    def __init__(self, coordinator: OcleanCoordinator, mac: str, device_name: str) -> None:
-        super().__init__(coordinator, mac, device_name, DATA_LAST_BRUSH_GESTURE_CODE)
-
-    @property
-    def native_value(self) -> int | None:
-        if self.coordinator.data is None:
-            return None
-        return self.coordinator.data.get(DATA_LAST_BRUSH_GESTURE_CODE)
-
-    @property
-    def available(self) -> bool:
-        return self._session_field_available(self.native_value)
-
-
-class OcleanGestureArraySensor(OcleanEntity, SensorEntity):
-    """Sensor exposing the full 13-element gestureArray from 42-byte 0307 records.
-
-    gestureArray = bytes 18-30 of the 42-byte record (APK: C3385w0_fallback).
-    State: number of non-zero elements (0-13).
-    Attributes: gesture_0 … gesture_12 with the raw per-zone motion values.
-    Note: elements [3:11] (bytes 21-28) overlap with the area-pressure sensor.
-    """
-
-    _attr_name = "Last Brush Gesture Array"
-    _attr_icon = "mdi:chart-bar"
-    _attr_state_class = SensorStateClass.MEASUREMENT
-
-    def __init__(self, coordinator: OcleanCoordinator, mac: str, device_name: str) -> None:
-        super().__init__(coordinator, mac, device_name, DATA_LAST_BRUSH_GESTURE_ARRAY)
-
-    def _get_array(self) -> list[int] | None:
-        if self.coordinator.data is None:
-            return None
-        val = self.coordinator.data.get(DATA_LAST_BRUSH_GESTURE_ARRAY)
-        return val if isinstance(val, list) else None
-
-    @property
-    def native_value(self) -> int | None:
-        arr = self._get_array()
-        return sum(1 for v in arr if v > 0) if arr is not None else None
-
-    @property
-    def extra_state_attributes(self) -> dict[str, Any] | None:
-        arr = self._get_array()
-        if arr is None:
-            return None
-        return {f"gesture_{i}": v for i, v in enumerate(arr)}
-
-    @property
-    def available(self) -> bool:
-        return self._session_field_available(self._get_array())
-
-
-class OcleanPowerArraySensor(OcleanEntity, SensorEntity):
-    """Sensor exposing the 12-element powerArray from 42-byte 0307 records.
-
-    powerArray = 12 × 2-bit nibbles extracted from bytes 30-32 (APK: a.b.a / m13a).
-    Each value is 0-3 (power intensity level for one zone).
-    State: average power level (float 0.0-3.0).
-    Attributes: power_0 … power_11 with individual nibble values.
-    """
-
-    _attr_name = "Last Brush Power Array"
-    _attr_icon = "mdi:lightning-bolt"
-    _attr_state_class = SensorStateClass.MEASUREMENT
-
-    def __init__(self, coordinator: OcleanCoordinator, mac: str, device_name: str) -> None:
-        super().__init__(coordinator, mac, device_name, DATA_LAST_BRUSH_POWER_ARRAY)
-
-    def _get_array(self) -> list[int] | None:
-        if self.coordinator.data is None:
-            return None
-        val = self.coordinator.data.get(DATA_LAST_BRUSH_POWER_ARRAY)
-        return val if isinstance(val, list) else None
-
-    @property
-    def native_value(self) -> float | None:
-        arr = self._get_array()
-        if arr is None or len(arr) == 0:
-            return None
-        return round(sum(arr) / len(arr), 2)
-
-    @property
-    def extra_state_attributes(self) -> dict[str, Any] | None:
-        arr = self._get_array()
-        if arr is None:
-            return None
-        return {f"power_{i}": v for i, v in enumerate(arr)}
-
-    @property
-    def available(self) -> bool:
-        return self._session_field_available(self._get_array())
 
 
 class OcleanMacSensor(OcleanEntity, SensorEntity):
