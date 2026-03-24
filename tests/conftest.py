@@ -49,7 +49,7 @@ def _install_ha_stubs() -> None:
 
     const = _stub("homeassistant.const")
     const.__version__ = "2025.1.0"
-    const.Platform = Enum("Platform", ["SENSOR", "BINARY_SENSOR", "BUTTON", "NUMBER", "SELECT", "SWITCH"])
+    const.Platform = Enum("Platform", ["SENSOR", "BINARY_SENSOR", "BUTTON", "DATE", "NUMBER", "SELECT", "SWITCH"])
     const.PERCENTAGE = "%"
 
     class UnitOfTime:
@@ -300,6 +300,17 @@ def _install_ha_stubs() -> None:
 
     sw.SwitchEntityDescription = SwitchEntityDescription
     sw.SwitchEntity = SwitchEntity
+
+    # ---- homeassistant.components.date ----
+    dt = _stub("homeassistant.components.date")
+
+    class DateEntity:
+        _attr_assumed_state = False
+
+        def async_write_ha_state(self) -> None:
+            pass
+
+    dt.DateEntity = DateEntity
 
     # ---- homeassistant.components.binary_sensor ----
     bs = _stub("homeassistant.components.binary_sensor")
