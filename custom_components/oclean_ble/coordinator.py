@@ -1015,6 +1015,13 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         # CCCD and cannot be subscribed; poll the characteristic directly instead.
         if READ_NOTIFY_CHAR_UUID not in subscribed:
             await self._read_response_char_fallback(client, handler)
+        # Fallback for TYPE1 devices where RECEIVE_BRUSH_UUID subscription failed
+        # (e.g. BlueZ "Notify acquired" that persists even after a release retry).
+        # Commands are sent via fbb89 but responses arrive on fbb90; if we cannot
+        # subscribe to fbb90 we attempt a direct READ after the command wait so
+        # that at least the last stored value is visible to the parser.
+        if RECEIVE_BRUSH_UUID in self._protocol.notify_chars and RECEIVE_BRUSH_UUID not in subscribed:
+            await self._read_receive_brush_fallback(client, handler)
         await self._paginate_sessions(client, all_sessions, session_received)
         if all_sessions:
             # Allow the device extra time to push enrichment notifications
@@ -1283,6 +1290,28 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
                 handler(None, bytearray(data))
         except Exception as err:  # noqa: BLE001
             self._log.debug("READ fallback failed: %s (%s)", err, type(err).__name__)
+
+    async def _read_receive_brush_fallback(
+        self, client: BleakClient, handler: Callable[[Any, bytearray], None]
+    ) -> None:
+        """Directly READ RECEIVE_BRUSH_UUID when its CCCD subscription failed.
+
+        On TYPE1 devices (Oclean X / X Pro) the device pushes session data as
+        BLE notifications on RECEIVE_BRUSH_UUID (fbb90).  When BlueZ reports
+        "Notify acquired" and the stale-subscription release does not help
+        (e.g. the Oclean app left a lock that BlueZ cannot clear), we fall back
+        to a direct read_gatt_char.  This may return the last cached value held
+        by the BLE stack, which is better than silently returning no data.
+        """
+        await asyncio.sleep(BLE_READ_FALLBACK_DELAY)
+        try:
+            raw = await client.read_gatt_char(RECEIVE_BRUSH_UUID)
+            data = bytes(raw)
+            self._log.debug("READ fallback on RECEIVE_BRUSH_UUID: %s", data.hex())
+            if len(data) > 2:
+                handler(None, bytearray(data))
+        except Exception as err:  # noqa: BLE001
+            self._log.debug("READ fallback on RECEIVE_BRUSH_UUID failed: %s (%s)", err, type(err).__name__)
 
     async def _send_query_commands(self, client: BleakClient, session_received: asyncio.Event) -> None:
         """Send query commands for the active device protocol; wait for first session.
