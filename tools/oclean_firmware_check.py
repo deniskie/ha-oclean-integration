@@ -103,12 +103,12 @@ def _post(url: str, body: dict, headers: dict | None = None) -> dict:
 def login(base_url: str, email: str, password: str) -> str:
     """Return a Bearer accessToken or raise RuntimeError."""
     url = base_url + _LOGIN_PATH
-    resp = _post(url, {"account": email, "password": password})
+    resp = _post(url, {"cellPhone": email, "password": password, "phoneCode": "", "client": 3})
     code = resp.get("code")
-    if code != 200:
+    if code != 0:
         msg = resp.get("msg", "unknown error")
         raise RuntimeError(f"Login failed (code={code}): {msg}")
-    token = resp.get("data", {}).get("tokenBean", {}).get("accessToken")
+    token = resp.get("data", {}).get("jwt", {}).get("accessToken")
     if not token:
         raise RuntimeError(f"Login response missing accessToken: {resp}")
     return token
@@ -126,7 +126,7 @@ def check_firmware(base_url: str, token: str, mac: str, current_ver: str) -> Fir
     resp = _post(url, {"deviceMac": mac, "hardVer": current_ver}, headers=headers)
 
     code = resp.get("code")
-    if code != 200:
+    if code != 0:
         msg = resp.get("msg", "unknown error")
         raise RuntimeError(f"Firmware check failed for {mac} (code={code}): {msg}")
 
