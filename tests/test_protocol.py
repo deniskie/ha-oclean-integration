@@ -147,9 +147,11 @@ class TestLegacyProfile:
     def test_does_not_support_pagination(self):
         assert LEGACY.supports_pagination is False
 
-    def test_no_notify_chars(self):
-        """OCLEANA1 has no working notify characteristics."""
-        assert len(LEGACY.notify_chars) == 0
+    def test_notify_chars(self):
+        """OCLEANA1 subscribes to fbb86 (no-CCCD path, or READ fallback if that also fails)."""
+        from custom_components.oclean_ble.const import READ_NOTIFY_CHAR_UUID
+
+        assert LEGACY.notify_chars == (READ_NOTIFY_CHAR_UUID,)
 
     def test_only_sends_status(self):
         cmds = [cmd for _, cmd in LEGACY.query_commands]
