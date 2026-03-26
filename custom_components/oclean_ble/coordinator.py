@@ -111,7 +111,7 @@ async def _try_subscribe_no_cccd(
     client: BleakClient,
     char_uuid: str,
     handler: Callable[[Any, bytearray], None],
-    log: logging.Logger,
+    log: logging.Logger | logging.LoggerAdapter[Any],
 ) -> bool:
     """Subscribe to a notify-only characteristic that has no CCCD descriptor.
 
@@ -152,7 +152,7 @@ async def _try_subscribe_no_cccd(
         return False
     finally:
         if char is not None and injected_handle is not None:
-            char._descriptors.pop(injected_handle, None)  # type: ignore[attr-defined]
+            char._descriptors.pop(injected_handle, None)
 
 
 # Gear-byte encoding table used by m28p() for TYPE1 SetBrushScheme (0206).
