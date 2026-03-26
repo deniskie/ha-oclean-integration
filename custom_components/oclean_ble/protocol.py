@@ -75,7 +75,7 @@ TYPE0 = DeviceProtocol(
 #: Type-1 – Oclean X / OCLEANY3M  (0307 push records)
 TYPE1 = DeviceProtocol(
     name="Type-1",
-    notify_chars=(READ_NOTIFY_CHAR_UUID, RECEIVE_BRUSH_UUID, SEND_BRUSH_CMD_UUID),
+    notify_chars=(READ_NOTIFY_CHAR_UUID, RECEIVE_BRUSH_UUID),  # fbb89 write-only, subscribe always fails
     query_commands=(
         (SEND_BRUSH_CMD_UUID, CMD_QUERY_STATUS),
         (SEND_BRUSH_CMD_UUID, CMD_DEVICE_INFO),

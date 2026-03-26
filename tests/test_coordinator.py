@@ -58,10 +58,15 @@ def _make_bleak_client(battery_value=75):
     client = AsyncMock()
     client.is_connected = True
     client.write_gatt_char = AsyncMock()
+    client.write_gatt_descriptor = AsyncMock()
     client.start_notify = AsyncMock()
     client.stop_notify = AsyncMock()
     client.disconnect = AsyncMock()
     client.read_gatt_char = AsyncMock(return_value=bytearray([battery_value]))
+    # services.get_characteristic returns None → _clear_cccd exits early without
+    # issuing any GATT descriptor write (avoids unawaited-coroutine warnings).
+    client.services = MagicMock()
+    client.services.get_characteristic.return_value = None
     return client
 
 
