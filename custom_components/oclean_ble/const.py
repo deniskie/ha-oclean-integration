@@ -110,10 +110,19 @@ BLE_ENRICHMENT_WAIT = 1.5
 BLE_READ_FALLBACK_DELAY = 1.5
 # Per-page notification timeout used during 0309 session pagination.
 BLE_PAGINATION_TIMEOUT = 2.0
-# Timeout for a single start_notify() GATT operation.  BlueZ can hang
-# indefinitely on a characteristic that has a lingering "Notify acquired"
-# state from a previous crashed connection; this cap prevents poll stalls.
-BLE_SUBSCRIBE_TIMEOUT = 10.0
+# Timeout for the first start_notify() attempt.  Short so that a TimeoutError
+# (e.g. stale CCCD from a crashed connection) triggers the CCCD-clear retry
+# quickly instead of wasting 10 s per characteristic.
+BLE_SUBSCRIBE_FIRST_TIMEOUT = 3.0
+# Timeout for the retry attempt after a CCCD clear.  Longer because the device
+# may need a moment to process the CCCD write before re-subscribing.
+BLE_SUBSCRIBE_RETRY_TIMEOUT = 5.0
+# Maximum total time for a single poll (connect → read → disconnect).
+# Prevents a hung GATT operation from blocking HA's event loop indefinitely.
+BLE_POLL_TOTAL_TIMEOUT = 60
+# Timeout for a single write_gatt_char() call in the polling path.
+# Guards against BlueZ or ESPHome proxy hangs on individual write operations.
+BLE_WRITE_TIMEOUT = 5.0
 
 # Brush head reset command
 CMD_CLEAR_BRUSH_HEAD = bytes.fromhex("020F")

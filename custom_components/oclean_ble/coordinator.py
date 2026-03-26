@@ -29,9 +29,12 @@ from .const import (
     BLE_ENRICHMENT_WAIT,
     BLE_NOTIFICATION_WAIT,
     BLE_PAGINATION_TIMEOUT,
+    BLE_POLL_TOTAL_TIMEOUT,
     BLE_POST_CONNECT_DELAY,
     BLE_READ_FALLBACK_DELAY,
-    BLE_SUBSCRIBE_TIMEOUT,
+    BLE_SUBSCRIBE_FIRST_TIMEOUT,
+    BLE_SUBSCRIBE_RETRY_TIMEOUT,
+    BLE_WRITE_TIMEOUT,
     CMD_AREA_REMIND,
     CMD_BRUSH_HEAD_MAX_DAYS,
     CMD_CALIBRATE_TIME_PREFIX,
@@ -77,6 +80,32 @@ from .protocol import UNKNOWN, DeviceProtocol, protocol_for_model
 from .statistics import import_new_sessions
 
 _LOGGER = logging.getLogger(__name__)
+
+# Standard BLE CCCD descriptor UUID (Client Characteristic Configuration Descriptor).
+# Writing 0x0000 disables notifications/indications on the device side, clearing any
+# stale subscription state left over from a previous bonded or crashed connection.
+_CCCD_UUID = "00002902-0000-1000-8000-00805f9b34fb"
+
+
+async def _clear_cccd(client: BleakClient, char_uuid: str) -> None:
+    """Write 0x0000 to the CCCD descriptor of *char_uuid*, suppressing all errors.
+
+    BlueZ keeps per-bond CCCD state on the device.  After a crashed or proxy-
+    disconnected session the device may still have notifications enabled, causing
+    the next ``start_notify`` to fail with "Notify acquired" or a TimeoutError.
+    Explicitly clearing the CCCD resets that state before retrying.
+    """
+    try:
+        char = client.services.get_characteristic(char_uuid)
+        if char is None:
+            return
+        cccd = char.get_descriptor(_CCCD_UUID)
+        if cccd is None:
+            return
+        await client.write_gatt_descriptor(cccd.handle, b"\x00\x00")
+    except Exception:  # noqa: BLE001
+        pass
+
 
 # Gear-byte encoding table used by m28p() for TYPE1 SetBrushScheme (0206).
 # Gears 1-12 map to specific encoded values; all others (13-41) encode as 0x00.
@@ -422,7 +451,7 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
                 with contextlib.suppress(Exception):
                     await client.stop_notify(char_uuid)
         finally:
-            if client.is_connected:
+            with contextlib.suppress(Exception):
                 await client.disconnect()
 
         self._brush_head_sw_count = 0
@@ -457,7 +486,7 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
                 with contextlib.suppress(Exception):
                     await client.stop_notify(char_uuid)
         finally:
-            if client.is_connected:
+            with contextlib.suppress(Exception):
                 await client.disconnect()
 
     @property
@@ -494,7 +523,7 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
             await self._write_standalone(client, cmd)
             self._log.info("area remind set to %s", enabled)
         finally:
-            if client.is_connected:
+            with contextlib.suppress(Exception):
                 await client.disconnect()
         self._area_remind = enabled
         await self._save_store()
@@ -518,7 +547,7 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
             await self._write_standalone(client, cmd)
             self._log.info("over pressure set to %s", enabled)
         finally:
-            if client.is_connected:
+            with contextlib.suppress(Exception):
                 await client.disconnect()
         self._over_pressure = enabled
         await self._save_store()
@@ -542,7 +571,7 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
             await self._write_standalone(client, cmd)
             self._log.info("brush head max days set to %d", days)
         finally:
-            if client.is_connected:
+            with contextlib.suppress(Exception):
                 await client.disconnect()
         self._brush_head_max_days = days
         await self._save_store()
@@ -615,7 +644,7 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
                 with contextlib.suppress(Exception):
                     await client.stop_notify(char_uuid)
         finally:
-            if client.is_connected:
+            with contextlib.suppress(Exception):
                 await client.disconnect()
         self._active_scheme_pnum = pnum
         await self._save_store()
@@ -730,9 +759,18 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
 
         all_sessions: list[dict[str, Any]] = []
         try:
-            all_sessions = await self._setup_and_read(client, collected)
+            all_sessions = await asyncio.wait_for(
+                self._setup_and_read(client, collected),
+                timeout=BLE_POLL_TOTAL_TIMEOUT,
+            )
+        except asyncio.TimeoutError:
+            self._log.warning(
+                "poll exceeded total timeout of %ds – aborting",
+                BLE_POLL_TOTAL_TIMEOUT,
+            )
+            raise
         finally:
-            if client.is_connected:
+            with contextlib.suppress(Exception):
                 await client.disconnect()
 
         self.last_poll_successful = True
@@ -1232,31 +1270,42 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
             try:
                 await asyncio.wait_for(
                     client.start_notify(char_uuid, handler),
-                    timeout=BLE_SUBSCRIBE_TIMEOUT,
+                    timeout=BLE_SUBSCRIBE_FIRST_TIMEOUT,
                 )
                 subscribed.add(char_uuid)
                 self._log.debug("subscribed to %s", char_uuid)
             except Exception as err:  # noqa: BLE001
-                if "Notify acquired" in str(err):
-                    # Stale CCCD subscription from a previous dropped connection.
-                    # Release it and retry once.
-                    self._log.debug(
-                        "Notify acquired on %s – releasing stale subscription and retrying",
-                        char_uuid,
-                    )
+                is_timeout = isinstance(err, asyncio.TimeoutError)
+                is_stale = "Notify acquired" in str(err)
+                if is_timeout or is_stale:
+                    # Both TimeoutError and "Notify acquired" indicate a stale CCCD
+                    # state on the device.  Release the local handler, clear the CCCD
+                    # descriptor (write 0x0000) to force the device to accept a fresh
+                    # subscription, then retry with a longer timeout.
+                    if is_timeout:
+                        self._log.debug(
+                            "subscribe timeout on %s – clearing CCCD and retrying",
+                            char_uuid,
+                        )
+                    else:
+                        self._log.debug(
+                            "Notify acquired on %s – releasing stale subscription and retrying",
+                            char_uuid,
+                        )
                     with contextlib.suppress(Exception):
                         await client.stop_notify(char_uuid)
+                    await _clear_cccd(client, char_uuid)
                     await asyncio.sleep(0.3)
                     try:
                         await asyncio.wait_for(
                             client.start_notify(char_uuid, handler),
-                            timeout=BLE_SUBSCRIBE_TIMEOUT,
+                            timeout=BLE_SUBSCRIBE_RETRY_TIMEOUT,
                         )
                         subscribed.add(char_uuid)
-                        self._log.debug("subscribed to %s (after stale-subscription release)", char_uuid)
+                        self._log.debug("subscribed to %s (after CCCD clear)", char_uuid)
                     except Exception as retry_err:  # noqa: BLE001
                         self._log.warning(
-                            "could not subscribe to %s even after releasing stale subscription: %s"
+                            "could not subscribe to %s even after CCCD clear: %s"
                             " – if the Oclean app is open, close it and wait for the next poll",
                             char_uuid,
                             retry_err,
@@ -1322,7 +1371,10 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         """
         for char_uuid, cmd in self._protocol.query_commands:
             try:
-                await client.write_gatt_char(char_uuid, cmd, response=True)
+                await asyncio.wait_for(
+                    client.write_gatt_char(char_uuid, cmd, response=True),
+                    timeout=BLE_WRITE_TIMEOUT,
+                )
                 self._log.debug("command 0x%s sent to ...%s", cmd.hex(), char_uuid[-8:])
             except Exception as err:  # noqa: BLE001
                 self._log.debug(
@@ -1366,7 +1418,10 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
 
             session_received.clear()
             try:
-                await client.write_gatt_char(WRITE_CHAR_UUID, CMD_QUERY_RUNNING_DATA_NEXT, response=True)
+                await asyncio.wait_for(
+                    client.write_gatt_char(WRITE_CHAR_UUID, CMD_QUERY_RUNNING_DATA_NEXT, response=True),
+                    timeout=BLE_WRITE_TIMEOUT,
+                )
             except BaseException as err:  # noqa: BLE001  # must catch CancelledError (issue #9)
                 self._log.debug("0309 write failed at page %d: %s", page, err)
                 break
@@ -1397,7 +1452,7 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         try:
             await asyncio.wait_for(
                 client.start_notify(BATTERY_CHAR_UUID, _batt_notify),
-                timeout=BLE_SUBSCRIBE_TIMEOUT,
+                timeout=BLE_SUBSCRIBE_FIRST_TIMEOUT,
             )
             self._log.debug("subscribed to battery notifications (0x2A19)")
         except Exception as err:  # noqa: BLE001
@@ -1412,7 +1467,7 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
                 try:
                     await asyncio.wait_for(
                         client.start_notify(BATTERY_CHAR_UUID, _batt_notify),
-                        timeout=BLE_SUBSCRIBE_TIMEOUT,
+                        timeout=BLE_SUBSCRIBE_RETRY_TIMEOUT,
                     )
                     self._log.debug("subscribed to battery notifications (0x2A19) after GATT re-discovery")
                 except Exception as retry_err:  # noqa: BLE001
