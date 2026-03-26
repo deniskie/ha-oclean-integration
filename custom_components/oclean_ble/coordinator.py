@@ -107,6 +107,54 @@ async def _clear_cccd(client: BleakClient, char_uuid: str) -> None:
         pass
 
 
+async def _try_subscribe_no_cccd(
+    client: BleakClient,
+    char_uuid: str,
+    handler: Callable[[Any, bytearray], None],
+    log: logging.Logger,
+) -> bool:
+    """Subscribe to a notify-only characteristic that has no CCCD descriptor.
+
+    Some BLE firmware (e.g. OCLEANA1) sends unsolicited notifications on a
+    characteristic without advertising a CCCD descriptor.  Android handles
+    this by calling setCharacteristicNotification() locally; BlueZ also
+    accepts StartNotify() without CCCD.  Bleak's Python layer adds an extra
+    check and raises when no CCCD is found.
+
+    Workaround: inject a synthetic CCCD descriptor into the Bleak char object
+    so the pre-flight check passes, call start_notify, then remove it.
+    """
+    injected_handle: int | None = None
+    char = None
+    try:
+        char = client.services.get_characteristic(char_uuid)
+        if char is not None and char.get_descriptor(_CCCD_UUID) is None:
+            from bleak.backends.descriptor import BleakGATTDescriptor
+
+            fake = BleakGATTDescriptor(obj=None, handle=0xFFFE, uuid=_CCCD_UUID, characteristic=char)
+            char.add_descriptor(fake)
+            injected_handle = 0xFFFE
+            log.debug("injected fake CCCD for %s – retrying start_notify", char_uuid)
+    except Exception:  # noqa: BLE001
+        pass  # injection failed – try start_notify anyway, it may still succeed
+
+    try:
+        await client.start_notify(char_uuid, handler)
+        log.debug("subscribed to %s (no-CCCD path)", char_uuid)
+        return True
+    except Exception as err:  # noqa: BLE001
+        log.debug(
+            "no-CCCD subscribe also failed for %s: %s (%s)",
+            char_uuid,
+            err,
+            type(err).__name__,
+        )
+        return False
+    finally:
+        if char is not None and injected_handle is not None:
+            char._descriptors.pop(injected_handle, None)  # type: ignore[attr-defined]
+
+
 # Gear-byte encoding table used by m28p() for TYPE1 SetBrushScheme (0206).
 # Gears 1-12 map to specific encoded values; all others (13-41) encode as 0x00.
 _GEAR_ENCODE: dict[int, int] = {1: 5, 2: 6, 3: 7, 4: 8, 5: 17, 6: 18, 7: 19, 8: 20, 9: 21, 10: 22, 11: 23, 12: 24}
@@ -1311,12 +1359,23 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
                             retry_err,
                         )
                 else:
-                    self._log.debug(
-                        "could not subscribe to %s: %s (%s)",
-                        char_uuid,
-                        err,
-                        type(err).__name__,
-                    )
+                    is_no_cccd = "does not have a characteristic client config descriptor" in str(err)
+                    if is_no_cccd:
+                        self._log.debug("no CCCD on %s – trying no-CCCD subscribe path", char_uuid)
+                        if await _try_subscribe_no_cccd(
+                            client,
+                            char_uuid,
+                            handler,
+                            self._log,
+                        ):
+                            subscribed.add(char_uuid)
+                    else:
+                        self._log.debug(
+                            "could not subscribe to %s: %s (%s)",
+                            char_uuid,
+                            err,
+                            type(err).__name__,
+                        )
         return frozenset(subscribed)
 
     async def _read_response_char_fallback(
