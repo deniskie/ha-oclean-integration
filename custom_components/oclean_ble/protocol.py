@@ -168,6 +168,7 @@ _MODEL_MAP: dict[str, DeviceProtocol] = {
     # No CHANGE_INFO_UUID, fbb89 write-only (subscribe fails), 0307 push via fbb90.
     # Same year_byte=0/021f/5100 pattern as OCLEANY3P.
     "OCLEANX20": TYPE1,  # Oclean X Pro 20       – confirmed (logs 2026-03-09, issue #37)
+    "OCLEANV1a": TYPE1,  # Oclean X Ultra        – confirmed TYPE1 inline format (issue #81)
     # ------------------------------------------------------------------
     # Type-1 – Oclean X Pro / OCLEANY3 family
     # Previously mapped to Type-0 (0308/fbb86) based on APK analysis, but
