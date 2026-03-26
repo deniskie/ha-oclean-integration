@@ -183,3 +183,50 @@ class TestOcleanA1ReadFallback:
         await run_poll(_coordinator(), client)
 
         assert fbb86_reads == [], "read_gatt_char(fbb86) must NOT be called when subscription succeeded"
+
+
+# ---------------------------------------------------------------------------
+# TestOcleanA1NoCccdSubscribe
+# ---------------------------------------------------------------------------
+
+
+class TestOcleanA1NoCccdSubscribe:
+    """OCLEANA1: no-CCCD inject path delivers live battery from 0303 notification.
+
+    When start_notify raises the exact Bleak CCCD error, the coordinator injects
+    a fake CCCD descriptor and retries.  On the second call the device pushes a
+    0303 STATE notification; battery comes from byte 3 of that payload rather
+    than from the stale 0x2A19 GATT read.
+    """
+
+    @pytest.mark.asyncio
+    async def test_battery_from_0303_notification_via_no_cccd_path(self):
+        """Battery must come from 0303 push (byte 3 = 0x46 = 70) via no-CCCD path."""
+        from bleak import BleakError
+
+        # 0303 STATE response: payload byte 3 = 0x46 → battery 70 %
+        # Structure: 0303 | 02 | 00 | 00 | 46 | 00 | 00 | 00 | 00 | 00
+        #                    ^    ^    ^    ^
+        #                   [0]  [1]  [2]  [3]=battery
+        state_0303 = bytes.fromhex("03030200004600000000")
+        call_count = [0]
+
+        async def _start_notify(uuid: str, handler) -> None:
+            if uuid == READ_NOTIFY_CHAR_UUID:
+                call_count[0] += 1
+                if call_count[0] == 1:
+                    raise BleakError(
+                        "sofa [AA:BB:CC]: Oclean Air - 70:28:45:5F:AC:C1: "
+                        "Characteristic fbb86 does not have a "
+                        "characteristic client config descriptor."
+                    )
+                # Second call (after fake-CCCD inject): succeed and deliver push
+                handler(None, bytearray(state_0303))
+
+        client = OcleanDeviceSimulator().with_battery(0).build_client()
+        client.start_notify = AsyncMock(side_effect=_start_notify)
+
+        result = await run_poll(_coordinator(), client)
+
+        assert result[DATA_BATTERY] == 70
+        assert call_count[0] == 2, "start_notify must be called twice for fbb86"

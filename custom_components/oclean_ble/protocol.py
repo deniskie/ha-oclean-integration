@@ -111,10 +111,13 @@ TYPE_Z1 = DeviceProtocol(
     uses_t1_calibration=True,
 )
 
-#: Legacy – Oclean Air 1 / OCLEANA1  (no working notify chars; battery-only)
+#: Legacy – Oclean Air 1 / OCLEANA1
+#: fbb86 has no CCCD descriptor; _subscribe_notifications falls back to
+#: _try_subscribe_no_cccd() which injects a fake CCCD so BlueZ's StartNotify
+#: can be reached.  If that also fails, the coordinator uses direct READ fallback.
 LEGACY = DeviceProtocol(
     name="Legacy",
-    notify_chars=(),
+    notify_chars=(READ_NOTIFY_CHAR_UUID,),
     query_commands=((WRITE_CHAR_UUID, CMD_QUERY_STATUS),),
     supports_pagination=False,
 )
