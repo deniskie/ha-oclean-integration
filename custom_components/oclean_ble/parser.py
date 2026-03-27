@@ -11,12 +11,14 @@ from collections.abc import Callable
 from typing import Any
 
 from .const import (
+    COVERAGE_PRESSURE_THRESHOLD,
     DATA_BATTERY,
     DATA_BRUSH_HEAD_DAYS,
     DATA_BRUSH_HEAD_USAGE,
     DATA_BRUSH_MODE,
     DATA_IS_BRUSHING,
     DATA_LAST_BRUSH_AREAS,
+    DATA_LAST_BRUSH_COVERAGE,
     DATA_LAST_BRUSH_DURATION,
     DATA_LAST_BRUSH_GESTURE_ARRAY,
     DATA_LAST_BRUSH_GESTURE_CODE,
@@ -87,16 +89,21 @@ def _build_utc_timestamp(device_dt: datetime.datetime, tz_offset_quarters: int) 
 
 def _build_area_stats(
     area_pressures: bytes,
-) -> tuple[dict[str, int], int, int]:
-    """Build area-pressure dict, cleaned-zone count, and average pressure.
+) -> tuple[dict[str, int], int, int, int]:
+    """Build area-pressure dict, cleaned-zone count, average pressure, and coverage %.
+
+    Coverage follows the official Oclean app logic (APK: C2928q.java):
+    a zone counts as adequately cleaned when raw_pressure > COVERAGE_PRESSURE_THRESHOLD.
 
     Returns:
-        (area_dict, zones_cleaned, avg_pressure)
+        (area_dict, zones_cleaned, avg_pressure, coverage_pct)
     """
     area_dict: dict[str, int] = {name: int(area_pressures[i]) for i, name in enumerate(TOOTH_AREA_NAMES)}
     zones_cleaned = sum(1 for v in area_pressures if v > 0)
+    zones_covered = sum(1 for v in area_pressures if v > COVERAGE_PRESSURE_THRESHOLD)
     avg_pressure = round(sum(area_pressures) / len(area_pressures))
-    return area_dict, zones_cleaned, avg_pressure
+    coverage_pct = round(zones_covered / len(area_pressures) * 100)
+    return area_dict, zones_cleaned, avg_pressure, coverage_pct
 
 
 def _device_datetime(
@@ -366,10 +373,11 @@ def _parse_m18f_record(record: bytes) -> dict[str, Any]:
         area_bytes = bytes(
             [record[11], record[12], record[13], record[14], record[15], record[16], record[18], record[19]]
         )
-        area_dict, _zones_cleaned, avg_pressure = _build_area_stats(area_bytes)
+        area_dict, _zones_cleaned, avg_pressure, coverage_pct = _build_area_stats(area_bytes)
         if any(v > 0 for v in area_bytes):
             result[DATA_LAST_BRUSH_AREAS] = area_dict
             result[DATA_LAST_BRUSH_PRESSURE] = avg_pressure
+            result[DATA_LAST_BRUSH_COVERAGE] = coverage_pct
 
         # gestureCode / pressureRatio / gestureArray / powerArray (APK: C3385w0_fallback)
         # pressureCode = m14b(bytes 11-15); formula TBD – raw inputs stored as pressureRatio.
@@ -675,10 +683,11 @@ def parse_y3p_stream_record(record: bytes) -> dict[str, Any]:
             result[DATA_LAST_BRUSH_DURATION] = duration_s
 
         area_bytes = bytes(record[21:29])
-        area_dict, _zones_cleaned, avg_pressure = _build_area_stats(area_bytes)
+        area_dict, _zones_cleaned, avg_pressure, coverage_pct = _build_area_stats(area_bytes)
         if any(v > 0 for v in area_bytes):
             result[DATA_LAST_BRUSH_AREAS] = area_dict
             result[DATA_LAST_BRUSH_PRESSURE] = avg_pressure
+            result[DATA_LAST_BRUSH_COVERAGE] = coverage_pct
 
         score = record[33]
         if 0 < score <= 100:
@@ -938,7 +947,7 @@ def _parse_extended_running_data_record(data: bytes) -> dict[str, Any]:
         area_pressures = data[20:28]  # 8 tooth area pressure bytes
         score = int(data[28])
         timestamp_s = _build_utc_timestamp(device_dt, tz_offset_quarters)
-        area_dict, zones_cleaned, avg_pressure = _build_area_stats(area_pressures)
+        area_dict, zones_cleaned, avg_pressure, coverage_pct = _build_area_stats(area_pressures)
 
         result: dict[str, Any] = {
             DATA_LAST_BRUSH_TIME: timestamp_s,
@@ -946,16 +955,18 @@ def _parse_extended_running_data_record(data: bytes) -> dict[str, Any]:
             DATA_LAST_BRUSH_SCORE: max(0, min(100, score)),
             DATA_LAST_BRUSH_PRESSURE: avg_pressure,
             DATA_LAST_BRUSH_AREAS: area_dict,
+            DATA_LAST_BRUSH_COVERAGE: coverage_pct,
             DATA_LAST_BRUSH_PNUM: p_num,
         }
 
         _LOGGER.debug(
-            "Oclean extended running-data: ts=%d score=%d duration=%ds pNum=%d zones_cleaned=%d/8 avg_pressure=%d",
+            "Oclean extended running-data: ts=%d score=%d duration=%ds pNum=%d zones_cleaned=%d/8 coverage=%d%% avg_pressure=%d",
             timestamp_s,
             score,
             duration,
             p_num,
             zones_cleaned,
+            coverage_pct,
             avg_pressure,
         )
         return result
@@ -1166,17 +1177,19 @@ def _parse_brush_areas_t1_response(payload: bytes) -> dict[str, Any]:
         return {}
 
     area_pressures = payload[6:14]
-    area_dict, zones_cleaned, avg_pressure = _build_area_stats(area_pressures)
+    area_dict, zones_cleaned, avg_pressure, coverage_pct = _build_area_stats(area_pressures)
 
     result: dict[str, Any] = {
         DATA_LAST_BRUSH_AREAS: area_dict,
         DATA_LAST_BRUSH_PRESSURE: avg_pressure,
+        DATA_LAST_BRUSH_COVERAGE: coverage_pct,
     }
 
     _LOGGER.debug(
-        "Oclean 2604 areas: %s zones_cleaned=%d/8 avg_pressure=%d b0=0x%02x b4=0x%02x (raw: %s)",
+        "Oclean 2604 areas: %s zones_cleaned=%d/8 coverage=%d%% avg_pressure=%d b0=0x%02x b4=0x%02x (raw: %s)",
         area_dict,
         zones_cleaned,
+        coverage_pct,
         avg_pressure,
         payload[0],
         payload[4],
@@ -1299,17 +1312,19 @@ def _parse_brush_areas_y3p_response(payload: bytes) -> dict[str, Any]:
         return {}
 
     area_pressures = payload[6:14]
-    area_dict, zones_cleaned, avg_pressure = _build_area_stats(area_pressures)
+    area_dict, zones_cleaned, avg_pressure, coverage_pct = _build_area_stats(area_pressures)
 
     result: dict[str, Any] = {
         DATA_LAST_BRUSH_AREAS: area_dict,
         DATA_LAST_BRUSH_PRESSURE: avg_pressure,
+        DATA_LAST_BRUSH_COVERAGE: coverage_pct,
     }
 
     _LOGGER.debug(
-        "Oclean 021f areas: %s zones_cleaned=%d/8 avg_pressure=%d (raw: %s)",
+        "Oclean 021f areas: %s zones_cleaned=%d/8 coverage=%d%% avg_pressure=%d (raw: %s)",
         area_dict,
         zones_cleaned,
+        coverage_pct,
         avg_pressure,
         payload.hex(),
     )

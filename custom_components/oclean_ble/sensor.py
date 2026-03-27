@@ -25,6 +25,7 @@ from .const import (
     DATA_BRUSH_MODE,
     DATA_HW_REVISION,
     DATA_LAST_BRUSH_AREAS,
+    DATA_LAST_BRUSH_COVERAGE,
     DATA_LAST_BRUSH_DURATION,
     DATA_LAST_BRUSH_PNUM,
     DATA_LAST_BRUSH_PRESSURE,
@@ -57,6 +58,7 @@ _SESSION_DERIVED_KEYS: frozenset[str] = frozenset(
         DATA_LAST_BRUSH_DURATION,
         DATA_LAST_BRUSH_PRESSURE,
         DATA_LAST_BRUSH_AREAS,
+        DATA_LAST_BRUSH_COVERAGE,
         DATA_LAST_BRUSH_PNUM,
     }
 )
@@ -77,6 +79,14 @@ SENSOR_DESCRIPTIONS: tuple[SensorEntityDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:star",
         # 0–100 dimensionless
+    ),
+    SensorEntityDescription(
+        key=DATA_LAST_BRUSH_COVERAGE,
+        translation_key=DATA_LAST_BRUSH_COVERAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=PERCENTAGE,
+        icon="mdi:tooth",
+        # 0–100 %: zones with pressure > 100 (APK threshold) / 8 total zones
     ),
     SensorEntityDescription(
         key=DATA_LAST_BRUSH_DURATION,

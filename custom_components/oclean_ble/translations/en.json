@@ -82,6 +82,9 @@
       "last_brush_score": {
         "name": "Score"
       },
+      "last_brush_coverage": {
+        "name": "Coverage"
+      },
       "last_brush_duration": {
         "name": "Duration"
       },
