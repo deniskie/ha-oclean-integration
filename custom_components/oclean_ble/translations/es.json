@@ -44,6 +44,11 @@
     }
   },
   "entity": {
+    "image": {
+      "brush_coverage": {
+        "name": "Cobertura de cepillado"
+      }
+    },
     "button": {
       "reset_brush_head": {
         "name": "Reiniciar cabezal"

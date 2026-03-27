@@ -49,7 +49,7 @@ def _install_ha_stubs() -> None:
 
     const = _stub("homeassistant.const")
     const.__version__ = "2025.1.0"
-    const.Platform = Enum("Platform", ["SENSOR", "BINARY_SENSOR", "BUTTON", "NUMBER", "SELECT", "SWITCH"])
+    const.Platform = Enum("Platform", ["SENSOR", "BINARY_SENSOR", "BUTTON", "IMAGE", "NUMBER", "SELECT", "SWITCH"])
     const.PERCENTAGE = "%"
 
     class UnitOfTime:
@@ -384,6 +384,18 @@ def _install_ha_stubs() -> None:
     bs.BinarySensorDeviceClass = BinarySensorDeviceClass
     bs.BinarySensorEntityDescription = BinarySensorEntityDescription
     bs.BinarySensorEntity = BinarySensorEntity
+
+    # ---- homeassistant.components.image ----
+    img = _stub("homeassistant.components.image")
+
+    class ImageEntity:
+        _attr_content_type = "image/png"
+        _attr_image_last_updated = None
+
+        def __init__(self, hass=None, **kwargs):
+            self.hass = hass
+
+    img.ImageEntity = ImageEntity
 
     # ---- bleak (stub if not installed) ----
     if "bleak" not in sys.modules or not hasattr(sys.modules["bleak"], "BleakError"):

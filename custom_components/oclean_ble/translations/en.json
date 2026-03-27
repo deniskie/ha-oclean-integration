@@ -44,6 +44,11 @@
     }
   },
   "entity": {
+    "image": {
+      "brush_coverage": {
+        "name": "Brush Coverage"
+      }
+    },
     "button": {
       "reset_brush_head": {
         "name": "Reset Brush Head"
