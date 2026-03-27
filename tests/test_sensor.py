@@ -11,7 +11,12 @@ from homeassistant.components.sensor import SensorDeviceClass, SensorEntityDescr
 
 from custom_components.oclean_ble.const import (
     DATA_LAST_BRUSH_AREAS,
+    DATA_LAST_BRUSH_DURATION,
+    DATA_LAST_BRUSH_GESTURE_ARRAY,
+    DATA_LAST_BRUSH_GESTURE_CODE,
     DATA_LAST_BRUSH_PNUM,
+    DATA_LAST_BRUSH_POWER_ARRAY,
+    DATA_LAST_BRUSH_PRESSURE_RATIO,
     DATA_LAST_BRUSH_SCORE,
     DATA_LAST_BRUSH_TIME,
     SCHEME_NAMES,
@@ -19,6 +24,9 @@ from custom_components.oclean_ble.const import (
 )
 from custom_components.oclean_ble.sensor import (
     OcleanBrushAreasSensor,
+    OcleanDurationRatingSensor,
+    OcleanPowerDistributionSensor,
+    OcleanPressureDetailSensor,
     OcleanSchemeSensor,
     OcleanSensor,
     OcleanToothAreaSensor,
@@ -306,3 +314,181 @@ class TestOcleanToothAreaSensor:
         for zone in TOOTH_AREA_NAMES:
             sensor = _make_tooth_sensor(zone, data=None)
             assert sensor._zone_name == zone
+
+
+# ---------------------------------------------------------------------------
+# Helpers for new sensor classes
+# ---------------------------------------------------------------------------
+
+
+def _make_duration_rating_sensor(data=None, last_update_success=True):
+    coord = _make_coordinator(data=data, last_update_success=last_update_success)
+    return OcleanDurationRatingSensor(coord, "AA:BB:CC:DD:EE:FF", "Oclean")
+
+
+def _make_pressure_detail_sensor(data=None, last_update_success=True):
+    coord = _make_coordinator(data=data, last_update_success=last_update_success)
+    return OcleanPressureDetailSensor(coord, "AA:BB:CC:DD:EE:FF", "Oclean")
+
+
+def _make_power_distribution_sensor(data=None, last_update_success=True):
+    coord = _make_coordinator(data=data, last_update_success=last_update_success)
+    return OcleanPowerDistributionSensor(coord, "AA:BB:CC:DD:EE:FF", "Oclean")
+
+
+# ---------------------------------------------------------------------------
+# OcleanDurationRatingSensor
+# ---------------------------------------------------------------------------
+
+
+class TestOcleanDurationRatingSensor:
+    def test_none_when_no_data(self):
+        sensor = _make_duration_rating_sensor(data=None)
+        assert sensor.native_value is None
+
+    def test_none_when_duration_missing(self):
+        sensor = _make_duration_rating_sensor(data={DATA_LAST_BRUSH_DURATION: None})
+        assert sensor.native_value is None
+
+    def test_full_duration_returns_100(self):
+        sensor = _make_duration_rating_sensor(data={DATA_LAST_BRUSH_DURATION: 240})
+        assert sensor.native_value == 100
+
+    def test_half_duration_returns_50(self):
+        sensor = _make_duration_rating_sensor(data={DATA_LAST_BRUSH_DURATION: 120})
+        assert sensor.native_value == 50
+
+    def test_over_target_capped_at_100(self):
+        sensor = _make_duration_rating_sensor(data={DATA_LAST_BRUSH_DURATION: 480})
+        assert sensor.native_value == 100
+
+    def test_zero_duration_returns_0(self):
+        sensor = _make_duration_rating_sensor(data={DATA_LAST_BRUSH_DURATION: 0})
+        assert sensor.native_value == 0
+
+    def test_short_duration_rounds(self):
+        # 60 / 240 * 100 = 25
+        sensor = _make_duration_rating_sensor(data={DATA_LAST_BRUSH_DURATION: 60})
+        assert sensor.native_value == 25
+
+    def test_available_false_when_session_exists_no_duration(self):
+        sensor = _make_duration_rating_sensor(
+            data={DATA_LAST_BRUSH_TIME: 1_700_000_000, DATA_LAST_BRUSH_DURATION: None}
+        )
+        assert sensor.available is False
+
+    def test_available_true_when_duration_present(self):
+        sensor = _make_duration_rating_sensor(data={DATA_LAST_BRUSH_TIME: 1_700_000_000, DATA_LAST_BRUSH_DURATION: 120})
+        assert sensor.available is True
+
+
+# ---------------------------------------------------------------------------
+# OcleanPressureDetailSensor
+# ---------------------------------------------------------------------------
+
+
+class TestOcleanPressureDetailSensor:
+    _ratio = [10, 20, 30, 40, 50]
+
+    def test_none_when_no_data(self):
+        sensor = _make_pressure_detail_sensor(data=None)
+        assert sensor.native_value is None
+
+    def test_none_when_ratio_missing(self):
+        sensor = _make_pressure_detail_sensor(data={DATA_LAST_BRUSH_PRESSURE_RATIO: None})
+        assert sensor.native_value is None
+
+    def test_none_when_ratio_wrong_length(self):
+        sensor = _make_pressure_detail_sensor(data={DATA_LAST_BRUSH_PRESSURE_RATIO: [1, 2, 3]})
+        assert sensor.native_value is None
+
+    def test_returns_average(self):
+        sensor = _make_pressure_detail_sensor(data={DATA_LAST_BRUSH_PRESSURE_RATIO: self._ratio})
+        assert sensor.native_value == 30  # (10+20+30+40+50)/5
+
+    def test_extra_state_attributes(self):
+        sensor = _make_pressure_detail_sensor(data={DATA_LAST_BRUSH_PRESSURE_RATIO: self._ratio})
+        attrs = sensor.extra_state_attributes
+        assert attrs == {"segment_1": 10, "segment_2": 20, "segment_3": 30, "segment_4": 40, "segment_5": 50}
+
+    def test_attributes_none_when_no_data(self):
+        sensor = _make_pressure_detail_sensor(data=None)
+        assert sensor.extra_state_attributes is None
+
+    def test_available_false_when_session_exists_no_ratio(self):
+        sensor = _make_pressure_detail_sensor(
+            data={DATA_LAST_BRUSH_TIME: 1_700_000_000, DATA_LAST_BRUSH_PRESSURE_RATIO: None}
+        )
+        assert sensor.available is False
+
+    def test_available_true_when_ratio_present(self):
+        sensor = _make_pressure_detail_sensor(
+            data={DATA_LAST_BRUSH_TIME: 1_700_000_000, DATA_LAST_BRUSH_PRESSURE_RATIO: self._ratio}
+        )
+        assert sensor.available is True
+
+
+# ---------------------------------------------------------------------------
+# OcleanPowerDistributionSensor
+# ---------------------------------------------------------------------------
+
+
+class TestOcleanPowerDistributionSensor:
+    # 12 values: 8 matching TOOTH_AREA_NAMES + 4 extra
+    _power = [3, 2, 0, 1, 3, 0, 2, 1, 0, 3, 1, 2]
+
+    def test_none_when_no_data(self):
+        sensor = _make_power_distribution_sensor(data=None)
+        assert sensor.native_value is None
+
+    def test_none_when_power_missing(self):
+        sensor = _make_power_distribution_sensor(data={DATA_LAST_BRUSH_POWER_ARRAY: None})
+        assert sensor.native_value is None
+
+    def test_counts_nonzero_zones(self):
+        sensor = _make_power_distribution_sensor(data={DATA_LAST_BRUSH_POWER_ARRAY: self._power})
+        # [3,2,0,1,3,0,2,1,0,3,1,2] → 9 nonzero
+        assert sensor.native_value == 9
+
+    def test_extra_state_attributes_maps_zones(self):
+        sensor = _make_power_distribution_sensor(
+            data={DATA_LAST_BRUSH_POWER_ARRAY: self._power, DATA_LAST_BRUSH_GESTURE_ARRAY: [1, 2, 3]}
+        )
+        attrs = sensor.extra_state_attributes
+        # First 8 values mapped to TOOTH_AREA_NAMES
+        assert attrs[TOOTH_AREA_NAMES[0]] == 3
+        assert attrs[TOOTH_AREA_NAMES[2]] == 0
+        # Extra values indexed
+        assert attrs["zone_9"] == 0
+        assert attrs["zone_12"] == 2
+        # Gesture array included
+        assert attrs["gesture_array"] == [1, 2, 3]
+
+    def test_attributes_without_gesture(self):
+        sensor = _make_power_distribution_sensor(data={DATA_LAST_BRUSH_POWER_ARRAY: self._power})
+        attrs = sensor.extra_state_attributes
+        assert "gesture_array" not in attrs
+
+    def test_attributes_none_when_no_data(self):
+        sensor = _make_power_distribution_sensor(data=None)
+        assert sensor.extra_state_attributes is None
+
+    def test_available_false_when_session_exists_no_power(self):
+        sensor = _make_power_distribution_sensor(
+            data={DATA_LAST_BRUSH_TIME: 1_700_000_000, DATA_LAST_BRUSH_POWER_ARRAY: None}
+        )
+        assert sensor.available is False
+
+    def test_available_true_when_power_present(self):
+        sensor = _make_power_distribution_sensor(
+            data={DATA_LAST_BRUSH_TIME: 1_700_000_000, DATA_LAST_BRUSH_POWER_ARRAY: self._power}
+        )
+        assert sensor.available is True
+
+    def test_gesture_code_in_session_derived_keys(self):
+        """Gesture code sensor should become unavailable when session exists but no gesture data."""
+        sensor = _make_sensor(
+            DATA_LAST_BRUSH_GESTURE_CODE,
+            data={DATA_LAST_BRUSH_TIME: 1_700_000_000, DATA_LAST_BRUSH_GESTURE_CODE: None},
+        )
+        assert sensor.available is False

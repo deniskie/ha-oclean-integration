@@ -124,6 +124,18 @@
       "mac_address": {
         "name": "MAC Address"
       },
+      "duration_ratio": {
+        "name": "Duration Rating"
+      },
+      "last_brush_gesture_code": {
+        "name": "Gesture"
+      },
+      "last_brush_pressure_ratio": {
+        "name": "Pressure Detail"
+      },
+      "last_brush_power_array": {
+        "name": "Power Distribution"
+      },
       "zone_upper_left_out": {
         "name": "Zone Upper Left Out"
       },

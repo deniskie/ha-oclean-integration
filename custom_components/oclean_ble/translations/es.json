@@ -124,6 +124,18 @@
       "mac_address": {
         "name": "Dirección MAC"
       },
+      "duration_ratio": {
+        "name": "Valoración de duración"
+      },
+      "last_brush_gesture_code": {
+        "name": "Técnica"
+      },
+      "last_brush_pressure_ratio": {
+        "name": "Detalle de presión"
+      },
+      "last_brush_power_array": {
+        "name": "Distribución de potencia"
+      },
       "zone_upper_left_out": {
         "name": "Zona Superior Izquierda Exterior"
       },
