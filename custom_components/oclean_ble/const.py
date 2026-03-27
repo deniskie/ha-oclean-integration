@@ -160,6 +160,7 @@ DATA_LAST_BRUSH_GESTURE_ARRAY = "last_brush_gesture_array"  # list[int] len=13 (
 DATA_LAST_BRUSH_POWER_ARRAY = "last_brush_power_array"  # list[int] len=12, each 0-3 (nibbles from bytes 30-32)
 DATA_BRUSH_MODE = "brush_mode"  # int: active brushing mode number from 0302 device-settings response (byte 5)
 DATA_LAST_POLL = "last_poll"  # Unix timestamp (seconds) of the last successful BLE poll
+DATA_DURATION_RATIO = "duration_ratio"  # int 0-100+: duration/240*100 (APK: MineReportModel.timeLongRatio)
 
 # Coverage calculation threshold (APK: C2928q.java — raw_pressure * 4 > 400 → pressure > 100)
 COVERAGE_PRESSURE_THRESHOLD = 100

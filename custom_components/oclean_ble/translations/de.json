@@ -124,6 +124,18 @@
       "mac_address": {
         "name": "MAC-Adresse"
       },
+      "duration_ratio": {
+        "name": "Dauer-Bewertung"
+      },
+      "last_brush_gesture_code": {
+        "name": "Putztechnik"
+      },
+      "last_brush_pressure_ratio": {
+        "name": "Druckverteilung"
+      },
+      "last_brush_power_array": {
+        "name": "Leistungsverteilung"
+      },
       "zone_upper_left_out": {
         "name": "Zone Oben Links Außen"
       },
