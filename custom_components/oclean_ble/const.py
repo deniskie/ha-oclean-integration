@@ -123,6 +123,13 @@ BLE_POLL_TOTAL_TIMEOUT = 60
 # Timeout for a single write_gatt_char() call in the polling path.
 # Guards against BlueZ or ESPHome proxy hangs on individual write operations.
 BLE_WRITE_TIMEOUT = 5.0
+# Polling fallback: when notification subscriptions fail persistently (e.g. BlueZ
+# "Notify acquired"), read the response characteristic in a loop instead.
+BLE_POLL_FALLBACK_ATTEMPTS = 6
+BLE_POLL_FALLBACK_INTERVAL = 1.0
+# Shortened notification wait when no notify chars could be subscribed.
+# Just enough for the device to process commands before polling starts.
+BLE_NOTIFICATION_WAIT_NO_SUB = 2.0
 
 # Brush head reset command
 CMD_CLEAR_BRUSH_HEAD = bytes.fromhex("020F")

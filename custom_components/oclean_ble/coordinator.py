@@ -28,7 +28,10 @@ from .const import (
     BATTERY_CHAR_UUID,
     BLE_ENRICHMENT_WAIT,
     BLE_NOTIFICATION_WAIT,
+    BLE_NOTIFICATION_WAIT_NO_SUB,
     BLE_PAGINATION_TIMEOUT,
+    BLE_POLL_FALLBACK_ATTEMPTS,
+    BLE_POLL_FALLBACK_INTERVAL,
     BLE_POLL_TOTAL_TIMEOUT,
     BLE_POST_CONNECT_DELAY,
     BLE_READ_FALLBACK_DELAY,
@@ -1093,7 +1096,19 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         await self._read_device_info_service(client, collected)
         subscribed = await self._subscribe_notifications(client, handler)
         await self._subscribe_battery_notifications(client, collected)
-        await self._send_query_commands(client, session_received)
+
+        # Determine if notification subscriptions for data characteristics failed.
+        # When none of the protocol's notify chars could be subscribed (persistent
+        # "Notify acquired" on BlueZ), shorten the notification wait and use a
+        # polling loop instead — the device still processes commands sent via fbb89
+        # and updates the characteristic values even without active subscriptions.
+        notify_chars_ok = any(c in subscribed for c in self._protocol.notify_chars)
+        if notify_chars_ok:
+            await self._send_query_commands(client, session_received)
+        else:
+            self._log.debug("no data characteristics subscribed – using shortened wait + polling fallback")
+            await self._send_query_commands(client, session_received, notify_wait=BLE_NOTIFICATION_WAIT_NO_SUB)
+
         # If the session-wait timed out while a *B# stream was mid-flight (e.g.
         # slow ESPHome proxy), flush whatever complete records arrived so far.
         flush_pending()
@@ -1101,13 +1116,12 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         # CCCD and cannot be subscribed; poll the characteristic directly instead.
         if READ_NOTIFY_CHAR_UUID not in subscribed:
             await self._read_response_char_fallback(client, handler)
-        # Fallback for TYPE1 devices where RECEIVE_BRUSH_UUID subscription failed
-        # (e.g. BlueZ "Notify acquired" that persists even after a release retry).
-        # Commands are sent via fbb89 but responses arrive on fbb90; if we cannot
-        # subscribe to fbb90 we attempt a direct READ after the command wait so
-        # that at least the last stored value is visible to the parser.
+        # Polling fallback for TYPE1 devices where RECEIVE_BRUSH_UUID subscription
+        # failed (e.g. BlueZ "Notify acquired" that persists even after CCCD clear).
+        # Poll fbb90 in a loop to catch the response the device writes after
+        # processing the 0307 command.
         if RECEIVE_BRUSH_UUID in self._protocol.notify_chars and RECEIVE_BRUSH_UUID not in subscribed:
-            await self._read_receive_brush_fallback(client, handler)
+            await self._poll_receive_brush_fallback(client, handler, session_received)
         await self._paginate_sessions(client, all_sessions, session_received)
         if all_sessions:
             # Allow the device extra time to push enrichment notifications
@@ -1399,34 +1413,94 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         except Exception as err:  # noqa: BLE001
             self._log.debug("READ fallback failed: %s (%s)", err, type(err).__name__)
 
-    async def _read_receive_brush_fallback(
-        self, client: BleakClient, handler: Callable[[Any, bytearray], None]
+    async def _poll_receive_brush_fallback(
+        self,
+        client: BleakClient,
+        handler: Callable[[Any, bytearray], None],
+        session_received: asyncio.Event,
     ) -> None:
-        """Directly READ RECEIVE_BRUSH_UUID when its CCCD subscription failed.
+        """Poll RECEIVE_BRUSH_UUID in a loop when notification subscription failed.
 
         On TYPE1 devices (Oclean X / X Pro) the device pushes session data as
         BLE notifications on RECEIVE_BRUSH_UUID (fbb90).  When BlueZ reports
-        "Notify acquired" and the stale-subscription release does not help
-        (e.g. the Oclean app left a lock that BlueZ cannot clear), we fall back
-        to a direct read_gatt_char.  This may return the last cached value held
-        by the BLE stack, which is better than silently returning no data.
-        """
-        await asyncio.sleep(BLE_READ_FALLBACK_DELAY)
-        try:
-            raw = await client.read_gatt_char(RECEIVE_BRUSH_UUID)
-            data = bytes(raw)
-            self._log.debug("READ fallback on RECEIVE_BRUSH_UUID: %s", data.hex())
-            if len(data) > 2:
-                handler(None, bytearray(data))
-        except Exception as err:  # noqa: BLE001
-            self._log.debug("READ fallback on RECEIVE_BRUSH_UUID failed: %s (%s)", err, type(err).__name__)
+        "Notify acquired" persistently (e.g. stale bond state that survives
+        reboots), notifications never arrive.
 
-    async def _send_query_commands(self, client: BleakClient, session_received: asyncio.Event) -> None:
+        This fallback reads fbb90 repeatedly after the query commands have been
+        sent.  The device firmware updates the characteristic value when it has
+        data — polling catches it even without an active notification subscription.
+        Reading also covers fbb86 (READ_NOTIFY_CHAR_UUID) on each iteration since
+        some devices place status responses there.
+
+        Stops early if the notification handler signals a session was received
+        (e.g. via a successful READ that the handler parsed).
+        """
+        seen_hex: set[str] = set()
+        for attempt in range(BLE_POLL_FALLBACK_ATTEMPTS):
+            if session_received.is_set():
+                self._log.debug("poll fallback: session received, stopping early")
+                break
+            await asyncio.sleep(BLE_POLL_FALLBACK_INTERVAL)
+            # Poll fbb90
+            try:
+                raw = await client.read_gatt_char(RECEIVE_BRUSH_UUID)
+                data = bytes(raw)
+                hex_str = data.hex()
+                if len(data) > 2 and hex_str not in seen_hex:
+                    seen_hex.add(hex_str)
+                    self._log.debug(
+                        "poll fallback fbb90 [%d/%d]: %s",
+                        attempt + 1,
+                        BLE_POLL_FALLBACK_ATTEMPTS,
+                        hex_str,
+                    )
+                    handler(None, bytearray(data))
+                elif len(data) <= 2:
+                    self._log.debug(
+                        "poll fallback fbb90 [%d/%d]: too short (%d B)",
+                        attempt + 1,
+                        BLE_POLL_FALLBACK_ATTEMPTS,
+                        len(data),
+                    )
+            except Exception as err:  # noqa: BLE001
+                self._log.debug(
+                    "poll fallback fbb90 [%d/%d] failed: %s (%s)",
+                    attempt + 1,
+                    BLE_POLL_FALLBACK_ATTEMPTS,
+                    err,
+                    type(err).__name__,
+                )
+            # Also poll fbb86 — some devices place status/settings responses there
+            try:
+                raw86 = await client.read_gatt_char(READ_NOTIFY_CHAR_UUID)
+                data86 = bytes(raw86)
+                hex86 = data86.hex()
+                if len(data86) > 2 and hex86 not in seen_hex:
+                    seen_hex.add(hex86)
+                    self._log.debug(
+                        "poll fallback fbb86 [%d/%d]: %s",
+                        attempt + 1,
+                        BLE_POLL_FALLBACK_ATTEMPTS,
+                        hex86,
+                    )
+                    handler(None, bytearray(data86))
+            except Exception:  # noqa: BLE001
+                pass  # fbb86 READ failures are expected on some devices
+
+    async def _send_query_commands(
+        self,
+        client: BleakClient,
+        session_received: asyncio.Event,
+        notify_wait: float | None = None,
+    ) -> None:
         """Send query commands for the active device protocol; wait for first session.
 
         Commands are defined by the protocol profile so only appropriate commands
         are sent for the connected device.  Failures are logged at DEBUG level
         since unexpected commands are simply ignored by the firmware.
+
+        *notify_wait* overrides the default notification timeout (used when
+        subscriptions failed and a polling fallback will follow).
         """
         for char_uuid, cmd in self._protocol.query_commands:
             try:
@@ -1443,13 +1517,14 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
                     type(err).__name__,
                 )
 
+        wait = notify_wait if notify_wait is not None else float(BLE_NOTIFICATION_WAIT)
         # Wait for first session notification (or timeout if device has no records)
         try:
-            await asyncio.wait_for(session_received.wait(), timeout=float(BLE_NOTIFICATION_WAIT))
+            await asyncio.wait_for(session_received.wait(), timeout=wait)
         except asyncio.TimeoutError:
             self._log.debug(
                 "no session notification within %.1f s (device may have no records)",
-                float(BLE_NOTIFICATION_WAIT),
+                wait,
             )
 
     async def _paginate_sessions(

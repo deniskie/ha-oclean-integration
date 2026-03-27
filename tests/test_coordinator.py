@@ -2364,6 +2364,97 @@ class TestReadResponseCharFallback:
 
 
 # ---------------------------------------------------------------------------
+# _poll_receive_brush_fallback – polling loop when subscriptions fail
+# ---------------------------------------------------------------------------
+
+
+class TestPollReceiveBrushFallback:
+    @pytest.mark.asyncio
+    async def test_polls_multiple_times_and_calls_handler(self):
+        """Polling loop should read fbb90 multiple times and call handler for new data."""
+        coord = _make_coordinator()
+        coord._store_loaded = True
+
+        client = AsyncMock()
+        # First read: too short (ignored), second: valid payload, third: same payload (deduped)
+        payload_valid = bytearray([0x03, 0x07, 0x01, 0x00, 0x00, 0x4B, 0x01, 0x02])
+        client.read_gatt_char = AsyncMock(
+            side_effect=[
+                bytearray([0x00]),  # fbb90 attempt 1: too short
+                bytearray([0x00]),  # fbb86 attempt 1: too short
+                payload_valid,  # fbb90 attempt 2: valid
+                bytearray([0x00]),  # fbb86 attempt 2: too short
+                payload_valid,  # fbb90 attempt 3: duplicate → skipped
+                bytearray([0x00]),  # fbb86 attempt 3
+                bytearray([0x00]),  # fbb90 attempt 4
+                bytearray([0x00]),  # fbb86 attempt 4
+                bytearray([0x00]),  # fbb90 attempt 5
+                bytearray([0x00]),  # fbb86 attempt 5
+                bytearray([0x00]),  # fbb90 attempt 6
+                bytearray([0x00]),  # fbb86 attempt 6
+            ]
+        )
+
+        calls: list[bytearray] = []
+
+        def handler(_sender, data: bytearray) -> None:
+            calls.append(data)
+
+        session_received = asyncio.Event()
+
+        with patch("custom_components.oclean_ble.coordinator.asyncio.sleep", new_callable=AsyncMock):
+            await coord._poll_receive_brush_fallback(client, handler, session_received)
+
+        # Only one handler call (duplicate was deduplicated)
+        assert len(calls) == 1
+        assert calls[0] == payload_valid
+
+    @pytest.mark.asyncio
+    async def test_stops_early_when_session_received(self):
+        """Polling should stop early when session_received event is set."""
+        coord = _make_coordinator()
+        coord._store_loaded = True
+
+        client = AsyncMock()
+        payload = bytearray([0x03, 0x07, 0x01, 0x00, 0x00, 0x4B])
+        client.read_gatt_char = AsyncMock(return_value=payload)
+
+        calls: list[bytearray] = []
+
+        def handler(_sender, data: bytearray) -> None:
+            calls.append(data)
+
+        session_received = asyncio.Event()
+        session_received.set()  # Already signalled
+
+        with patch("custom_components.oclean_ble.coordinator.asyncio.sleep", new_callable=AsyncMock):
+            await coord._poll_receive_brush_fallback(client, handler, session_received)
+
+        # Should not read at all since session_received was already set
+        assert len(calls) == 0
+
+    @pytest.mark.asyncio
+    async def test_read_exception_does_not_propagate(self):
+        """BleakError during polling must be caught and not propagate."""
+        from bleak import BleakError
+
+        coord = _make_coordinator()
+        coord._store_loaded = True
+
+        client = AsyncMock()
+        client.read_gatt_char = AsyncMock(side_effect=BleakError("disconnected"))
+
+        def handler(_sender, data):
+            pass
+
+        session_received = asyncio.Event()
+
+        with patch("custom_components.oclean_ble.coordinator.asyncio.sleep", new_callable=AsyncMock):
+            # Must not raise
+            await coord._poll_receive_brush_fallback(client, handler, session_received)
+
+
+# ---------------------------------------------------------------------------
 # async_reset_brush_head – brush head counter reset
 # ---------------------------------------------------------------------------
 
