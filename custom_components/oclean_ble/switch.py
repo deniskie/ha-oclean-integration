@@ -24,6 +24,16 @@ SWITCH_DESCRIPTIONS: tuple[SwitchEntityDescription, ...] = (
         name="Over-Pressure Alert",
         icon="mdi:alert-circle-outline",
     ),
+    SwitchEntityDescription(
+        key="remind_switch",
+        name="Brushing Reminder",
+        icon="mdi:bell-ring-outline",
+    ),
+    SwitchEntityDescription(
+        key="running_switch",
+        name="Auto Power-Off Timer",
+        icon="mdi:timer-off-outline",
+    ),
 )
 
 
@@ -59,22 +69,31 @@ class OcleanSwitch(OcleanEntity, SwitchEntity):
         super().__init__(coordinator, mac, device_name, description.key)
         self.entity_description = description
 
+    # Map switch key → coordinator property / setter method name.
+    _KEY_TO_PROP = {
+        "area_remind": "area_remind",
+        "over_pressure": "over_pressure",
+        "remind_switch": "remind_switch",
+        "running_switch": "running_switch",
+    }
+    _KEY_TO_SETTER = {
+        "area_remind": "async_set_area_remind",
+        "over_pressure": "async_set_over_pressure",
+        "remind_switch": "async_set_remind_switch",
+        "running_switch": "async_set_running_switch",
+    }
+
     @property
     def is_on(self) -> bool | None:
-        if self.entity_description.key == "area_remind":
-            return self.coordinator.area_remind
-        if self.entity_description.key == "over_pressure":
-            return self.coordinator.over_pressure
-        return None
+        prop = self._KEY_TO_PROP.get(self.entity_description.key)
+        return getattr(self.coordinator, prop, None) if prop else None
 
     async def async_turn_on(self, **kwargs) -> None:
-        if self.entity_description.key == "area_remind":
-            await self.coordinator.async_set_area_remind(True)
-        elif self.entity_description.key == "over_pressure":
-            await self.coordinator.async_set_over_pressure(True)
+        setter = self._KEY_TO_SETTER.get(self.entity_description.key)
+        if setter:
+            await getattr(self.coordinator, setter)(True)
 
     async def async_turn_off(self, **kwargs) -> None:
-        if self.entity_description.key == "area_remind":
-            await self.coordinator.async_set_area_remind(False)
-        elif self.entity_description.key == "over_pressure":
-            await self.coordinator.async_set_over_pressure(False)
+        setter = self._KEY_TO_SETTER.get(self.entity_description.key)
+        if setter:
+            await getattr(self.coordinator, setter)(False)

@@ -141,6 +141,10 @@ CMD_SET_BRUSH_SCHEME_CONT = bytes.fromhex("020B")  # packet 2 header (MTU split 
 CMD_AREA_REMIND = bytes.fromhex("020D")  # + 0x01 (on) / 0x00 (off)
 # Over-pressure alert command (C3376s.G0, OcleanBleManager.setOverPressure)
 CMD_OVER_PRESSURE = bytes.fromhex("0212")  # + 0x01 (on) / 0x00 (off)
+# Remind switch command (C3335a.mo5297R0, OcleanBleManager.setRemindSwitch)
+CMD_REMIND_SWITCH = bytes.fromhex("0239")  # + 0x01 (on) / 0x00 (off)
+# Running switch command (C3335a.mo5300T0, OcleanBleManager.setRunningSwitch)
+CMD_RUNNING_SWITCH = bytes.fromhex("0240")  # + 0x01 (on) / 0x00 (off)
 # Brush head max lifetime command (mo5345x, OcleanBleManager.setRunningHeadMaxTime)
 CMD_BRUSH_HEAD_MAX_DAYS = bytes.fromhex("0217")  # + 2-byte big-endian uint16 (days)
 

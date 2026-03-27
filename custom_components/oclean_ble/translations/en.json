@@ -68,6 +68,15 @@
     "switch": {
       "area_remind": {
         "name": "Area Reminder"
+      },
+      "over_pressure": {
+        "name": "Over-Pressure Alert"
+      },
+      "remind_switch": {
+        "name": "Brushing Reminder"
+      },
+      "running_switch": {
+        "name": "Auto Power-Off Timer"
       }
     },
     "number": {

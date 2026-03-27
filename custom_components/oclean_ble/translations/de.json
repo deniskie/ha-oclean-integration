@@ -68,6 +68,15 @@
     "switch": {
       "area_remind": {
         "name": "Zahnbereichs-Erinnerung"
+      },
+      "over_pressure": {
+        "name": "Überdruck-Warnung"
+      },
+      "remind_switch": {
+        "name": "Putz-Erinnerung"
+      },
+      "running_switch": {
+        "name": "Auto-Abschaltung"
       }
     },
     "number": {
