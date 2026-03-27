@@ -65,6 +65,7 @@ Entity IDs follow the pattern `<platform>.<device_name>_<suffix>` where `<device
 | Duration | `_duration` | Duration of the last session | s (displayed as min) | ✅ Tested |
 | Last Scheme | `_last_scheme` | Brushing programme used in the last session – human-readable name (e.g. "Clean", "Sensitive") from the pNum lookup table; falls back to the raw number if unknown | – | ✅ Tested |
 | Pressure | `_pressure` | Average brushing pressure across all tooth zones in the last session (raw ADC value 0–255) | – | ⚠️ Unconfirmed |
+| Coverage | `_coverage` | Percentage of tooth zones adequately cleaned in the last session (0–100 %). Uses the official Oclean app threshold: zones with raw pressure > 100 count as covered. | % | ✅ Tested |
 | Cleaned Zones | `_cleaned_zones` | Number of tooth zones (0–8) with non-zero pressure in the last session; individual per-zone pressures available as entity attributes | – | ⚠️ Unconfirmed |
 | Zone \<name\> | `_zone_<name>` | Pressure for one individual tooth zone in the last session (raw value 0–255; 0 = not brushed / no data). Eight sensors, one per zone: `upper_left_out`, `upper_left_in`, `lower_left_out`, `lower_left_in`, `upper_right_out`, `upper_right_in`, `lower_right_out`, `lower_right_in` | – | ⚠️ Unconfirmed |
 
