@@ -68,6 +68,15 @@
     "switch": {
       "area_remind": {
         "name": "Recordatorio de zonas"
+      },
+      "over_pressure": {
+        "name": "Alerta de sobrepresión"
+      },
+      "remind_switch": {
+        "name": "Recordatorio de cepillado"
+      },
+      "running_switch": {
+        "name": "Apagado automático"
       }
     },
     "number": {

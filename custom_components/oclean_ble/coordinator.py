@@ -45,6 +45,8 @@ from .const import (
     CMD_CLEAR_BRUSH_HEAD,
     CMD_OVER_PRESSURE,
     CMD_QUERY_RUNNING_DATA_NEXT,
+    CMD_REMIND_SWITCH,
+    CMD_RUNNING_SWITCH,
     CMD_SET_BRUSH_SCHEME_CONT,
     DATA_BATTERY,
     DATA_BRUSH_HEAD_USAGE,
@@ -389,6 +391,8 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         # User-controlled device settings (write-only; state persisted locally).
         self._area_remind: bool | None = None
         self._over_pressure: bool | None = None
+        self._remind_switch: bool | None = None
+        self._running_switch: bool | None = None
         self._brush_head_max_days: int | None = None
         # Software brush-head session counter: counts new sessions since the last
         # brush-head reset when the device does not expose a hardware counter via 0302.
@@ -551,6 +555,16 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         return self._over_pressure
 
     @property
+    def remind_switch(self) -> bool | None:
+        """Return the last-written remind-switch state, or None if never set."""
+        return self._remind_switch
+
+    @property
+    def running_switch(self) -> bool | None:
+        """Return the last-written running-switch state, or None if never set."""
+        return self._running_switch
+
+    @property
     def brush_head_max_days(self) -> int | None:
         """Return the last-written brush-head max-lifetime in days, or None if never set."""
         return self._brush_head_max_days
@@ -601,6 +615,54 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
             with contextlib.suppress(Exception):
                 await client.disconnect()
         self._over_pressure = enabled
+        await self._save_store()
+
+    async def async_set_remind_switch(self, enabled: bool) -> None:
+        """Connect and write CMD_REMIND_SWITCH (0239) to the device.
+
+        Called by the Brushing Reminder switch entity.  State is persisted so
+        the switch shows the correct value after HA restarts.
+        """
+        ble_device = self._resolve_ble_device()
+        client = await establish_connection(
+            BleakClient,
+            ble_device,
+            self._device_name,
+            max_attempts=3,
+        )
+        cmd = CMD_REMIND_SWITCH + bytes([0x01 if enabled else 0x00])
+        try:
+            await asyncio.sleep(BLE_POST_CONNECT_DELAY)
+            await self._write_standalone(client, cmd)
+            self._log.info("remind switch set to %s", enabled)
+        finally:
+            with contextlib.suppress(Exception):
+                await client.disconnect()
+        self._remind_switch = enabled
+        await self._save_store()
+
+    async def async_set_running_switch(self, enabled: bool) -> None:
+        """Connect and write CMD_RUNNING_SWITCH (0240) to the device.
+
+        Called by the Auto Power-Off Timer switch entity.  State is persisted so
+        the switch shows the correct value after HA restarts.
+        """
+        ble_device = self._resolve_ble_device()
+        client = await establish_connection(
+            BleakClient,
+            ble_device,
+            self._device_name,
+            max_attempts=3,
+        )
+        cmd = CMD_RUNNING_SWITCH + bytes([0x01 if enabled else 0x00])
+        try:
+            await asyncio.sleep(BLE_POST_CONNECT_DELAY)
+            await self._write_standalone(client, cmd)
+            self._log.info("running switch set to %s", enabled)
+        finally:
+            with contextlib.suppress(Exception):
+                await client.disconnect()
+        self._running_switch = enabled
         await self._save_store()
 
     async def async_set_brush_head_max_days(self, days: int) -> None:
@@ -764,6 +826,8 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
             self._last_session_ts = stored.get("last_session_ts", 0)
             self._area_remind = stored.get("area_remind")
             self._over_pressure = stored.get("over_pressure")
+            self._remind_switch = stored.get("remind_switch")
+            self._running_switch = stored.get("running_switch")
             self._brush_head_max_days = stored.get("brush_head_max_days")
             self._brush_head_sw_count = stored.get("brush_head_sw_count", 0)
             self._active_scheme_pnum = stored.get("active_scheme_pnum")
@@ -786,6 +850,8 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
                 "last_session_ts": self._last_session_ts,
                 "area_remind": self._area_remind,
                 "over_pressure": self._over_pressure,
+                "remind_switch": self._remind_switch,
+                "running_switch": self._running_switch,
                 "brush_head_max_days": self._brush_head_max_days,
                 "brush_head_sw_count": self._brush_head_sw_count,
                 "active_scheme_pnum": self._active_scheme_pnum,
