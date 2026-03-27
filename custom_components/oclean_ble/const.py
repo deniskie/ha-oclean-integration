@@ -151,6 +151,7 @@ DATA_MODEL_ID = "model_id"  # Model Number from BLE DIS (e.g. "OCLEANY3M")
 DATA_HW_REVISION = "hw_revision"  # Hardware Revision from BLE DIS (e.g. "Rev.D")
 DATA_SW_VERSION = "sw_version"  # Software Revision from BLE DIS (e.g. "1.0.0.20")
 DATA_LAST_BRUSH_AREAS = "last_brush_areas"  # dict: zone_name → pressure (0-255)
+DATA_LAST_BRUSH_COVERAGE = "last_brush_coverage"  # int 0-100: percentage of zones adequately cleaned
 DATA_LAST_BRUSH_PNUM = "last_brush_pnum"  # int (brush-scheme ID; see SCHEME_NAMES below)
 DATA_IS_BRUSHING = "is_brushing"  # bool: True while brushing (from 0303 byte 0 bit 0)
 DATA_LAST_BRUSH_GESTURE_CODE = "last_brush_gesture_code"  # int 0-255 (APK: byte 14)
@@ -159,6 +160,9 @@ DATA_LAST_BRUSH_GESTURE_ARRAY = "last_brush_gesture_array"  # list[int] len=13 (
 DATA_LAST_BRUSH_POWER_ARRAY = "last_brush_power_array"  # list[int] len=12, each 0-3 (nibbles from bytes 30-32)
 DATA_BRUSH_MODE = "brush_mode"  # int: active brushing mode number from 0302 device-settings response (byte 5)
 DATA_LAST_POLL = "last_poll"  # Unix timestamp (seconds) of the last successful BLE poll
+
+# Coverage calculation threshold (APK: C2928q.java — raw_pressure * 4 > 400 → pressure > 100)
+COVERAGE_PRESSURE_THRESHOLD = 100
 
 # Tooth area zone names in BrushAreaType enum order (value 1 → index 0 … value 8 → index 7)
 # Source: com/ocleanble/lib/device/BrushAreaType.java
