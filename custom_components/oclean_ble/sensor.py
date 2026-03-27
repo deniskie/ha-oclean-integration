@@ -86,6 +86,7 @@ SENSOR_DESCRIPTIONS: tuple[SensorEntityDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=PERCENTAGE,
         icon="mdi:tooth",
+        entity_category=EntityCategory.DIAGNOSTIC,
         # 0–100 %: zones with pressure > 100 (APK threshold) / 8 total zones
     ),
     SensorEntityDescription(
