@@ -1684,21 +1684,25 @@ class TestParseT1C3352gRecord:
         record[1] = 0  # month=0 is invalid for datetime
         assert parse_t1_c3352g_record(bytes(record)) == {}
 
-    def test_gesture_code_from_byte19(self):
-        """gestureCode comes from byte 19, confirmed via APK C3352g_fallback.java trace."""
+    def test_gesture_code_from_byte30_bits(self):
+        """gestureCode is a 2-bit value from byte 30 position 2 (APK: a.b.a(byte30, 2))."""
         record = bytearray(_make_c3352g_record())
-        record[14] = 0x1E  # old wrong byte (30) – must NOT become gestureCode
-        record[19] = 0x14  # correct byte (20) – must become gestureCode
+        # gestureCode = bits 3-2 of byte 30: value 2 → byte 30 = 0b0000_10_00 = 0x08
+        record[30] = 0x08
         result = parse_t1_c3352g_record(bytes(record))
-        assert result["last_brush_gesture_code"] == 20
+        assert result["last_brush_gesture_code"] == 2
+        # value 3 → byte 30 = 0b0000_11_00 = 0x0C
+        record[30] = 0x0C
+        result = parse_t1_c3352g_record(bytes(record))
+        assert result["last_brush_gesture_code"] == 3
 
-    def test_gesture_array_12_elements_from_byte19(self):
-        """gestureArray is 12 bytes starting at byte 19 (confirmed APK)."""
+    def test_gesture_array_8_elements_from_byte23(self):
+        """gestureArray is 8 bytes (23-30) padded to 12 (APK: m18f bytes 23-30)."""
         record = bytearray(_make_c3352g_record())
-        for i in range(12):
-            record[19 + i] = i + 1
+        for i in range(8):
+            record[23 + i] = i + 1
         result = parse_t1_c3352g_record(bytes(record))
-        assert result["last_brush_gesture_array"] == list(range(1, 13))
+        assert result["last_brush_gesture_array"] == [1, 2, 3, 4, 5, 6, 7, 8, 0, 0, 0, 0]
 
     def test_pressure_ratio_from_bytes11_to_15(self):
         """pressureRatio comes from bytes 11-15 (confirmed APK)."""
@@ -1740,7 +1744,7 @@ class TestParseT1C3352gRecord:
         assert result["last_brush_score"] == 98
         assert result["last_brush_duration"] == 150
         assert result["last_brush_pnum"] == 76
-        assert result["last_brush_gesture_code"] == 20
+        assert result["last_brush_gesture_code"] == 3  # byte 30 = 0x0e, bits 3-2 = 3
         assert result["last_brush_pressure_ratio"] == [0, 1, 4, 30, 0]
         assert "last_brush_areas" not in result
         assert "last_brush_pressure" not in result

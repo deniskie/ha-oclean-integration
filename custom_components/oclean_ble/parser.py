@@ -375,11 +375,13 @@ def _parse_m18f_record(record: bytes) -> dict[str, Any]:
         coverage_pct = round(zones_active / len(pressure_ratio) * 100)
         result[DATA_LAST_BRUSH_COVERAGE] = coverage_pct
 
-        # gestureCode (APK: byte 14, overlaps pressureRatio[3])
-        # pressureCode = m14b(bytes 11-15): maps dominant zone to a 50-90 score.
-        result[DATA_LAST_BRUSH_GESTURE_CODE] = int(record[14])
+        # APK m18f format (AbstractC0002b lines 203-322):
+        # gestureCode:  2-bit value at byte 30 position 2 (APK: a.b.a(byte30, 2))
+        # gestureArray: bytes 23-30 (8 values, padded to 12 with zeros)
+        # powerArray:   2-bit nibbles from bytes 30-32 (APK: m13a / a.b.a)
+        result[DATA_LAST_BRUSH_GESTURE_CODE] = (record[30] >> 2) & 0x3
         result[DATA_LAST_BRUSH_PRESSURE_RATIO] = pressure_ratio
-        result[DATA_LAST_BRUSH_GESTURE_ARRAY] = list(record[18:31])  # bytes 18-30 inclusive
+        result[DATA_LAST_BRUSH_GESTURE_ARRAY] = list(record[23:31]) + [0, 0, 0, 0]
         result[DATA_LAST_BRUSH_POWER_ARRAY] = (
             _extract_nibbles(record[30]) + _extract_nibbles(record[31]) + _extract_nibbles(record[32])
         )
@@ -531,15 +533,15 @@ def parse_t1_c3352g_record(record: bytes) -> dict[str, Any]:
       bytes 9-10: validDuration BE              ✓
       bytes 11-15: pressureRatio[0..4]          ✓ (5 pressure-bucket counts)
       byte 16:   unused                         ✓
-      byte 17:   (unknown)
-      byte 18:   unused                         ✓
-      byte 19:   gestureCode                    ✓ (= gestureArray[0])
-      bytes 19-30: gestureArray[0..11]          ✓ (12 gesture values)
-      bytes 30-32: powerArray nibble source     ?
+      byte 17:   timezone index                 ✓ (discarded)
+      bytes 18-22: reserved
+      bytes 23-30: gestureArray[0..7]           ✓ (8 values, padded to 12)
+      byte 30:   also contains gestureCode      ✓ (2-bit at position 2)
+      bytes 30-32: powerArray nibble source     ✓ (2-bit values via m13a)
       byte 33:   score (0-100, 0xFF = absent)   ✓
-      bytes 34-41: reserved                     ?
+      byte 34:   point (not used)               ✓
 
-    NOTE: bytes 11-19 are **pressureRatio / gestureCode** data, NOT tooth-zone
+    NOTE: bytes 11-15 are **pressureRatio** data, NOT tooth-zone
     area coverage.  Per-zone area data arrives via separate 021f push
     notifications and is handled by _parse_brush_areas_y3p_response().
 
@@ -586,15 +588,15 @@ def parse_t1_c3352g_record(record: bytes) -> dict[str, Any]:
         if 0 < score <= 100:
             result[DATA_LAST_BRUSH_SCORE] = score
 
-        # pressureRatio: bytes 11-15 (5 pressure-bucket counts, confirmed APK)
-        # gestureCode:   byte 19 (confirmed APK: r15=byte[19], JSON key "gestureCode")
-        # gestureArray:  bytes 19-30 (12 values, gestureCode is element 0)
-        # powerArray:    nibbles from bytes 30-32
-        # NOTE: bytes 11-19 are pressure/gesture data, NOT tooth-zone areas.
+        # APK m18f format – same 42-byte layout as parse_t1_c3385w0_record.
+        # gestureCode:  2-bit value at byte 30 position 2 (APK: a.b.a(byte30, 2))
+        # gestureArray: bytes 23-30 (8 values, padded to 12 with zeros)
+        # powerArray:   2-bit nibbles from bytes 30-32 (APK: m13a / a.b.a)
+        # NOTE: bytes 11-15 are pressureRatio, NOT tooth-zone areas.
         #       Area data comes from 021f push notifications only.
-        result[DATA_LAST_BRUSH_GESTURE_CODE] = int(record[19])
+        result[DATA_LAST_BRUSH_GESTURE_CODE] = (record[30] >> 2) & 0x3
         result[DATA_LAST_BRUSH_PRESSURE_RATIO] = list(record[11:16])
-        result[DATA_LAST_BRUSH_GESTURE_ARRAY] = list(record[19:31])
+        result[DATA_LAST_BRUSH_GESTURE_ARRAY] = list(record[23:31]) + [0, 0, 0, 0]
         result[DATA_LAST_BRUSH_POWER_ARRAY] = (
             _extract_nibbles(record[30]) + _extract_nibbles(record[31]) + _extract_nibbles(record[32])
         )
@@ -689,10 +691,13 @@ def parse_y3p_stream_record(record: bytes) -> dict[str, Any]:
         if 0 < score <= 100:
             result[DATA_LAST_BRUSH_SCORE] = score
 
-        # gestureCode / pressureRatio / gestureArray / powerArray (APK: C3385w0_fallback)
-        result[DATA_LAST_BRUSH_GESTURE_CODE] = int(record[14])
+        # APK m18f format – same 42-byte layout as parse_t1_c3385w0_record.
+        # gestureCode:  2-bit value at byte 30 position 2 (APK: a.b.a(byte30, 2))
+        # gestureArray: bytes 23-30 (8 values, padded to 12 with zeros)
+        # powerArray:   2-bit nibbles from bytes 30-32 (APK: m13a / a.b.a)
+        result[DATA_LAST_BRUSH_GESTURE_CODE] = (record[30] >> 2) & 0x3
         result[DATA_LAST_BRUSH_PRESSURE_RATIO] = list(record[11:16])
-        result[DATA_LAST_BRUSH_GESTURE_ARRAY] = list(record[18:31])
+        result[DATA_LAST_BRUSH_GESTURE_ARRAY] = list(record[23:31]) + [0, 0, 0, 0]
         result[DATA_LAST_BRUSH_POWER_ARRAY] = (
             _extract_nibbles(record[30]) + _extract_nibbles(record[31]) + _extract_nibbles(record[32])
         )
