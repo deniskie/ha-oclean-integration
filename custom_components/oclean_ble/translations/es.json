@@ -44,6 +44,11 @@
     }
   },
   "entity": {
+    "image": {
+      "brush_coverage": {
+        "name": "Cobertura de cepillado"
+      }
+    },
     "button": {
       "reset_brush_head": {
         "name": "Reiniciar cabezal"
@@ -168,6 +173,18 @@
       },
       "zone_lower_right_in": {
         "name": "Zona Inferior Derecha Interior"
+      },
+      "zone_upper_center_out": {
+        "name": "Zona Superior Centro Exterior"
+      },
+      "zone_upper_center_in": {
+        "name": "Zona Superior Centro Interior"
+      },
+      "zone_lower_center_out": {
+        "name": "Zona Inferior Centro Exterior"
+      },
+      "zone_lower_center_in": {
+        "name": "Zona Inferior Centro Interior"
       }
     }
   },

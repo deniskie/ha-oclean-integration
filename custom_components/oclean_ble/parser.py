@@ -43,6 +43,7 @@ from .const import (
     RESP_UNKNOWN_4B00,
     RESP_UNKNOWN_5400,
     TOOTH_AREA_NAMES,
+    area_names_for_count,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -89,20 +90,27 @@ def _build_utc_timestamp(device_dt: datetime.datetime, tz_offset_quarters: int) 
 
 def _build_area_stats(
     area_pressures: bytes,
+    zone_names: tuple[str, ...] | None = None,
 ) -> tuple[dict[str, int], int, int, int]:
     """Build area-pressure dict, cleaned-zone count, average pressure, and coverage %.
 
     Coverage follows the official Oclean app logic (APK: C2928q.java):
     a zone counts as adequately cleaned when raw_pressure > COVERAGE_PRESSURE_THRESHOLD.
 
+    *zone_names* defaults to auto-detection based on ``len(area_pressures)``
+    (8 → standard 8-zone, 12 → 12-zone YD-series).
+
     Returns:
         (area_dict, zones_cleaned, avg_pressure, coverage_pct)
     """
-    area_dict: dict[str, int] = {name: int(area_pressures[i]) for i, name in enumerate(TOOTH_AREA_NAMES)}
-    zones_cleaned = sum(1 for v in area_pressures if v > 0)
-    zones_covered = sum(1 for v in area_pressures if v > COVERAGE_PRESSURE_THRESHOLD)
-    avg_pressure = round(sum(area_pressures) / len(area_pressures))
-    coverage_pct = round(zones_covered / len(area_pressures) * 100)
+    if zone_names is None:
+        zone_names = area_names_for_count(len(area_pressures))
+    count = min(len(area_pressures), len(zone_names))
+    area_dict: dict[str, int] = {zone_names[i]: int(area_pressures[i]) for i in range(count)}
+    zones_cleaned = sum(1 for v in area_pressures[:count] if v > 0)
+    zones_covered = sum(1 for v in area_pressures[:count] if v > COVERAGE_PRESSURE_THRESHOLD)
+    avg_pressure = round(sum(area_pressures[:count]) / count) if count else 0
+    coverage_pct = round(zones_covered / count * 100) if count else 0
     return area_dict, zones_cleaned, avg_pressure, coverage_pct
 
 
@@ -125,12 +133,15 @@ def _device_datetime(
     return datetime.datetime(year, month, day, hour, minute, second)
 
 
-def parse_notification(data: bytes) -> dict[str, Any]:
+def parse_notification(data: bytes, *, dental_cast: int = 8) -> dict[str, Any]:
     """Parse a BLE notification from the Oclean device.
 
     Dispatches to the appropriate handler via the ``_PARSERS`` registry
     (Strategy pattern). Unknown data is logged as hex for empirical
     analysis during testing.
+
+    *dental_cast* (8 or 12) is forwarded to area-pressure parsers so they
+    extract the correct number of zone bytes.
     """
     if len(data) < 2:
         _LOGGER.debug("Oclean notification too short: %s", data.hex())
@@ -138,7 +149,7 @@ def parse_notification(data: bytes) -> dict[str, Any]:
 
     handler = _PARSERS.get(data[:2])
     if handler is not None:
-        return handler(data[2:])
+        return handler(data[2:], dental_cast=dental_cast)
 
     # Try JSON fallback (brush session data may arrive as JSON string)
     try:
@@ -230,7 +241,7 @@ def _parse_xx03_session_record(data: bytes) -> dict[str, Any]:
         return {}
 
 
-def _parse_state_response(payload: bytes) -> dict[str, Any]:
+def _parse_state_response(payload: bytes, **kwargs: Any) -> dict[str, Any]:
     """Parse a 0303 state response payload (bytes after the 2-byte type marker).
 
     Observed byte layout on Oclean X (response to CMD_QUERY_STATUS 0303):
@@ -278,7 +289,7 @@ def _parse_state_response(payload: bytes) -> dict[str, Any]:
     return result
 
 
-def _parse_info_response(payload: bytes) -> dict[str, Any]:
+def _parse_info_response(payload: bytes, **kwargs: Any) -> dict[str, Any]:
     """Parse a 0308 info response payload (CMD_QUERY_RUNNING_DATA).
 
     Two distinct record formats exist in the firmware:
@@ -760,7 +771,7 @@ def _parse_t1_ocleanx20_inline(payload: bytes) -> dict[str, Any]:
         return {}
 
 
-def _parse_info_t1_response(payload: bytes) -> dict[str, Any]:
+def _parse_info_t1_response(payload: bytes, **kwargs: Any) -> dict[str, Any]:
     """Parse a 0307 Type-1 running-data push payload (Oclean X / OCLEANY3M).
 
     The device responds in several modes depending on model and session state:
@@ -976,7 +987,7 @@ def _parse_extended_running_data_record(data: bytes) -> dict[str, Any]:
         return {}
 
 
-def _parse_k3guide_response(payload: bytes) -> dict[str, Any]:
+def _parse_k3guide_response(payload: bytes, **kwargs: Any) -> dict[str, Any]:
     """Parse 0340 K3GUIDE real-time zone guidance notification.
 
     Sent by K3-series devices during active brushing to indicate the current
@@ -1011,13 +1022,13 @@ def _parse_k3guide_response(payload: bytes) -> dict[str, Any]:
     return {}
 
 
-def _handle_device_info_ack(payload: bytes) -> dict[str, Any]:
+def _handle_device_info_ack(payload: bytes, **kwargs: Any) -> dict[str, Any]:
     """Handle 0202 device-info ACK (no sensor data payload)."""
     _LOGGER.debug("Oclean device-info ACK: %s", payload.hex())
     return {}
 
 
-def _parse_device_settings_response(payload: bytes) -> dict[str, Any]:
+def _parse_device_settings_response(payload: bytes, **kwargs: Any) -> dict[str, Any]:
     """Parse 0302 device-settings response payload (bytes after the 2-byte type marker).
 
     Sent by device in response to CMD_QUERY_DEVICE_SETTINGS (030201).
@@ -1080,7 +1091,7 @@ def _parse_device_settings_response(payload: bytes) -> dict[str, Any]:
     return result
 
 
-def _parse_score_t1_response(payload: bytes) -> dict[str, Any]:
+def _parse_score_t1_response(payload: bytes, **kwargs: Any) -> dict[str, Any]:
     """Parse 0000 score-push notification (Type-1 devices: Oclean X series).
 
     Observed byte layout (reverse-engineered from BLE log analysis 2026-02-24):
@@ -1105,7 +1116,7 @@ def _parse_score_t1_response(payload: bytes) -> dict[str, Any]:
     return {DATA_LAST_BRUSH_SCORE: score_clamped}
 
 
-def _parse_session_meta_t1_response(payload: bytes) -> dict[str, Any]:
+def _parse_session_meta_t1_response(payload: bytes, **kwargs: Any) -> dict[str, Any]:
     """Parse 5a00 session-metadata push (Type-1 devices: Oclean X series).
 
     Observed byte layout (reverse-engineered from BLE log analysis 2026-02-24):
@@ -1160,7 +1171,7 @@ def _parse_session_meta_t1_response(payload: bytes) -> dict[str, Any]:
         return {}
 
 
-def _parse_brush_areas_t1_response(payload: bytes) -> dict[str, Any]:
+def _parse_brush_areas_t1_response(payload: bytes, *, dental_cast: int = 8, **kwargs: Any) -> dict[str, Any]:
     """Parse 2604 per-tooth-area data (Type-1 devices: Oclean X series).
 
     Observed byte layout (reverse-engineered from BLE log analysis 2026-02-24):
@@ -1172,11 +1183,12 @@ def _parse_brush_areas_t1_response(payload: bytes) -> dict[str, Any]:
                   (AREA_LIFT_UP_OUT … AREA_RIGHT_DOWN_IN; same as extended 0308 format)
       bytes 14+:  additional zone data (purpose unknown)
     """
-    if len(payload) < 14:
-        _LOGGER.debug("Oclean 2604 too short (%d bytes): %s", len(payload), payload.hex())
+    area_end = 6 + dental_cast  # 14 for 8-zone, 18 for 12-zone
+    if len(payload) < area_end:
+        _LOGGER.debug("Oclean 2604 too short (%d bytes, need %d): %s", len(payload), area_end, payload.hex())
         return {}
 
-    area_pressures = payload[6:14]
+    area_pressures = payload[6:area_end]
     area_dict, zones_cleaned, avg_pressure, coverage_pct = _build_area_stats(area_pressures)
 
     result: dict[str, Any] = {
@@ -1186,19 +1198,18 @@ def _parse_brush_areas_t1_response(payload: bytes) -> dict[str, Any]:
     }
 
     _LOGGER.debug(
-        "Oclean 2604 areas: %s zones_cleaned=%d/8 coverage=%d%% avg_pressure=%d b0=0x%02x b4=0x%02x (raw: %s)",
+        "Oclean 2604 areas: %s zones_cleaned=%d/%d coverage=%d%% avg_pressure=%d (raw: %s)",
         area_dict,
         zones_cleaned,
+        dental_cast,
         coverage_pct,
         avg_pressure,
-        payload[0],
-        payload[4],
         payload.hex(),
     )
     return result
 
 
-def _parse_0314_response(payload: bytes) -> dict[str, Any]:
+def _parse_0314_response(payload: bytes, **kwargs: Any) -> dict[str, Any]:
     """Log a 0314 extended-data response for protocol research.
 
     The 0314 command (CMD_QUERY_EXTENDED_DATA_T1) is sent to SEND_BRUSH_CMD_UUID
@@ -1215,7 +1226,7 @@ def _parse_0314_response(payload: bytes) -> dict[str, Any]:
     return {}
 
 
-def _log_5400_response(payload: bytes) -> dict[str, Any]:
+def _log_5400_response(payload: bytes, **kwargs: Any) -> dict[str, Any]:
     """Log all bytes of an 0x5400 push notification for empirical protocol analysis.
 
     This notification type is not present in the Oclean APK dispatch table –
@@ -1264,7 +1275,7 @@ def _log_5400_response(payload: bytes) -> dict[str, Any]:
     return {}
 
 
-def _log_4b00_response(payload: bytes) -> dict[str, Any]:
+def _log_4b00_response(payload: bytes, **kwargs: Any) -> dict[str, Any]:
     """Log all bytes of a 0x4B00 push notification for empirical protocol analysis.
 
     Observed on OCLEANY3MH (issue #19, 2026-03-10, sw=1.0.0.3).
@@ -1287,7 +1298,7 @@ def _log_4b00_response(payload: bytes) -> dict[str, Any]:
     return {}
 
 
-def _parse_brush_areas_y3p_response(payload: bytes) -> dict[str, Any]:
+def _parse_brush_areas_y3p_response(payload: bytes, *, dental_cast: int = 8, **kwargs: Any) -> dict[str, Any]:
     """Parse 021f per-tooth-area pressure data (OCLEANY3P / Oclean X Pro Elite).
 
     Analogous to 2604 on OCLEANY3M.  Byte layout confirmed 2026-03-07 from
@@ -1307,11 +1318,12 @@ def _parse_brush_areas_y3p_response(payload: bytes) -> dict[str, Any]:
                   (AREA_LIFT_UP_OUT … AREA_RIGHT_DOWN_IN)
       bytes 14+:  additional zone data
     """
-    if len(payload) < 14:
-        _LOGGER.debug("Oclean 021f too short (%d bytes): %s", len(payload), payload.hex())
+    area_end = 6 + dental_cast
+    if len(payload) < area_end:
+        _LOGGER.debug("Oclean 021f too short (%d bytes, need %d): %s", len(payload), area_end, payload.hex())
         return {}
 
-    area_pressures = payload[6:14]
+    area_pressures = payload[6:area_end]
     area_dict, zones_cleaned, avg_pressure, coverage_pct = _build_area_stats(area_pressures)
 
     result: dict[str, Any] = {
@@ -1321,9 +1333,10 @@ def _parse_brush_areas_y3p_response(payload: bytes) -> dict[str, Any]:
     }
 
     _LOGGER.debug(
-        "Oclean 021f areas: %s zones_cleaned=%d/8 coverage=%d%% avg_pressure=%d (raw: %s)",
+        "Oclean 021f areas: %s zones_cleaned=%d/%d coverage=%d%% avg_pressure=%d (raw: %s)",
         area_dict,
         zones_cleaned,
+        dental_cast,
         coverage_pct,
         avg_pressure,
         payload.hex(),
@@ -1331,7 +1344,7 @@ def _parse_brush_areas_y3p_response(payload: bytes) -> dict[str, Any]:
     return result
 
 
-def _parse_session_meta_y3p_response(payload: bytes) -> dict[str, Any]:
+def _parse_session_meta_y3p_response(payload: bytes, **kwargs: Any) -> dict[str, Any]:
     """Parse 5100 session-metadata push (OCLEANY3P / Oclean X Pro Elite).
 
     Analogous to 5a00 on OCLEANY3M but without an explicit year byte.
@@ -1397,7 +1410,7 @@ def _parse_session_meta_y3p_response(payload: bytes) -> dict[str, Any]:
 
 # Strategy registry: 2-byte response-type prefix → handler function.
 # To add support for a new notification type, add one entry here.
-_PARSERS: dict[bytes, Callable[[bytes], dict[str, Any]]] = {
+_PARSERS: dict[bytes, Callable[..., dict[str, Any]]] = {
     RESP_STATE: _parse_state_response,
     RESP_DEVICE_SETTINGS: _parse_device_settings_response,
     RESP_INFO: _parse_info_response,
