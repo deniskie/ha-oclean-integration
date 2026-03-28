@@ -33,6 +33,7 @@ _INTEGRATION_VERSION = _MANIFEST.get("version", "unknown")
 PLATFORMS: list[Platform] = [
     Platform.BINARY_SENSOR,
     Platform.BUTTON,
+    Platform.DATE,
     Platform.NUMBER,
     Platform.SELECT,
     Platform.SENSOR,

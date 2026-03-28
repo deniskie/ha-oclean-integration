@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from homeassistant.components.select import SelectEntity
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import (
@@ -43,7 +43,12 @@ async def async_setup_entry(
     coordinator: OcleanCoordinator = hass.data[DOMAIN][entry.entry_id]
     mac = entry.data[CONF_MAC_ADDRESS]
     device_name = entry.data.get(CONF_DEVICE_NAME, "Oclean")
-    async_add_entities([OcleanSchemeSelect(coordinator, mac, device_name)])
+    async_add_entities(
+        [
+            OcleanSchemeSelect(coordinator, mac, device_name),
+            OcleanBirthdaySexSelect(coordinator, mac, device_name),
+        ]
+    )
 
 
 class OcleanSchemeSelect(OcleanEntity, SelectEntity):
@@ -119,4 +124,46 @@ class OcleanSchemeSelect(OcleanEntity, SelectEntity):
         if pnum is None:
             return
         await self.coordinator.async_set_brush_scheme(pnum)
+        self.async_write_ha_state()
+
+
+# Mapping: option string → sex integer (matches APK UserTagInfoEntity.getSex())
+_SEX_OPTIONS: dict[str, int] = {
+    "unknown": 0,
+    "male": 1,
+    "female": 2,
+}
+_SEX_BY_INT: dict[int, str] = {v: k for k, v in _SEX_OPTIONS.items()}
+
+
+class OcleanBirthdaySexSelect(OcleanEntity, SelectEntity):
+    """Select entity for setting the child's sex for the birthday/child-mode feature.
+
+    Together with the Birthday date entity this configures CMD 0211.
+    State is assumed (write-only) and persisted locally.
+    """
+
+    _attr_assumed_state = True
+    _attr_icon = "mdi:gender-male-female"
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_translation_key = "birthday_sex"
+    _attr_options = list(_SEX_OPTIONS.keys())
+
+    def __init__(
+        self,
+        coordinator: OcleanCoordinator,
+        mac: str,
+        device_name: str,
+    ) -> None:
+        super().__init__(coordinator, mac, device_name, "birthday_sex")
+
+    @property
+    def current_option(self) -> str | None:
+        return _SEX_BY_INT.get(self.coordinator.birthday_sex)
+
+    async def async_select_option(self, option: str) -> None:
+        sex = _SEX_OPTIONS.get(option)
+        if sex is None:
+            return
+        await self.coordinator.async_set_birthday(sex=sex)
         self.async_write_ha_state()

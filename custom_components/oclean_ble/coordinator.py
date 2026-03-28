@@ -47,6 +47,7 @@ from .const import (
     CMD_QUERY_RUNNING_DATA_NEXT,
     CMD_REMIND_SWITCH,
     CMD_RUNNING_SWITCH,
+    CMD_SET_BIRTHDAY,
     CMD_SET_BRUSH_SCHEME_CONT,
     DATA_BATTERY,
     DATA_BRUSH_HEAD_USAGE,
@@ -394,6 +395,9 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         self._remind_switch: bool | None = None
         self._running_switch: bool | None = None
         self._brush_head_max_days: int | None = None
+        # Child birthday / user-info (CMD 0211).  sex: 0=unknown 1=male 2=female.
+        self._birthday_date: datetime.date | None = None
+        self._birthday_sex: int = 1
         # Software brush-head session counter: counts new sessions since the last
         # brush-head reset when the device does not expose a hardware counter via 0302.
         self._brush_head_sw_count: int = 0
@@ -690,9 +694,70 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         await self._save_store()
 
     @property
+    def birthday_date(self) -> datetime.date | None:
+        """Return the last-written birthday date, or None if never set."""
+        return self._birthday_date
+
+    @property
+    def birthday_sex(self) -> int:
+        """Return the last-written sex value (0=unknown, 1=male, 2=female)."""
+        return self._birthday_sex
+
+    @property
     def active_scheme_pnum(self) -> int | None:
         """Return the pnum of the last-applied brush scheme, or None if never set."""
         return self._active_scheme_pnum
+
+    async def async_set_birthday(
+        self,
+        birthday: datetime.date | None = None,
+        sex: int | None = None,
+    ) -> None:
+        """Persist birthday/sex and write CMD_SET_BIRTHDAY (0211) to the device.
+
+        Byte layout (4 bytes after the 2-byte prefix):
+          [0] sex       – 0=unknown, 1=male, 2=female (clamped 0-2)
+          [1] age       – years since birth, clamped to [3, 18]
+          [2] month     – 1-12
+          [3] day       – 1-31
+
+        Either argument may be omitted to update only one of the two values.
+        The BLE command is only sent when a birthday date is available.
+        Source: C3376s.Z / mo5315Z + DateUtils.getBirthdayInfo (APK).
+        """
+        if birthday is not None:
+            self._birthday_date = birthday
+        if sex is not None:
+            self._birthday_sex = max(0, min(2, sex))
+        await self._save_store()
+
+        if self._birthday_date is None:
+            return  # nothing to send without a birthday
+
+        today = datetime.date.today()
+        age = max(3, min(18, today.year - self._birthday_date.year))
+        payload = bytes([self._birthday_sex, age, self._birthday_date.month, self._birthday_date.day])
+        cmd = CMD_SET_BIRTHDAY + payload
+
+        ble_device = self._resolve_ble_device()
+        client = await establish_connection(
+            BleakClient,
+            ble_device,
+            self._device_name,
+            max_attempts=3,
+        )
+        try:
+            await asyncio.sleep(BLE_POST_CONNECT_DELAY)
+            await self._write_standalone(client, cmd)
+            self._log.info(
+                "birthday set: date=%s sex=%d age=%d",
+                self._birthday_date,
+                self._birthday_sex,
+                age,
+            )
+        finally:
+            if client.is_connected:
+                await client.disconnect()
 
     async def async_set_brush_scheme(self, pnum: int) -> None:
         """Connect and send the SetBrushScheme command (0206) to the device.
@@ -831,6 +896,11 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
             self._brush_head_max_days = stored.get("brush_head_max_days")
             self._brush_head_sw_count = stored.get("brush_head_sw_count", 0)
             self._active_scheme_pnum = stored.get("active_scheme_pnum")
+            raw_birthday = stored.get("birthday_date")
+            if raw_birthday:
+                with contextlib.suppress(ValueError):
+                    self._birthday_date = datetime.date.fromisoformat(raw_birthday)
+            self._birthday_sex = stored.get("birthday_sex", 1)
             last_session = stored.get("last_session", {})
             if last_session:
                 self._last_raw.update(last_session)
@@ -855,6 +925,8 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
                 "brush_head_max_days": self._brush_head_max_days,
                 "brush_head_sw_count": self._brush_head_sw_count,
                 "active_scheme_pnum": self._active_scheme_pnum,
+                "birthday_date": self._birthday_date.isoformat() if self._birthday_date else None,
+                "birthday_sex": self._birthday_sex,
                 "last_session": last_session,
             }
         )

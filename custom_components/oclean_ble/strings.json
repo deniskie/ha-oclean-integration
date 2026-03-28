@@ -63,6 +63,19 @@
     "select": {
       "brush_scheme": {
         "name": "Brush Scheme"
+      },
+      "birthday_sex": {
+        "name": "Child Sex",
+        "state": {
+          "unknown": "Unknown",
+          "male": "Male",
+          "female": "Female"
+        }
+      }
+    },
+    "date": {
+      "birthday": {
+        "name": "Child Birthday"
       }
     },
     "switch": {
