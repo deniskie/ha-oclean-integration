@@ -26,6 +26,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import (
     CONF_DEVICE_NAME,
     CONF_MAC_ADDRESS,
+    DATA_DENTAL_CAST,
     DATA_LAST_BRUSH_AREAS,
     DOMAIN,
 )
@@ -83,69 +84,62 @@ def _tooth_positions(
     ]
 
 
-def _ellipse_arc_path(
-    cx: float,
-    cy: float,
-    rx: float,
-    ry: float,
-    start_deg: float,
-    end_deg: float,
-    segments: int = 40,
-) -> str:
-    """Return SVG path commands for a smooth elliptical arc."""
-    start_rad = math.radians(start_deg)
-    end_rad = math.radians(end_deg)
-    cmds: list[str] = []
-    for i in range(segments + 1):
-        t = start_rad + (end_rad - start_rad) * i / segments
-        x = cx + rx * math.cos(t)
-        y = cy + ry * math.sin(t)
-        cmds.append(f"{'M' if i == 0 else 'L'} {x:.1f} {y:.1f}")
-    return " ".join(cmds)
-
-
-def _build_clip_paths(
-    jaw: str,
-    cx: float,
-    cy: float,
-    rx: float,
-    ry: float,
-    start: float,
-    end: float,
-) -> tuple[str, str]:
-    """Return (outer_clip_def, inner_clip_def) SVG <clipPath> elements."""
-    # Extend the arc 15° beyond each end so endpoint teeth are fully covered.
-    arc = _ellipse_arc_path(cx, cy, rx, ry, start - 15, end + 15)
-
-    first_x = cx + rx * math.cos(math.radians(start - 15))
-    first_y = cy + ry * math.sin(math.radians(start - 15))
-
-    # Outer clip: full canvas minus the ellipse interior (even-odd).
-    outer_d = f"M 0 0 L {_W} 0 L {_W} {_H} L 0 {_H} Z {arc} L {first_x:.1f} {first_y:.1f} Z"
-    outer = f'<clipPath id="clip-{jaw}-outer"><path d="{outer_d}" clip-rule="evenodd"/></clipPath>'
-
-    # Inner clip: ellipse interior closed through the centre.
-    inner_d = f"{arc} L {cx:.1f} {cy:.1f} Z"
-    inner = f'<clipPath id="clip-{jaw}-inner"><path d="{inner_d}"/></clipPath>'
-    return outer, inner
-
-
 # ------------------------------------------------------------------
 # SVG generation
 # ------------------------------------------------------------------
 
 
-def _generate_svg(areas: dict[str, int]) -> str:
-    """Generate a complete SVG string for the given brush area pressures."""
-    defs: list[str] = []
-    elems: list[str] = []
+def _tooth_zone_map(
+    n_teeth: int,
+    jaw_name: str,
+    zone_count: int,
+) -> list[str]:
+    """Return a list mapping each tooth index to its section name (left/center/right).
 
-    # Left/right clip paths for clean vertical split at the centre line.
-    cx_mid = _W / 2
-    defs.append(f'<clipPath id="clip-left"><rect x="0" y="0" width="{cx_mid:.1f}" height="{_H}"/></clipPath>')
-    defs.append(
-        f'<clipPath id="clip-right"><rect x="{cx_mid:.1f}" y="0" width="{cx_mid:.1f}" height="{_H}"/></clipPath>'
-    )
+    Upper jaw arc: first half = left, second half = right (or left/center/right for 12).
+    Lower jaw arc: reversed (first half = right, second half = left).
+    """
+    if zone_count >= 12:
+        third = n_teeth // 3
+        sections = ["left"] * third + ["center"] * (n_teeth - 2 * third) + ["right"] * third
+    else:
+        mid = n_teeth // 2
+        sections = ["left"] * mid + ["right"] * (n_teeth - mid)
+    if jaw_name == "lower":
+        sections = list(reversed(sections))
+    return sections
+
+
+def _semicircle_path(
+    tx: float,
+    ty: float,
+    r: float,
+    cx: float,
+    cy: float,
+    *,
+    outer: bool,
+) -> str:
+    """SVG path for a semicircle split along the radial direction."""
+    angle = math.atan2(ty - cy, tx - cx)
+    perp = angle + math.pi / 2
+    p1x = tx + r * math.cos(perp)
+    p1y = ty + r * math.sin(perp)
+    p2x = tx - r * math.cos(perp)
+    p2y = ty - r * math.sin(perp)
+    sweep = 1 if outer else 0
+    return f"M {p1x:.1f} {p1y:.1f} A {r} {r} 0 0 {sweep} {p2x:.1f} {p2y:.1f} Z"
+
+
+def _generate_svg(areas: dict[str, int], zone_count: int = 8) -> str:
+    """Generate a complete SVG string for the given brush area pressures.
+
+    Uses per-tooth semicircles for the inner/outer split — no nested
+    clip-paths needed.  Each tooth is assigned to its section (left,
+    center, right) based on its position in the arc.
+
+    *zone_count* is 8 (default) or 12 for YD-series devices.
+    """
+    elems: list[str] = []
 
     for jaw_name, jaw in [("upper", _UPPER), ("lower", _LOWER)]:
         cx, cy = jaw["cx"], jaw["cy"]
@@ -153,49 +147,30 @@ def _generate_svg(areas: dict[str, int]) -> str:
         start, end = jaw["start"], jaw["end"]
 
         positions = _tooth_positions(cx, cy, rx, ry, start, end, _TEETH_PER_JAW)
-        mid = _TEETH_PER_JAW // 2
+        zone_map = _tooth_zone_map(_TEETH_PER_JAW, jaw_name, zone_count)
 
-        outer_clip, inner_clip = _build_clip_paths(jaw_name, cx, cy, rx, ry, start, end)
-        defs.append(outer_clip)
-        defs.append(inner_clip)
-
-        # Upper jaw: first half = left side, second half = right side.
-        # Lower jaw: first half = right side, second half = left side
-        # (the arc goes from right to left for the lower jaw).
-        if jaw_name == "upper":
-            sides = [("left", range(mid)), ("right", range(mid, _TEETH_PER_JAW))]
-        else:
-            sides = [("right", range(mid)), ("left", range(mid, _TEETH_PER_JAW))]
-
-        for side, indices in sides:
-            zone_out = f"{jaw_name}_{side}_out"
-            zone_in = f"{jaw_name}_{side}_in"
+        for idx, (tx, ty) in enumerate(positions):
+            section = zone_map[idx]
+            zone_out = f"{jaw_name}_{section}_out"
+            zone_in = f"{jaw_name}_{section}_in"
             color_out = _pressure_to_color(areas.get(zone_out, 0))
             color_in = _pressure_to_color(areas.get(zone_in, 0))
 
-            # Wrap each side in a left/right clip group.
-            elems.append(f'<g clip-path="url(#clip-{side})">')
+            # Grey background tooth.
+            elems.append(
+                f'<circle cx="{tx:.1f}" cy="{ty:.1f}" r="{_TOOTH_R}" '
+                f'fill="{_BG}" stroke="{_BG_STROKE}" stroke-width="0.3"/>'
+            )
 
-            for idx in indices:
-                tx, ty = positions[idx]
-                c = f'cx="{tx:.1f}" cy="{ty:.1f}" r="{_TOOTH_R}"'
+            # Outer half (semicircle facing away from arch centre).
+            if color_out:
+                d = _semicircle_path(tx, ty, _TOOTH_R, cx, cy, outer=True)
+                elems.append(f'<path d="{d}" fill="{color_out}" opacity="0.9"/>')
 
-                # Grey background tooth.
-                elems.append(f'<circle {c} fill="{_BG}" stroke="{_BG_STROKE}" stroke-width="0.3"/>')
-
-                # Coloured outer half (clip to outside of arch ellipse).
-                if color_out:
-                    elems.append(
-                        f'<circle {c} fill="{color_out}" clip-path="url(#clip-{jaw_name}-outer)" opacity="0.9"/>'
-                    )
-
-                # Coloured inner half (clip to inside of arch ellipse).
-                if color_in:
-                    elems.append(
-                        f'<circle {c} fill="{color_in}" clip-path="url(#clip-{jaw_name}-inner)" opacity="0.9"/>'
-                    )
-
-            elems.append("</g>")
+            # Inner half (semicircle facing toward arch centre).
+            if color_in:
+                d = _semicircle_path(tx, ty, _TOOTH_R, cx, cy, outer=False)
+                elems.append(f'<path d="{d}" fill="{color_in}" opacity="0.9"/>')
 
     # Divider line and labels.
     elems.append(
@@ -211,13 +186,11 @@ def _generate_svg(areas: dict[str, int]) -> str:
         f'font-size="13" fill="#BBB" text-anchor="middle">R</text>'
     )
 
-    defs_str = "\n    ".join(defs)
     elems_str = "\n  ".join(elems)
     return (
         f'<svg xmlns="http://www.w3.org/2000/svg"'
         f' viewBox="0 0 {_W} {_H}" width="{_W}" height="{_H}">\n'
         f'  <rect width="{_W}" height="{_H}" fill="white" rx="8"/>\n'
-        f"  <defs>\n    {defs_str}\n  </defs>\n"
         f"  {elems_str}\n"
         f"</svg>\n"
     )
@@ -287,5 +260,8 @@ class OcleanBrushCoverageImage(OcleanEntity, ImageEntity):
         if self._cached_image is not None:
             return self._cached_image
 
-        self._cached_image = _generate_svg(areas).encode("utf-8")
+        zone_count = 8
+        if self.coordinator.data is not None:
+            zone_count = self.coordinator.data.get(DATA_DENTAL_CAST, 8)
+        self._cached_image = _generate_svg(areas, zone_count=zone_count).encode("utf-8")
         return self._cached_image

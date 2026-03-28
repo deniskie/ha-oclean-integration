@@ -52,6 +52,7 @@ class DeviceProtocol:
     supports_pagination: bool
     write_char: str = WRITE_CHAR_UUID
     uses_t1_calibration: bool = False
+    dental_cast: int = 8  # number of tooth zones (8 or 12)
 
 
 # ---------------------------------------------------------------------------
@@ -120,6 +121,25 @@ LEGACY = DeviceProtocol(
     notify_chars=(READ_NOTIFY_CHAR_UUID,),
     query_commands=((WRITE_CHAR_UUID, CMD_QUERY_STATUS),),
     supports_pagination=False,
+)
+
+#: Type-1 with 12-zone dental cast – YD-series devices (YD000C/D/F/10)
+#: Same BLE command structure as TYPE1 but with 12 brush area zones.
+#: APK handler: C3339b0 (extends AbstractC3347e); dentalCast=12.
+#: Model-ID strings unconfirmed via BLE DIS — tentative mappings below.
+TYPE1_12Z = DeviceProtocol(
+    name="Type-1 (12-zone)",
+    notify_chars=(READ_NOTIFY_CHAR_UUID, RECEIVE_BRUSH_UUID),
+    query_commands=(
+        (SEND_BRUSH_CMD_UUID, CMD_QUERY_STATUS),
+        (SEND_BRUSH_CMD_UUID, CMD_DEVICE_INFO),
+        (SEND_BRUSH_CMD_UUID, CMD_QUERY_DEVICE_SETTINGS),
+        (SEND_BRUSH_CMD_UUID, CMD_QUERY_RUNNING_DATA_T1),
+    ),
+    supports_pagination=False,
+    write_char=WRITE_CHAR_UUID,
+    uses_t1_calibration=True,
+    dental_cast=12,
 )
 
 #: Unknown – fallback for unrecognised or absent model IDs.
@@ -198,6 +218,15 @@ _MODEL_MAP: dict[str, DeviceProtocol] = {
     "OCLEANA1b": LEGACY,  # Oclean Air 1b         – APK DeviceType 15
     "OCLEANA1c": LEGACY,  # Oclean Air 1c         – APK DeviceType 17
     "OCLEANA1d": LEGACY,  # Oclean Air 1d         – APK DeviceType 18
+    # ------------------------------------------------------------------
+    # Type-1 (12-zone) – YD-series devices with 12 dental cast zones
+    # APK handler: C3339b0; DIS model-ID strings unconfirmed.
+    # If your device has one of these model IDs, please submit debug logs.
+    # ------------------------------------------------------------------
+    "OCLEAN0C": TYPE1_12Z,  # YD000C – APK protocol 52 (tentative)
+    "OCLEAN0D": TYPE1_12Z,  # YD000D – APK protocol 53 (tentative)
+    "OCLEAN0F": TYPE1_12Z,  # YD000F – APK protocol 55 (tentative)
+    "OCLEAN10": TYPE1_12Z,  # YD00010 – APK protocol 56 (tentative)
     # ------------------------------------------------------------------
     # Not mapped → UNKNOWN fallback (tries all chars/commands, logs everything):
     #   OCLEANX1/OCLEANY2/OCLEANX1+/OCLEANY2+/OCLEANK1 – older Dialog handler classes
