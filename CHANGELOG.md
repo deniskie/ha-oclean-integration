@@ -1,5 +1,20 @@
 # Changelog
 
+## [v1.2.1] – 2026-03-28
+
+### Fixes
+
+- **BLE subscription hardened** – Proactively clear all CCCD descriptors before subscribing; disconnect+reconnect retry when all subscriptions fail persistently ("Notify acquired"); improved warning message with actionable user steps (#78).
+- **`is_brushing` binary sensor removed** – The sensor parsed 0303 byte 0 bit 0 correctly but was unreliable in practice: the toothbrush does not push BLE data during brushing and the 300 s polling interval cannot catch the ~2–3 min window (#6).
+- **gestureCode/gestureArray byte offsets corrected** – All three 42-byte record parsers (m18f format) now extract gestureCode as a 2-bit value from byte 30 (was byte 14/19) and gestureArray from bytes 23–30 (was 18–30), matching APK `AbstractC0002b` analysis (#72).
+- **OCLEANA1 LEGACY protocol expanded** – Added `0202` (device info), `0302` (brush-head counter), and `0307 via fbb89` (session data) to the LEGACY query commands. APK confirms OCLEANA1 uses the same session path as TYPE1 (#7).
+
+### Docs
+
+- **README** – Removed Binary Sensors section, added Oclean X Ultra (OCLEANV1a) to compatibility table, changed "Not Yet Implemented" to "Not Planned" with explanation for active-brushing detection.
+
+---
+
 ## [v1.2.0] – 2026-03-28
 
 ### New Features
