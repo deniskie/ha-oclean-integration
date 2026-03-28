@@ -137,8 +137,17 @@ def _install_ha_stubs() -> None:
     sel.NumberSelectorMode = NumberSelectorMode
     sel.NumberSelectorConfig = NumberSelectorConfig
     sel.NumberSelector = NumberSelector
+
+    class TimeSelector:
+        def __init__(self, config=None):
+            pass
+
+        def __call__(self, value):
+            return value
+
     sel.TextSelectorConfig = TextSelectorConfig
     sel.TextSelector = TextSelector
+    sel.TimeSelector = TimeSelector
 
     # ---- homeassistant.helpers.update_coordinator ----
     uc = _stub("homeassistant.helpers.update_coordinator")
@@ -300,6 +309,61 @@ def _install_ha_stubs() -> None:
 
     sw.SwitchEntityDescription = SwitchEntityDescription
     sw.SwitchEntity = SwitchEntity
+
+    # ---- homeassistant.components.button ----
+    btn = _stub("homeassistant.components.button")
+
+    class ButtonEntityDescription:
+        def __init__(self, *, key, name="", icon=None, **kwargs):
+            self.key = key
+            self.name = name
+            self.icon = icon
+
+    class ButtonEntity:
+        pass
+
+    btn.ButtonEntityDescription = ButtonEntityDescription
+    btn.ButtonEntity = ButtonEntity
+
+    # ---- homeassistant.components.number ----
+    num = _stub("homeassistant.components.number")
+
+    class NumberMode(Enum):
+        AUTO = "auto"
+        BOX = "box"
+        SLIDER = "slider"
+
+    class NumberEntityDescription:
+        def __init__(
+            self,
+            *,
+            key,
+            name="",
+            icon=None,
+            native_min_value=None,
+            native_max_value=None,
+            native_step=None,
+            native_unit_of_measurement=None,
+            mode=None,
+            entity_category=None,
+            **kwargs,
+        ):
+            self.key = key
+            self.name = name
+            self.icon = icon
+            self.native_min_value = native_min_value
+            self.native_max_value = native_max_value
+            self.native_step = native_step
+            self.native_unit_of_measurement = native_unit_of_measurement
+            self.mode = mode
+            self.entity_category = entity_category
+
+    class NumberEntity:
+        pass
+
+    num.NumberMode = NumberMode
+    num.NumberEntityDescription = NumberEntityDescription
+    num.NumberEntity = NumberEntity
 
     # ---- homeassistant.components.binary_sensor ----
     bs = _stub("homeassistant.components.binary_sensor")
