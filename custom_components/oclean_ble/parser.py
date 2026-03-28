@@ -16,7 +16,6 @@ from .const import (
     DATA_BRUSH_HEAD_DAYS,
     DATA_BRUSH_HEAD_USAGE,
     DATA_BRUSH_MODE,
-    DATA_IS_BRUSHING,
     DATA_LAST_BRUSH_AREAS,
     DATA_LAST_BRUSH_COVERAGE,
     DATA_LAST_BRUSH_DURATION,
@@ -250,9 +249,6 @@ def _parse_state_response(payload: bytes) -> dict[str, Any]:
         _LOGGER.debug("Oclean STATE response too short: %s", payload.hex())
         return result
 
-    # byte 0 bit 0: is_brushing (confirmed via APK C3385w0 analysis)
-    result[DATA_IS_BRUSHING] = bool(payload[0] & 0x01)
-
     # byte 3 = battery level (confirmed: matches GATT Battery Characteristic read).
     if len(payload) >= 4:
         batt = int(payload[3])
@@ -265,7 +261,7 @@ def _parse_state_response(payload: bytes) -> dict[str, Any]:
     # Enable via:  logger: logs: custom_components.oclean_ble: debug
     _LOGGER.debug(
         "Oclean STATE unknown bytes –"
-        " b0=0x%02x (bit0=is_brushing)"
+        " b0=0x%02x (bit0=unused)"
         " b1=0x%02x (unknown, varies)"
         " b2=0x%02x (unknown, varies)"
         " b4-5=%s (unknown, always 0x0000 so far)",

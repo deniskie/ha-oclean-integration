@@ -87,7 +87,7 @@ class TestReal0303StateResponse:
 
     def test_only_battery_key_present(self):
         result = parse_notification(self.RAW_BATTERY_29)
-        assert set(result.keys()) == {"battery", "is_brushing"}
+        assert set(result.keys()) == {"battery"}
 
     def test_battery_is_int(self):
         result = parse_notification(self.RAW_BATTERY_29)
