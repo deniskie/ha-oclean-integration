@@ -16,7 +16,7 @@ Custom integration for **Oclean Smart Toothbrushes** (Oclean X, X Pro, X Pro Eli
 Connects every 5 minutes via Bluetooth, reads brushing data, then disconnects.
 No cloud, no account, fully local.
 
-> **Devices tested:** Oclean X (OCLEANY3M) · Oclean X HW variant (OCLEANY3MH) · Oclean X Pro (OCLEANY3) · Oclean X Pro Elite (OCLEANY3P) · Oclean X Pro 20 (OCLEANX20) · Oclean Z1 (OCLEANY5) · Oclean Air 1 (OCLEANA1)
+> **Devices tested:** Oclean X (OCLEANY3M) · Oclean X HW variant (OCLEANY3MH) · Oclean X Pro (OCLEANY3) · Oclean X Pro Elite (OCLEANY3P) · Oclean X Pro 20 (OCLEANX20) · Oclean X Ultra (OCLEANV1a) · Oclean Z1 (OCLEANY5) · Oclean Air 1 (OCLEANA1)
 > **Protocol:** Reverse-engineered from the official Oclean APK
 
 ---
@@ -91,12 +91,6 @@ Entity IDs follow the pattern `<platform>.<device_name>_<suffix>` where `<device
 | MAC Address | `_mac_address` | Bluetooth MAC address of the device | – | ✅ Tested |
 | Last Poll | `_last_poll` | Timestamp of the last completed BLE poll | timestamp | ✅ Tested |
 
-### Binary Sensors
-
-| Name | Suffix | Description | Status |
-|------|--------|-------------|--------|
-| Brushing | `_brushing` | `on` while a brushing session is in progress (from 0303 STATUS notification, bit 0 of byte 0) | ⚠️ Unconfirmed |
-
 ### Switches
 
 | Name | Suffix | Description | Status |
@@ -164,11 +158,11 @@ Entity IDs follow the pattern `<platform>.<device_name>_<suffix>` where `<device
 | Older device protocol | Two data formats implemented; not yet tested on real non-X hardware |
 | Multiple brushes in one household | Each brush is a separate config entry; not yet tested with multiple devices |
 
-### ❌ Not Yet Implemented
+### ❌ Not Planned
 
 | Feature | Details |
 |---------|---------|
-| Active-brushing detection | Cannot be reliably determined from the available BLE data |
+| Active-brushing detection | Removed in v1.3.0. The 0303 STATE byte correctly reports brushing status, but the device does not push BLE data during brushing and the polling interval is too long to catch the ~2–3 min brushing window reliably. |
 
 ---
 
@@ -256,7 +250,7 @@ Unknown notification types are logged as hex – this helps extend the parser.
 | Oclean Z1 | OCLEANY5 | ⚠️ Partial | Type-Z1 protocol (APK handler C3350f mode=1): 0303/0202/0302 via fbb85, 0307 via fbb89, notify on fbb86+fbb90. Time calibration uses 0201 + 8-byte datetime format. Implementation complete (issue #69), real-device confirmation pending. |
 | Oclean Air 1 | OCLEANA1 | ✅ Tested | Battery confirmed. No CCCD on notify characteristic – uses direct READ fallback. Session fields not available on this model. |
 | Oclean Air 1 variants | OCLEANA1a–d | ⚠️ Partial | Same protocol as OCLEANA1; untested on real hardware. |
-| Oclean X Ultra | – | ⚠️ Unknown | Likely uses extended data format |
+| Oclean X Ultra | OCLEANV1a | ⚠️ Partial | Battery, timestamp, duration, programme confirmed. Score and tooth areas pending (issue #81). |
 | Other Oclean models | – | ⚠️ Unknown | Open an issue with raw log output |
 
 > If brush session detail fields (areas, pressure, scheme) are missing or the timestamp looks wrong, enable debug logging, brush your teeth, and open an issue with the raw hex output from the HA log.
