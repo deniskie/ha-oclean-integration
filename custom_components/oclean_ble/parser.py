@@ -1054,6 +1054,13 @@ def _parse_device_settings_response(payload: bytes) -> dict[str, Any]:
         _LOGGER.debug("Oclean device-settings response too short (%d < 6)", len(payload))
         return result
 
+    # byte 0: batteryLevel (APK: C3385w0_fallback, also confirmed for OCLEANA1)
+    # Redundant with 0303 byte 3 and 0x2A19, but serves as a reliable fallback
+    # when the other sources fail (e.g. OCLEANA1 battery freeze issue #7).
+    batt = int(payload[0])
+    if 0 <= batt <= 100:
+        result[DATA_BATTERY] = batt
+
     result[DATA_BRUSH_MODE] = int(payload[5])
 
     if len(payload) >= 32:
