@@ -55,11 +55,6 @@
         "name": "Jetzt aktualisieren"
       }
     },
-    "binary_sensor": {
-      "is_brushing": {
-        "name": "Zähneputzen"
-      }
-    },
     "select": {
       "brush_scheme": {
         "name": "Putzprogramm"

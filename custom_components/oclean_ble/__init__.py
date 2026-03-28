@@ -31,7 +31,6 @@ _MANIFEST = json.loads((pathlib.Path(__file__).parent / "manifest.json").read_te
 _INTEGRATION_VERSION = _MANIFEST.get("version", "unknown")
 
 PLATFORMS: list[Platform] = [
-    Platform.BINARY_SENSOR,
     Platform.BUTTON,
     Platform.NUMBER,
     Platform.SELECT,

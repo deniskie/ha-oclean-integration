@@ -25,7 +25,6 @@ class OcleanDeviceData:
     last_brush_areas: dict[str, int] | None = None
     last_brush_coverage: int | None = None
     last_brush_pnum: int | None = None
-    is_brushing: bool | None = None
     brush_mode: int | None = None
     model_id: str | None = None
     hw_revision: str | None = None
@@ -64,7 +63,6 @@ class OcleanDeviceData:
             last_brush_areas=data.get("last_brush_areas"),
             last_brush_coverage=data.get("last_brush_coverage"),
             last_brush_pnum=data.get("last_brush_pnum"),
-            is_brushing=data.get("is_brushing"),
             brush_mode=data.get("brush_mode"),
             model_id=data.get("model_id"),
             hw_revision=data.get("hw_revision"),

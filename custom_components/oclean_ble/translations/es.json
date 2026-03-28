@@ -55,11 +55,6 @@
         "name": "Actualizar ahora"
       }
     },
-    "binary_sensor": {
-      "is_brushing": {
-        "name": "Cepillando"
-      }
-    },
     "select": {
       "brush_scheme": {
         "name": "Programa de cepillado"
