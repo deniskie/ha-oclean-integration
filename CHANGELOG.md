@@ -1,5 +1,13 @@
 # Changelog
 
+## [v1.2.2] – 2026-03-28
+
+### Fixes
+
+- **OCLEANA1 battery fallback** – Extract battery level from 0302 device-settings byte 0 as a reliable fallback source. This fixes the battery freeze on Oclean Air 1 devices where 0x2A19 notifications and 0303 byte 3 may not arrive due to the ESPHome proxy GATT cache issue (#7).
+
+---
+
 ## [v1.2.1] – 2026-03-28
 
 ### Fixes
