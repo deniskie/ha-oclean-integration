@@ -1189,10 +1189,14 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         if RECEIVE_BRUSH_UUID in self._protocol.notify_chars and RECEIVE_BRUSH_UUID not in subscribed:
             await self._poll_receive_brush_fallback(client, handler, session_received)
         await self._paginate_sessions(client, all_sessions, session_received)
-        if all_sessions:
-            # Allow the device extra time to push enrichment notifications
-            # (0000 score, 2604 zone pressures) that arrive unsolicited after
-            # the session response.
+        # Allow the device extra time to push enrichment notifications
+        # (0000 score, 2604 zone pressures) that arrive unsolicited after
+        # the session response.  Wait when ANY session data was received –
+        # including inline-mode 0307 responses that update *collected* but
+        # may not add new entries to all_sessions (e.g. repeat polls with
+        # the same timestamp on OCLEANV1a / OCLEANX20).  (issues #37, #81)
+        has_session_data = bool(all_sessions) or DATA_LAST_BRUSH_TIME in collected
+        if has_session_data:
             await asyncio.sleep(BLE_ENRICHMENT_WAIT)
         await self._read_battery_and_unsubscribe(client, collected)
 
@@ -1466,18 +1470,28 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         Devices like OCLEANA1 (Protocol 6) place their response data in
         READ_NOTIFY_CHAR_UUID as a readable value rather than pushing it via
         BLE notifications.  When subscription fails (no CCCD descriptor), we
-        poll the characteristic after a short delay and feed the result through
-        the same notification_handler as if it had arrived as a notify event.
+        poll the characteristic multiple times and feed any non-empty result
+        through the same notification_handler as if it had arrived as a notify
+        event.  Multiple reads catch responses to different commands (e.g.
+        0303 status + battery) that the device may write sequentially.
         """
-        await asyncio.sleep(BLE_READ_FALLBACK_DELAY)
-        try:
-            raw = await client.read_gatt_char(READ_NOTIFY_CHAR_UUID)
-            data = bytes(raw)
-            self._log.debug("READ fallback on READ_NOTIFY_CHAR: %s", data.hex())
-            if len(data) > 2:
-                handler(None, bytearray(data))
-        except Exception as err:  # noqa: BLE001
-            self._log.debug("READ fallback failed: %s (%s)", err, type(err).__name__)
+        last_hex = ""
+        for attempt in range(3):
+            await asyncio.sleep(BLE_READ_FALLBACK_DELAY)
+            try:
+                raw = await client.read_gatt_char(READ_NOTIFY_CHAR_UUID)
+                data = bytes(raw)
+                current_hex = data.hex()
+                self._log.debug("READ fallback attempt %d: %s", attempt + 1, current_hex)
+                if len(data) > 2 and current_hex != last_hex:
+                    handler(None, bytearray(data))
+                    last_hex = current_hex
+                elif current_hex == last_hex:
+                    self._log.debug("READ fallback: same data as previous read, stopping")
+                    break
+            except Exception as err:  # noqa: BLE001
+                self._log.debug("READ fallback attempt %d failed: %s (%s)", attempt + 1, err, type(err).__name__)
+                break
 
     async def _poll_receive_brush_fallback(
         self,
