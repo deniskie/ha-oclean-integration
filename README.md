@@ -66,6 +66,10 @@ Entity IDs follow the pattern `<platform>.<device_name>_<suffix>` where `<device
 | Last Scheme | `_last_scheme` | Brushing programme used in the last session – human-readable name (e.g. "Clean", "Sensitive") from the pNum lookup table; falls back to the raw number if unknown | – | ✅ Tested |
 | Pressure | `_pressure` | Average brushing pressure across all tooth zones in the last session (raw ADC value 0–255) | – | ⚠️ Unconfirmed |
 | Coverage | `_coverage` | Percentage of tooth zones adequately cleaned in the last session (0–100 %). Uses the official Oclean app threshold: zones with raw pressure > 100 count as covered. | % | ✅ Tested |
+| Duration Rating | `_duration_rating` | How well the recommended brushing duration (240 s) was met (0–100 %, capped). Formula from the official Oclean app: `min(100, duration / 240 × 100)` | % | ⚠️ Unconfirmed |
+| Gesture | `_gesture` | Brushing technique indicator from the device (raw value 0–255 from byte 14 of 42-byte session records) | – | ⚠️ Unconfirmed |
+| Pressure Detail | `_pressure_detail` | Average of the 5-segment pressure ratio from 42-byte session records. Per-segment values available as entity attributes (`segment_1` … `segment_5`) | – | ⚠️ Unconfirmed |
+| Power Distribution | `_power_distribution` | Number of zones with power > 0 from per-zone power levels (0–3 scale). Per-zone values available as entity attributes (mapped to tooth area names), plus `gesture_array` | – | ⚠️ Unconfirmed |
 | Cleaned Zones | `_cleaned_zones` | Number of tooth zones (0–8) with non-zero pressure in the last session; individual per-zone pressures available as entity attributes | – | ⚠️ Unconfirmed |
 | Zone \<name\> | `_zone_<name>` | Pressure for one individual tooth zone in the last session (raw value 0–255; 0 = not brushed / no data). Eight sensors, one per zone: `upper_left_out`, `upper_left_in`, `lower_left_out`, `lower_left_in`, `upper_right_out`, `upper_right_in`, `lower_right_out`, `lower_right_in` | – | ⚠️ Unconfirmed |
 
@@ -99,6 +103,8 @@ Entity IDs follow the pattern `<platform>.<device_name>_<suffix>` where `<device
 |------|--------|-------------|--------|
 | Area Reminder | `_area_reminder` | Enables/disables the tooth-zone completion reminder on the device (writes CMD 020D; state persisted locally – assumes state, no read-back) | ⚠️ Unconfirmed |
 | Over-Pressure Alert | `_over_pressure` | Enables/disables the brushing over-pressure alert on the device (writes CMD 0212; state persisted locally – assumes state, no read-back) | ⚠️ Unconfirmed |
+| Brushing Reminder | `_brushing_reminder` | Enables/disables the brushing reminder on the device (writes CMD 0239; state persisted locally – assumes state, no read-back) | ⚠️ Unconfirmed |
+| Auto Power-Off Timer | `_auto_power_off_timer` | Enables/disables the automatic power-off timer on the device (writes CMD 0240; state persisted locally – assumes state, no read-back) | ⚠️ Unconfirmed |
 
 ### Numbers
 
@@ -147,6 +153,9 @@ Entity IDs follow the pattern `<platform>.<device_name>_<suffix>` where `<device
 | Brush head usage counter | Resets when the "Reset Brush Head" button is pressed |
 | Last brush pressure | Average brushing pressure across all tooth zones (extended 0308 format only) |
 | Last brush areas | Pressure per tooth zone; individual zones as entity attributes and as 8 dedicated sensors. Source: `2604` notifications on Type-1 devices (Oclean X series) or extended 0308 format on Type-0 devices |
+| Duration rating | Percentage of recommended 240 s brushing duration achieved (APK formula: `timeLong / 240`); calculated from session duration |
+| Brushing quality metrics | Gesture code, 5-segment pressure ratio, and per-zone power distribution (0–3 scale) from 42-byte session records; exposed as sensors with detail attributes |
+| Feature toggle switches | Brushing Reminder (CMD 0239) and Auto Power-Off Timer (CMD 0240); state persisted locally |
 | Brush head reset button | Sends reset command to device; no response verification yet |
 | Session history pagination | Fetches multiple pages of session history from device |
 | Offline session import | Sessions recorded while HA was unreachable are imported on the next poll, provided they are still in the device's buffer. Note: the official Oclean app likely clears the buffer on sync – for best results, avoid using the official app in parallel. |
