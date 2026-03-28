@@ -21,3 +21,6 @@ venv/
 # Test artifacts
 .coverage
 htmlcov/
+
+# Oclean API token (tools/oclean_api_test.py)
+tools/.oclean_token.json
