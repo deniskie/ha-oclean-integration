@@ -404,6 +404,10 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         # UNKNOWN is the safe fallback: subscribes all chars, sends all commands.
         self._protocol: DeviceProtocol = UNKNOWN
 
+        # Tracks whether the last subscription attempt succeeded.
+        # Used by _poll_device to decide if a disconnect+reconnect retry is warranted.
+        self._last_subscribe_ok: bool = True
+
         # Unix timestamp of the last successful DIS read.  0.0 = never read.
         # DIS values (model, firmware, hw revision) are stable but could change
         # after a firmware update, so we re-read them every 24 hours.
@@ -890,6 +894,32 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
             with contextlib.suppress(Exception):
                 await client.disconnect()
 
+        # Disconnect+reconnect retry: when notification subscription failed on
+        # all data characteristics (persistent "Notify acquired" / stale BlueZ
+        # state), a fresh BLE connection may clear the host-side CCCD state that
+        # the device-side CCCD clear could not fix.  Retry once.  (issue #78)
+        if not self._last_subscribe_ok and not all_sessions:
+            self._log.info("subscription failed and no sessions received – retrying with fresh BLE connection")
+            collected.clear()
+            ble_device = self._resolve_ble_device()
+            client = await establish_connection(
+                BleakClient,
+                ble_device,
+                self._device_name,
+                max_attempts=3,
+            )
+            try:
+                all_sessions = await asyncio.wait_for(
+                    self._setup_and_read(client, collected),
+                    timeout=BLE_POLL_TOTAL_TIMEOUT,
+                )
+            except asyncio.TimeoutError:
+                self._log.warning("reconnect retry also timed out")
+                raise
+            finally:
+                with contextlib.suppress(Exception):
+                    await client.disconnect()
+
         self.last_poll_successful = True
         collected[DATA_LAST_POLL] = int(time.time())
 
@@ -1169,6 +1199,7 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         # polling loop instead — the device still processes commands sent via fbb89
         # and updates the characteristic values even without active subscriptions.
         notify_chars_ok = any(c in subscribed for c in self._protocol.notify_chars)
+        self._last_subscribe_ok = notify_chars_ok
         if notify_chars_ok:
             await self._send_query_commands(client, session_received)
         else:
@@ -1391,12 +1422,18 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         detect devices (e.g. OCLEANA1) that don't support CCCD-based notifications
         on READ_NOTIFY_CHAR_UUID and must be polled via direct READ instead.
 
-        When BlueZ reports "Notify acquired" (stale CCCD subscription from a
-        previous connection that did not disconnect cleanly), the method calls
-        stop_notify to release the existing subscription and retries once.
-        This situation is common after a connection drop (proxy timeout, device
-        moved out of range) where the normal disconnect path was not taken.
+        Strategy for stale CCCD state ("Notify acquired" / TimeoutError):
+          1. Proactively clear all CCCDs before the first subscribe attempt.
+          2. On failure: stop_notify + CCCD clear + retry.
+          3. On persistent failure: log actionable warning for the user.
         """
+        # --- Proactive CCCD clear ---
+        # Some firmware (e.g. OCLEANY3 FW 1.0.0.23) retains stale CCCD state
+        # in device NVRAM across connections.  Pre-clearing before the first
+        # start_notify avoids the "Notify acquired" error in many cases.
+        for char_uuid in self._protocol.notify_chars:
+            await _clear_cccd(client, char_uuid)
+
         subscribed: set[str] = set()
         for char_uuid in self._protocol.notify_chars:
             try:
@@ -1437,8 +1474,12 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
                         self._log.debug("subscribed to %s (after CCCD clear)", char_uuid)
                     except Exception as retry_err:  # noqa: BLE001
                         self._log.warning(
-                            "could not subscribe to %s even after CCCD clear: %s"
-                            " – if the Oclean app is open, close it and wait for the next poll",
+                            "could not subscribe to %s after CCCD clear: %s"
+                            " – persistent stale BLE state detected."
+                            " Try: (1) close the Oclean app on your phone,"
+                            " (2) run 'systemctl restart bluetooth' on the host,"
+                            " (3) if the problem persists, factory-reset the toothbrush"
+                            " to clear its internal bond state",
                             char_uuid,
                             retry_err,
                         )
