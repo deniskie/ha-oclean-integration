@@ -9,6 +9,7 @@ import json
 import pytest
 
 from custom_components.oclean_ble.const import (
+    DATA_BATTERY,
     DATA_BRUSH_HEAD_DAYS,
     DATA_BRUSH_HEAD_USAGE,
     DATA_BRUSH_MODE,
@@ -2310,10 +2311,24 @@ class TestParseDeviceSettingsResponse:
         payload = _make_device_settings_payload(mode_num=3)
         assert _parse_device_settings_response(payload)[DATA_BRUSH_MODE] == 3
 
+    def test_battery_from_byte0(self):
+        """0302 byte 0 = batteryLevel, reliable fallback for OCLEANA1 (#7)."""
+        payload = bytearray(_make_device_settings_payload())
+        payload[0] = 75
+        result = _parse_device_settings_response(bytes(payload))
+        assert result[DATA_BATTERY] == 75
+
+    def test_battery_out_of_range_skipped(self):
+        payload = bytearray(_make_device_settings_payload())
+        payload[0] = 128  # > 100
+        result = _parse_device_settings_response(bytes(payload))
+        assert DATA_BATTERY not in result
+
     def test_exact_6_bytes_accepted(self):
         payload = bytes([0x50, 0x01, 0x01, 0x01, 0x02, 0x04])
         result = _parse_device_settings_response(payload)
         assert result[DATA_BRUSH_MODE] == 4
+        assert result[DATA_BATTERY] == 0x50  # byte 0 = 80
 
     def test_too_short_returns_empty(self):
         assert _parse_device_settings_response(b"") == {}
