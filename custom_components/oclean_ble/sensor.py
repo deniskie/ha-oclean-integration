@@ -42,6 +42,7 @@ from .const import (
     DOMAIN,
     SCHEME_NAMES,
     TOOTH_AREA_NAMES,
+    TOOTH_AREA_NAMES_12,
 )
 from .coordinator import OcleanCoordinator
 from .entity import OcleanEntity
@@ -203,7 +204,11 @@ async def async_setup_entry(
     ]
     entities.append(OcleanBrushAreasSensor(coordinator, mac, device_name))
     entities.append(OcleanSchemeSensor(coordinator, mac, device_name))
-    entities.extend(OcleanToothAreaSensor(coordinator, mac, device_name, zone_name) for zone_name in TOOTH_AREA_NAMES)
+    # Create sensors for all 12 zones (superset of 8-zone and 12-zone layouts).
+    # Center-zone sensors show as unavailable on 8-zone devices.
+    entities.extend(
+        OcleanToothAreaSensor(coordinator, mac, device_name, zone_name) for zone_name in TOOTH_AREA_NAMES_12
+    )
     entities.append(OcleanMacSensor(coordinator, mac, device_name))
     entities.append(OcleanDurationRatingSensor(coordinator, mac, device_name))
     entities.append(OcleanPressureDetailSensor(coordinator, mac, device_name))
