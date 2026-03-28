@@ -115,10 +115,20 @@ TYPE_Z1 = DeviceProtocol(
 #: fbb86 has no CCCD descriptor; _subscribe_notifications falls back to
 #: _try_subscribe_no_cccd() which injects a fake CCCD so BlueZ's StartNotify
 #: can be reached.  If that also fails, the coordinator uses direct READ fallback.
+#:
+#: APK C3385w0_fallback (mode=0, S0 case=0) confirms that OCLEANA1 sends
+#: session queries via 0307 on fbb89, same as TYPE1.  Responses arrive on
+#: fbb86 as readable characteristic values (no notification push).
+#: 030201 provides a reliable battery value (byte 0 of the 34-byte response).
 LEGACY = DeviceProtocol(
     name="Legacy",
     notify_chars=(READ_NOTIFY_CHAR_UUID,),
-    query_commands=((WRITE_CHAR_UUID, CMD_QUERY_STATUS),),
+    query_commands=(
+        (WRITE_CHAR_UUID, CMD_QUERY_STATUS),  # 0303 – state + battery (byte 3)
+        (WRITE_CHAR_UUID, CMD_DEVICE_INFO),  # 0202 – device info ACK
+        (WRITE_CHAR_UUID, CMD_QUERY_DEVICE_SETTINGS),  # 0302 – brush-head counter
+        (SEND_BRUSH_CMD_UUID, CMD_QUERY_RUNNING_DATA_T1),  # 0307 via fbb89 – session data
+    ),
     supports_pagination=False,
 )
 

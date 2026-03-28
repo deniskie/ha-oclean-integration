@@ -153,9 +153,25 @@ class TestLegacyProfile:
 
         assert LEGACY.notify_chars == (READ_NOTIFY_CHAR_UUID,)
 
-    def test_only_sends_status(self):
-        cmds = [cmd for _, cmd in LEGACY.query_commands]
-        assert cmds == [CMD_QUERY_STATUS]
+    def test_sends_all_legacy_commands(self):
+        """LEGACY sends status, device info, settings, and 0307 session query.
+
+        APK C3385w0_fallback (mode=0, S0 case=0) confirms OCLEANA1 uses
+        0307 via fbb89 for session data, same as TYPE1.
+        """
+        from custom_components.oclean_ble.const import (
+            CMD_DEVICE_INFO,
+            CMD_QUERY_DEVICE_SETTINGS,
+            CMD_QUERY_RUNNING_DATA_T1,
+            SEND_BRUSH_CMD_UUID,
+            WRITE_CHAR_UUID,
+        )
+
+        chars_and_cmds = list(LEGACY.query_commands)
+        assert (WRITE_CHAR_UUID, CMD_QUERY_STATUS) in chars_and_cmds
+        assert (WRITE_CHAR_UUID, CMD_DEVICE_INFO) in chars_and_cmds
+        assert (WRITE_CHAR_UUID, CMD_QUERY_DEVICE_SETTINGS) in chars_and_cmds
+        assert (SEND_BRUSH_CMD_UUID, CMD_QUERY_RUNNING_DATA_T1) in chars_and_cmds
 
 
 # ===========================================================================
