@@ -369,20 +369,20 @@ def _parse_m18f_record(record: bytes) -> dict[str, Any]:
         if 0 < score <= 100:
             result[DATA_LAST_BRUSH_SCORE] = score
 
-        # Area pressures: bytes 11-16 (area1-6) + bytes 18-19 (area7-8)
-        area_bytes = bytes(
-            [record[11], record[12], record[13], record[14], record[15], record[16], record[18], record[19]]
-        )
-        area_dict, _zones_cleaned, avg_pressure, coverage_pct = _build_area_stats(area_bytes)
-        if any(v > 0 for v in area_bytes):
-            result[DATA_LAST_BRUSH_AREAS] = area_dict
-            result[DATA_LAST_BRUSH_PRESSURE] = avg_pressure
-            result[DATA_LAST_BRUSH_COVERAGE] = coverage_pct
+        # pressureRatio: bytes 11-15 are time-distribution percentages (sum ≈ 100)
+        # across 5 zone groups – NOT per-tooth area pressures.
+        # Confirmed via Oclean Cloud API: pressureDistribution is always empty for
+        # OCLEANY3M; the app uploads these as pressureRatio "#"-delimited strings.
+        # Coverage = zone groups with ratio > 0 / 5 total groups × 100%.
+        pressure_ratio = list(record[11:16])
+        zones_active = sum(1 for v in pressure_ratio if v > 0)
+        coverage_pct = round(zones_active / len(pressure_ratio) * 100)
+        result[DATA_LAST_BRUSH_COVERAGE] = coverage_pct
 
-        # gestureCode / pressureRatio / gestureArray / powerArray (APK: C3385w0_fallback)
-        # pressureCode = m14b(bytes 11-15); formula TBD – raw inputs stored as pressureRatio.
+        # gestureCode (APK: byte 14, overlaps pressureRatio[3])
+        # pressureCode = m14b(bytes 11-15): maps dominant zone to a 50-90 score.
         result[DATA_LAST_BRUSH_GESTURE_CODE] = int(record[14])
-        result[DATA_LAST_BRUSH_PRESSURE_RATIO] = list(record[11:16])
+        result[DATA_LAST_BRUSH_PRESSURE_RATIO] = pressure_ratio
         result[DATA_LAST_BRUSH_GESTURE_ARRAY] = list(record[18:31])  # bytes 18-30 inclusive
         result[DATA_LAST_BRUSH_POWER_ARRAY] = (
             _extract_nibbles(record[30]) + _extract_nibbles(record[31]) + _extract_nibbles(record[32])

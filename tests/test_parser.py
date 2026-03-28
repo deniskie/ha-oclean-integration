@@ -771,7 +771,7 @@ def _make_m18f_record(
     second: int = 0,
     pnum: int = 87,
     duration: int = 180,
-    areas: tuple = (5, 14, 1, 8, 12, 10, 3, 7),
+    pressure_ratio: tuple = (8, 4, 85, 0, 0),
     score: int = 82,
 ) -> bytes:
     """Build a full 42-byte m18f session record."""
@@ -788,13 +788,9 @@ def _make_m18f_record(
     # bytes 9-10: validDuration (unused by parser)
     record[9] = record[7]
     record[10] = record[8]
-    # bytes 11-16: area1-6
-    for i, v in enumerate(areas[:6]):
+    # bytes 11-15: pressureRatio (5 time-distribution % values)
+    for i, v in enumerate(pressure_ratio[:5]):
         record[11 + i] = v
-    # byte 17: reserved
-    # bytes 18-19: area7-8
-    for i, v in enumerate(areas[6:8]):
-        record[18 + i] = v
     # byte 33: score
     record[33] = score
     return bytes(record)
@@ -816,8 +812,30 @@ class TestParseM18fRecord:
         assert result["last_brush_pnum"] == 42
         assert result["last_brush_duration"] == 120
         assert result["last_brush_score"] == 75
-        assert "last_brush_areas" in result
-        assert "last_brush_pressure" in result
+        assert result["last_brush_coverage"] == 60  # 3/5 zones active (8,4,85,0,0)
+        assert result["last_brush_pressure_ratio"] == [8, 4, 85, 0, 0]
+
+    def test_coverage_all_zones(self):
+        record = _make_m18f_record(pressure_ratio=(20, 20, 20, 20, 20))
+        result = _parse_m18f_record(record)
+        assert result["last_brush_coverage"] == 100  # 5/5
+
+    def test_coverage_one_zone(self):
+        record = _make_m18f_record(pressure_ratio=(100, 0, 0, 0, 0))
+        result = _parse_m18f_record(record)
+        assert result["last_brush_coverage"] == 20  # 1/5
+
+    def test_coverage_zero_zones(self):
+        record = _make_m18f_record(pressure_ratio=(0, 0, 0, 0, 0))
+        result = _parse_m18f_record(record)
+        assert result["last_brush_coverage"] == 0  # 0/5
+
+    def test_no_areas_in_m18f(self):
+        """m18f records do not contain per-tooth area pressures."""
+        record = _make_m18f_record(pressure_ratio=(8, 4, 85, 0, 0))
+        result = _parse_m18f_record(record)
+        assert "last_brush_areas" not in result
+        assert "last_brush_pressure" not in result
 
     def test_score_0xff_not_stored(self):
         record = _make_m18f_record(score=0xFF)
@@ -828,12 +846,6 @@ class TestParseM18fRecord:
         record = _make_m18f_record(score=0)
         result = _parse_m18f_record(record)
         assert "last_brush_score" not in result
-
-    def test_zero_areas_not_stored(self):
-        record = _make_m18f_record(areas=(0, 0, 0, 0, 0, 0, 0, 0))
-        result = _parse_m18f_record(record)
-        assert "last_brush_areas" not in result
-        assert "last_brush_pressure" not in result
 
     def test_too_short_returns_empty(self):
         assert _parse_m18f_record(bytes(41)) == {}
