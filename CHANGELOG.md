@@ -1,47 +1,47 @@
 # Changelog
 
-## [Unreleased]
+## [v1.2.0] – 2026-03-28
 
-### Planned / Known Gaps
+### New Features
 
-- **0302 response on OCLEANY3M** – The device does not respond to the 0302 device-settings query. `brush_head_days` and hardware `brush_head_usage` remain unavailable for this model; the software counter is the only fallback.
-- **Score + Areas (inline mode)** – Score and tooth-area pressures are only available when the device has new unread sessions (paginated `*B#` response). In inline mode (no new sessions) these fields are not transmitted by the firmware.
-- **Entity translations** – Entity names are currently hardcoded. The `strings.json` / `translations/*.json` mechanism is in place but not yet verified to work end-to-end with HA's translation pipeline.
-- **`pNum` → scheme name** – No local mapping possible; the Oclean app fetches scheme names from a cloud API. Currently the numeric pNum is exposed as-is.
-- **`blunt_teeth` unit** – Whether the brush-head wear counter increments linearly (+1 per session) or encodes an ADC wear value is not yet confirmed.
-- **Extended 0308 format** – Implemented based on APK analysis (`AbstractC0002b.m37y`), but never observed on real hardware (all known devices use TYPE1 / 0307).
-- **Model-based sensor visibility** – Sensors that are structurally unavailable for a given device model (e.g. tooth-area sensors on devices that never push `2604`/`021f`, or `brush_head_days` on OCLEANY3M which does not respond to `0302`) should be hidden rather than showing "Unavailable". Planned implementation:
-  - Config flow (auto-discovery + manual): add model dropdown with all known model IDs from `_MODEL_MAP` + `"auto-detect"` as default. Model stored as `CONF_MODEL_ID` in config entry.
-  - `async_setup_entry`: if model known → protocol resolved immediately → `entity_registry_enabled_default` set per sensor based on protocol capability flags (e.g. `supports_brush_head_days`, `supports_areas`, `supports_gesture_data` on `DeviceProtocol`).
-  - First poll: DIS model ID confirms/corrects the selection. If model differs → config entry updated + entities reloaded.
-  - If model was `auto-detect` at setup → after first poll, unsupported entities disabled via entity registry API (`RegistryEntryDisabler.INTEGRATION`). HA shows one-time restart notice.
-  - Note: `entity_registry_enabled_default` only applies on first entity registration. Already-registered entities require the registry API + HA reload.
-- **Conditional options flow** – The options dialog should show or hide settings based on the current configuration (e.g. hide brush-head lifetime input when no hardware counter is available, hide poll-window fields when polling is disabled).
+- **Coverage sensor** (0–100 %) — percentage of zones adequately cleaned per session. Calculation is device-type-aware:
+  - **TYPE1** (Oclean X family): calculated from `pressureRatio` — 5 zone groups with time share > 0 ÷ 5 × 100 %. Verified via Oclean Cloud API: `pressureDistribution` is always empty for OCLEANY3M.
+  - **TYPE0 / enrichment** (2604/021f): zones with raw pressure > 100 ÷ 8 × 100 % (matches official Oclean app threshold from `C2928q.java`).
+- **Duration Rating sensor** (0–100 %) — how well the recommended 240 s brushing duration was met. Formula from APK: `min(100, duration / 240 × 100)`.
+- **Pressure Detail sensor** — average of the 5-segment pressure ratio from 42-byte session records. Per-segment values available as entity attributes (`segment_1` … `segment_5`).
+- **Power Distribution sensor** — number of zones with power > 0 from per-zone power levels (0–3 scale). Per-zone values and `gesture_array` available as attributes.
+- **Gesture sensor** — raw brushing technique indicator (byte 14 of 42-byte session records).
+- **Remind Switch** (CMD 0239) — toggle the brushing reminder on/off.
+- **Running Switch** (CMD 0240) — toggle the auto power-off timer on/off.
+- **Cloud API session viewer** (`tools/oclean_api_test.py`) — fetch session data from the Oclean Cloud API to compare with BLE raw values. Helps reverse-engineer coverage and pressure calculations across device models.
 
-### Wanted: Oclean X Pro Elite (OCLEANY3P) Test Reports
+### Fixes
 
-If you own an **Oclean X Pro Elite**, the following can be verified with the current version.
-Enable debug logging (`logger: default: debug` in `configuration.yaml`) and share `oclean_ble.log` as a GitHub issue attachment.
+- **TYPE1 coverage from pressureRatio** — bytes 11-15 of the 0307 m18f record are time-distribution percentages across 5 zone groups (sum ≈ 100), NOT per-tooth area pressures. The previous mapping to 8 tooth areas was incorrect for OCLEANY3M.
+- **Polling fallback** — added fallback when BLE notification subscriptions fail (#78).
+- **Enrichment wait** — fixed enrichment wait for inline sessions and OCLEANA1 battery read.
 
-**1. Basic poll – does it work at all?**
-After a brushing session, trigger a manual poll and check if `last_brush_time`, `last_brush_duration`, and `last_brush_pnum` appear in HA entities.
+---
 
-**2. Score + areas in paginated mode**
-Brush teeth, then immediately trigger "Poll Now". If the device has new sessions (`session_count > 0`), the `*B#` multi-packet response should deliver score and 8 tooth-area pressures.
-In the log look for:
-```
-C3352g record parsed
-last_brush_score / last_brush_areas
-```
+## [v1.1.3] – 2026-03-26
 
-**3. `021f` and `5100` notifications**
-These characteristics are logged verbatim for research. After a poll with new sessions, share any lines containing `021f` or `5100` raw bytes – they likely carry per-zone pressure and session metadata.
+### Bug Fixes
 
-**4. Standalone writes (Area Reminder, Brush Head Lifetime, Sync Time)**
-Toggle the Area Reminder switch and set a Brush Head Lifetime value. Confirm no "Characteristic not found" errors appear and the log shows `area remind set to …` / `brush head max days set to …`.
+- **OCLEANA1 live battery** – Enabled live battery readings via no-CCCD subscribe fallback for fbb86 on Oclean Air 1 devices (#85).
 
-**5. `0302` device-settings response**
-Does the device respond to the 0302 command? In the log look for `0302 brush-head counters`. If present, `brush_head_days` and `brush_head_usage` (hardware) should be populated in HA.
+---
+
+## [v1.1.2] – 2026-03-25
+
+### New Features
+
+- **Oclean X Ultra support** – Added `OCLEANV1a` (Oclean X Ultra) to the TYPE1 protocol map.
+
+### Bug Fixes
+
+- **BLE connection reliability** – Hardened connection handling to reduce disconnects and retry failures (#83).
+- **READ fallback for RECEIVE_BRUSH_UUID** – Fixed fallback when BlueZ "Notify acquired" persists on fbb90, preventing session data from being read.
+- **Firmware checker tool** – Corrected Oclean API field names and success code in `oclean_firmware_check.py`.
 
 ---
 
