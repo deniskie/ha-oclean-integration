@@ -157,3 +157,86 @@ To decode new payload bytes:
 2. Compare the raw hex between sessions
 3. Note which bytes change and correlate with session data (duration, score)
 4. Update `parser.py` and add a test in `tests/test_parser.py`
+
+---
+
+## oclean_api_test.py – Cloud API Session Viewer
+
+Fetches brushing session data from the Oclean Cloud API. Useful for
+comparing cloud-stored values with BLE raw data to understand how scores,
+coverage, and pressure maps are computed on different device models.
+
+**Prerequisites:**
+- An Oclean account (create one in the official Oclean app)
+- At least one toothbrush paired and synced in the app
+- `pip install requests`
+
+**Usage:**
+```bash
+# First run – prompts for email + password, fetches last 10 sessions:
+python3 tools/oclean_api_test.py
+
+# Show last 5 sessions:
+python3 tools/oclean_api_test.py --last 5
+
+# Dump all fields as raw JSON (for detailed analysis):
+python3 tools/oclean_api_test.py --all
+
+# Force re-login (e.g. after token expired):
+python3 tools/oclean_api_test.py --relogin
+```
+
+**Example output:**
+```
+Using saved session for user@example.com
+Discovering device group...
+Group ID: 4816329629925139616
+Fetching sessions...
+
+================================================================================
+ Found 10 session(s)
+================================================================================
+
+--- Session 1 ---
+  Date..................... 2026-02-21 05:19:03
+  Score.................... 91
+  Duration (s)............. 150
+  Pressure................. 80
+  PressureRatio............ 4#2#93#0#0
+  PressureDistribution.....
+  [ratio sum].............. 99 (3/5 zones active → 60% coverage)
+```
+
+**What to look for:**
+
+| Field | What it tells you |
+|-------|-------------------|
+| `pressureRatio` | Time distribution (%) across 5 zone groups (sum ≈ 100). Available on TYPE1 devices (Oclean X family). |
+| `pressureDistribution` | Full 8-zone pressure map as `#`-delimited values. **Empty on OCLEANY3M** — may be populated on newer models (X Pro Elite, X Ultra). If your device fills this field, please share the output in a GitHub issue! |
+| `gestureArray` | Brushing technique time-series (13 values). `None` on OCLEANY3M. |
+| `powerArray` | Per-zone power levels time-series (12 values). `None` on OCLEANY3M. |
+| `score` | Overall brushing quality (0-100), computed on the device. |
+| `pressure` | Average pressure across zones. |
+
+**Token storage:** The access token is saved to `tools/.oclean_token.json` (git-ignored).
+Re-login is only needed when the token expires (~30 days).
+
+**Next steps – help needed from users with other device models:**
+
+The coverage calculation currently works differently per device type because we
+don't have enough data from all models. Here's what would help:
+
+1. **If you own a newer Oclean model** (X Pro Elite / OCLEANY3P, X Ultra / OCLEANV1a,
+   or any TYPE0 device): Run this script and check if `pressureDistribution` is filled.
+   If yes, share the output in a GitHub issue – this lets us verify the `raw × 4 > 400`
+   threshold against real data.
+
+2. **If `pressureDistribution` is filled**: We can compare the 8-zone values with the
+   `pressureRatio` values to understand the mapping between the two formats and
+   potentially derive `pressureDistribution` from BLE data alone (no cloud needed).
+
+3. **If `gestureArray` / `powerArray` are filled**: These time-series values may allow
+   more accurate per-zone coverage calculation without relying on the cloud API.
+
+The long-term goal is a **device-independent, cloud-free coverage calculation** that
+works for all Oclean models using only BLE data.
