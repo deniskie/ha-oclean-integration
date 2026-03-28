@@ -201,6 +201,8 @@ class TestCoordinatorSetBirthday:
         coordinator._brush_head_max_days = None
         coordinator._brush_head_sw_count = 0
         coordinator._active_scheme_pnum = None
+        coordinator._remind_switch = None
+        coordinator._running_switch = None
         return coordinator
 
     @pytest.mark.asyncio
