@@ -47,6 +47,7 @@ from .const import (
     CMD_QUERY_RUNNING_DATA_NEXT,
     CMD_REMIND_SWITCH,
     CMD_RUNNING_SWITCH,
+    CMD_SET_BRUSH_SCHEME,
     CMD_SET_BRUSH_SCHEME_CONT,
     DATA_BATTERY,
     DATA_BRUSH_HEAD_USAGE,
@@ -175,7 +176,7 @@ def _build_scheme_packets(pnum: int, steps: list[tuple[int, int]]) -> list[bytes
       Packet 1: payload[0:16] + [0x2A, 0x2B]
       Packet 2: CMD_SET_BRUSH_SCHEME_CONT (0x020B) + payload[16:]
     """
-    payload = bytearray([0x02, 0x06, pnum & 0xFF, len(steps) & 0xFF])
+    payload = bytearray(CMD_SET_BRUSH_SCHEME) + bytearray([pnum & 0xFF, len(steps) & 0xFF])
     for gear, dur in steps:
         payload.append(_GEAR_ENCODE.get(gear, 0))
         payload.append(gear & 0xFF)

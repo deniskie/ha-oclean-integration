@@ -1813,16 +1813,27 @@ class TestParseT1C3385w0Record:
         assert result["last_brush_duration"] == 90
         assert result["last_brush_score"] == 85
 
-    def test_areas_not_in_record(self):
-        """Areas are never extracted from the *B# record.
-
-        The C3385w0 format only has 5 of 8 area bytes (bytes 11-15);
-        all 8 areas arrive via the 2604 enrichment push instead.
-        """
-        record = _make_c3385w0_record(areas=(5, 20, 75, 0, 0))
+    def test_areas_absent_when_all_zero(self):
+        """DATA_LAST_BRUSH_AREAS is not stored when all 5 area bytes are zero."""
+        record = _make_c3385w0_record(areas=(0, 0, 0, 0, 0))
         result = parse_t1_c3385w0_record(record)
         assert "last_brush_areas" not in result
-        assert "last_brush_pressure" not in result
+
+    def test_areas_present_when_nonzero(self):
+        """Bytes 11-15 (area1-5) are stored as a partial 8-key areas dict."""
+        record = _make_c3385w0_record(areas=(5, 20, 75, 0, 0))
+        result = parse_t1_c3385w0_record(record)
+        assert "last_brush_areas" in result
+        areas = result["last_brush_areas"]
+        assert len(areas) == 8
+        assert list(areas.values())[:5] == [5, 20, 75, 0, 0]
+        assert list(areas.values())[5:] == [0, 0, 0]
+
+    def test_pressure_ratio_always_stored(self):
+        """DATA_LAST_BRUSH_PRESSURE_RATIO is stored regardless of area values."""
+        record = _make_c3385w0_record(areas=(0, 0, 0, 0, 0))
+        result = parse_t1_c3385w0_record(record)
+        assert result["last_brush_pressure_ratio"] == [0, 0, 0, 0, 0]
 
     def test_score_0xff_not_stored(self):
         record = _make_c3385w0_record(score=0xFF)
@@ -1869,7 +1880,9 @@ class TestParseT1C3385w0Record:
         assert result["last_brush_score"] == 91
         assert result["last_brush_duration"] == 120
         assert result["last_brush_pnum"] == 0
-        assert "last_brush_areas" not in result  # areas come from 2604 push, not *B# record
+        # bytes 11-15 = [0x05, 0x14, 0x4b, 0x00, 0x00] = [5, 20, 75, 0, 0] → areas stored
+        assert "last_brush_areas" in result
+        assert result["last_brush_pressure_ratio"] == [5, 20, 75, 0, 0]
 
 
 # ---------------------------------------------------------------------------
