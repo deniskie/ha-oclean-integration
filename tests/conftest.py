@@ -391,9 +391,10 @@ def _install_ha_stubs() -> None:
     class ImageEntity:
         _attr_content_type = "image/png"
         _attr_image_last_updated = None
+        _attr_access_token = "test-token"
 
-        def __init__(self, hass=None, **kwargs):
-            self.hass = hass
+        def __init__(self) -> None:
+            pass
 
     img.ImageEntity = ImageEntity
 

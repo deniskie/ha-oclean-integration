@@ -226,15 +226,9 @@ class OcleanBrushCoverageImage(OcleanEntity, ImageEntity):
         device_name: str,
     ) -> None:
         OcleanEntity.__init__(self, coordinator, mac, device_name, "brush_coverage")
-        ImageEntity.__init__(self, coordinator.hass)
+        ImageEntity.__init__(self)
         self._cached_image: bytes | None = None
         self._cached_areas: dict[str, int] | None = None
-
-    @property
-    def available(self) -> bool:
-        """Available when brush area data exists."""
-        areas = self._get_areas()
-        return self._session_field_available(areas)
 
     def _get_areas(self) -> dict[str, int] | None:
         if self.coordinator.data is None:

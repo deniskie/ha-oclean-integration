@@ -147,16 +147,17 @@ class TestOcleanBrushCoverageImage:
 
     def test_available_no_data(self) -> None:
         entity = self._make_entity(coordinator_data=None)
-        assert entity.available is True
+        assert entity.available is False
 
     def test_available_with_areas(self) -> None:
         areas = dict.fromkeys(TOOTH_AREA_NAMES, 50)
         entity = self._make_entity({DATA_LAST_BRUSH_AREAS: areas, DATA_LAST_BRUSH_TIME: 1234567890})
         assert entity.available is True
 
-    def test_unavailable_session_but_no_areas(self) -> None:
+    def test_available_session_but_no_areas(self) -> None:
+        # Entity is available even when area data is absent – async_image returns None in that case.
         entity = self._make_entity({DATA_LAST_BRUSH_TIME: 1234567890})
-        assert entity.available is False
+        assert entity.available is True
 
     @pytest.mark.asyncio
     async def test_async_image_returns_none_without_data(self) -> None:
