@@ -488,9 +488,22 @@ def parse_t1_c3385w0_record(record: bytes) -> dict[str, Any]:
         if 0 < score <= 100:
             result[DATA_LAST_BRUSH_SCORE] = score
 
-        # Areas are NOT extracted from the *B# record: the format only contains 5 of 8
-        # tooth-zone bytes (bytes 11-15), and bytes 18-19 are gestureArray[0-1], not areas.
-        # All 8 areas arrive via the 2604 enrichment push (_parse_brush_areas_t1_response).
+        # Bytes 11-15 are area1-5 (tooth zones), confirmed via APK C3385w0 analysis.
+        # Stored as DATA_LAST_BRUSH_PRESSURE_RATIO (list) and additionally as
+        # DATA_LAST_BRUSH_AREAS (partial dict, 5/8 zones) when at least one value > 0.
+        # The remaining 3 zones are absent from the *B# record; they arrive via 2604 push
+        # but that push is not observed on OCLEANY3M in paginated mode.
+        area_vals = list(record[11:16])
+        result[DATA_LAST_BRUSH_PRESSURE_RATIO] = area_vals
+
+        if any(v > 0 for v in area_vals):
+            areas: dict[str, int] = {name: area_vals[i] for i, name in enumerate(TOOTH_AREA_NAMES[:5])}
+            areas.update(dict.fromkeys(TOOTH_AREA_NAMES[5:], 0))
+            result[DATA_LAST_BRUSH_AREAS] = areas
+            _LOGGER.debug(
+                "Oclean C3385w0 record: areas (partial, 5/8 zones): %s",
+                areas,
+            )
 
         _LOGGER.debug(
             "Oclean C3385w0 record parsed: ts=%d pNum=%d duration=%s score=%s (raw: %s)",
@@ -1209,9 +1222,10 @@ def _parse_brush_areas_t1_response(payload: bytes) -> dict[str, Any]:
 def _parse_0314_response(payload: bytes) -> dict[str, Any]:
     """Log a 0314 extended-data response for protocol research.
 
-    The 0314 command (CMD_QUERY_EXTENDED_DATA_T1) is sent to SEND_BRUSH_CMD_UUID
-    on Type-1 devices (Oclean X Pro / C3376s).  The device has not been observed
-    to respond to this command; this handler logs if a response is ever received.
+    NOTE: CMD_QUERY_EXTENDED_DATA_T1 (0314) is never sent by the coordinator.
+    This handler exists for future research only — it will not be invoked in
+    normal operation.  It is kept so that a 0314 response can be observed and
+    decoded if the command is ever enabled.
     """
     _LOGGER.debug(
         "Oclean 0314 response received – raw hex: %s  len=%d",
