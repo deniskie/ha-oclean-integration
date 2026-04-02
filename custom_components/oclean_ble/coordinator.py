@@ -51,6 +51,7 @@ from .const import (
     CMD_SET_BRUSH_SCHEME_CONT,
     DATA_BATTERY,
     DATA_BRUSH_HEAD_USAGE,
+    DATA_DENTAL_CAST,
     DATA_HW_REVISION,
     DATA_LAST_BRUSH_AREAS,
     DATA_LAST_BRUSH_DURATION,
@@ -1106,7 +1107,7 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
                 return
 
             # --- Normal notification dispatch ---
-            parsed = parse_notification(data)
+            parsed = parse_notification(data, dental_cast=self._protocol.dental_cast)
             _log.debug("notification parsed: %s", parsed)
 
             # --- Check for *B# multi-packet header (0307 + *B# magic + count) ---
@@ -1321,6 +1322,7 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         # Update protocol profile based on the freshly read model ID.
         model_id = collected.get(DATA_MODEL_ID)
         new_protocol = protocol_for_model(model_id)
+        collected[DATA_DENTAL_CAST] = new_protocol.dental_cast
         if new_protocol is not self._protocol:
             self._log.debug(
                 "protocol updated: %s → %s (model=%s)",

@@ -32,6 +32,7 @@ _INTEGRATION_VERSION = _MANIFEST.get("version", "unknown")
 
 PLATFORMS: list[Platform] = [
     Platform.BUTTON,
+    Platform.IMAGE,
     Platform.NUMBER,
     Platform.SELECT,
     Platform.SENSOR,
