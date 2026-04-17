@@ -2073,6 +2073,49 @@ class TestParseT1OcleanX20Inline:
         assert result == {}
 
 
+
+# ---------------------------------------------------------------------------
+# OCLEANV1a / Oclean X Ultra – inline-only 0307 regression coverage (issue #81)
+# ---------------------------------------------------------------------------
+
+
+class TestParseNotificationInfoT1OcleanV1aRouting:
+    """Regression tests for OCLEANV1a inline-only 0307 payloads.
+
+    Real logs show that OCLEANV1a currently follows the same extended-offset inline
+    0307 path as OCLEANX20: session_count == 0, year_byte == 0 at byte 5, and the
+    actual session record starts at offset 9. The parser must reliably extract
+    timestamp / pNum / duration while leaving score / areas / pressure absent when
+    no enrichment packets (2604 / 021f / 0308 / 0000) arrive.
+    """
+
+    @pytest.mark.parametrize(
+        ("raw_hex", "expected"),
+        [
+            (
+                "03072a422300000000006f1a0410162516010078",
+                (2026, 4, 16, 22, 37, 22),
+            ),
+            (
+                "03072a422300000000004c1a040f172920010078",
+                (2026, 4, 15, 23, 41, 32),
+            ),
+        ],
+    )
+    def test_real_ocleanv1a_inline_payloads_parse_core_fields_only(self, raw_hex: str, expected: tuple[int, int, int, int, int, int]):
+        raw = bytes.fromhex(raw_hex)
+        result = parse_notification(raw)
+
+        assert result["last_brush_time"] == _expected_t1_ts(*expected)
+        assert result["last_brush_pnum"] == 1
+        assert result["last_brush_duration"] == 120
+
+        assert "last_brush_score" not in result
+        assert "last_brush_areas" not in result
+        assert "last_brush_pressure" not in result
+        assert "last_brush_coverage" not in result
+
+
 # ---------------------------------------------------------------------------
 # _log_4b00_response – byte-by-byte logger for 4b00 (OCLEANY3MH)
 # ---------------------------------------------------------------------------
