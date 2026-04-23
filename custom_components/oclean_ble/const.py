@@ -163,6 +163,7 @@ DATA_LAST_BRUSH_GESTURE_ARRAY = "last_brush_gesture_array"  # list[int] len=13 (
 DATA_LAST_BRUSH_POWER_ARRAY = "last_brush_power_array"  # list[int] len=12, each 0-3 (nibbles from bytes 30-32)
 DATA_BRUSH_MODE = "brush_mode"  # int: active brushing mode number from 0302 device-settings response (byte 5)
 DATA_LAST_POLL = "last_poll"  # Unix timestamp (seconds) of the last successful BLE poll
+DATA_DENTAL_CAST = "dental_cast"  # int: number of tooth zones (8 or 12)
 DATA_DURATION_RATIO = "duration_ratio"  # int 0-100+: duration/240*100 (APK: MineReportModel.timeLongRatio)
 
 # Coverage calculation threshold (APK: C2928q.java — raw_pressure * 4 > 400 → pressure > 100)
@@ -180,6 +181,32 @@ TOOTH_AREA_NAMES: tuple[str, ...] = (
     "lower_right_out",  # AREA_RIGHT_DOWN_OUT (value 7)
     "lower_right_in",  # AREA_RIGHT_DOWN_IN  (value 8)
 )
+
+# 12-zone layout for YD-series devices (YD000C/D/F/10).
+# Adds center zones between left and right for each jaw half.
+# Source: DentalCastRegionNewView.java, dental_cast12_* assets.
+TOOTH_AREA_NAMES_12: tuple[str, ...] = (
+    "upper_left_out",
+    "upper_left_in",
+    "upper_center_out",
+    "upper_center_in",
+    "upper_right_out",
+    "upper_right_in",
+    "lower_left_out",
+    "lower_left_in",
+    "lower_center_out",
+    "lower_center_in",
+    "lower_right_out",
+    "lower_right_in",
+)
+
+
+def area_names_for_count(zone_count: int) -> tuple[str, ...]:
+    """Return the zone-name tuple matching the given zone count (8 or 12)."""
+    if zone_count >= 12:
+        return TOOTH_AREA_NAMES_12
+    return TOOTH_AREA_NAMES
+
 
 # Brush scheme name lookup: pNum → English display name.
 # Source: GET /Romap/v1/DeviceContoller/GetAllResources (language=en), fetched 2026-02-22.
