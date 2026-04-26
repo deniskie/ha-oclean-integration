@@ -1248,9 +1248,10 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
                     "retrying receive-brush probe for possible follow-up packets"
                 )
                 if RECEIVE_BRUSH_UUID in self._protocol.notify_chars:
+                    session_received.clear()
                     with contextlib.suppress(Exception):
                         await self._poll_receive_brush_fallback(client, handler, session_received)
-                    await asyncio.sleep(BLE_ENRICHMENT_WAIT)
+                await asyncio.sleep(BLE_ENRICHMENT_WAIT)
 
                 seen = [key for key in _ENRICHMENT_KEYS if key in collected]
                 self._log.debug(
