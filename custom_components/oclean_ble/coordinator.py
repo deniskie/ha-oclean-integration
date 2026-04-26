@@ -1230,6 +1230,34 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         has_session_data = bool(all_sessions) or DATA_LAST_BRUSH_TIME in collected
         if has_session_data:
             await asyncio.sleep(BLE_ENRICHMENT_WAIT)
+
+            model_id = str(collected.get(DATA_MODEL_ID) or self._last_raw.get(DATA_MODEL_ID) or "")
+            new_ts = int(collected.get(DATA_LAST_BRUSH_TIME, 0) or 0)
+            prev_ts = int(self._last_raw.get(DATA_LAST_BRUSH_TIME, 0) or 0)
+            has_core_inline_only = (
+                model_id == "OCLEANV1a"
+                and new_ts > prev_ts
+                and DATA_LAST_BRUSH_PNUM in collected
+                and DATA_LAST_BRUSH_DURATION in collected
+                and not any(key in collected for key in _ENRICHMENT_KEYS)
+            )
+
+            if has_core_inline_only:
+                self._log.debug(
+                    "OCLEANV1a new inline-only session detected after enrichment wait; "
+                    "retrying receive-brush probe for possible follow-up packets"
+                )
+                if RECEIVE_BRUSH_UUID in self._protocol.notify_chars:
+                    with contextlib.suppress(Exception):
+                        await self._poll_receive_brush_fallback(client, handler, session_received)
+                    await asyncio.sleep(BLE_ENRICHMENT_WAIT)
+
+                seen = [key for key in _ENRICHMENT_KEYS if key in collected]
+                self._log.debug(
+                    "OCLEANV1a enrichment retry complete; enrichment keys present: %s",
+                    seen or ["none"],
+                )
+
         await self._read_battery_and_unsubscribe(client, collected)
 
     def _finalize_sessions(
