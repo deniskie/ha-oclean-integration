@@ -176,6 +176,7 @@ _MODEL_MAP: dict[str, DeviceProtocol] = {
     "OCLEANR3L": TYPE1,  # Oclean R3L            – APK DeviceType 38
     # APK handler: C3352g mode=0  (same BLE structure as OCLEANY3P)
     "OCLEANY3P": TYPE1,  # Oclean X Pro Elite    – confirmed (logs 2026-02-25, issue #3)
+    "OCLEANY3PB": TYPE1,  # Oclean X Pro Digital  – confirmed TYPE1 BLE stack (issue #89)
     "OCLEANY3PD": TYPE1,  # Oclean X Pro Elite D  – APK DeviceType 29
     # OCLEANX20 – Oclean X Pro 20: confirmed TYPE1 via debug logs (issue #37, 2026-03-09)
     # No CHANGE_INFO_UUID, fbb89 write-only (subscribe fails), 0307 push via fbb90.
