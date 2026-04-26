@@ -209,11 +209,18 @@ _MODEL_MAP: dict[str, DeviceProtocol] = {
     "OCLEANA1c": LEGACY,  # Oclean Air 1c         – APK DeviceType 17
     "OCLEANA1d": LEGACY,  # Oclean Air 1d         – APK DeviceType 18
     # ------------------------------------------------------------------
+    # Type-1 – Oclean Air 1e / Air 1f
+    # APK handler: C3352g mode=3.  Same GATT setup as TYPE1 (subscribes fbb90,
+    # sends 0307 via fbb89).  Only difference: brush-head reset uses 0313
+    # instead of TYPE1's 030201.  Session flow is identical to TYPE1.
+    # ------------------------------------------------------------------
+    "OCLEANA1e": TYPE1,  # Oclean Air 1e         – APK DeviceType 31
+    "OCLEANA1f": TYPE1,  # Oclean Air 1f         – APK DeviceType 33
+    # ------------------------------------------------------------------
     # Not mapped → UNKNOWN fallback (tries all chars/commands, logs everything):
     #   OCLEANX1/OCLEANY2/OCLEANX1+/OCLEANY2+/OCLEANK1 – older Dialog handler classes
     #   OCLEANW1/W1a/W1b/W1d – Wone serial protocol, unrelated BLE stack
     #   OCLEANC1 – WiFi only, no BLE session data
-    #   OCLEANA1e/A1f – C3352g mode=3, protocol not yet confirmed
     #   0001..000F generic model IDs – handler confirmed but protocol untested via BLE
     # ------------------------------------------------------------------
 }
