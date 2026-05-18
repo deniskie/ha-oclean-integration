@@ -2,5 +2,5 @@ pytest>=9.0.3
 pytest-asyncio>=0.23
 pytest-cov>=7.1.0
 voluptuous>=0.13
-ruff>=0.15.12
+ruff>=0.15.13
 mypy>=1.10
