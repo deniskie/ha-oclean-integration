@@ -1307,7 +1307,12 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         # from _last_raw for all other polls to keep the BLE session short.
         dis_keys = (DATA_MODEL_ID, DATA_HW_REVISION, DATA_SW_VERSION)
         age = time.time() - self._dis_last_read_ts
-        if self._dis_last_read_ts > 0 and age < _DIS_REFRESH_INTERVAL:
+        cached_model = self._last_raw.get(DATA_MODEL_ID)
+        # Only honour the 24 h cache once we have actually identified the device
+        # (a cached model_id).  A flaky GATT table can let HW/SW read while the
+        # MODEL characteristic fails (issue #102, OCLEANY3S "Invalid handle");
+        # without this guard the protocol would stay UNKNOWN for 24 h.
+        if self._dis_last_read_ts > 0 and age < _DIS_REFRESH_INTERVAL and cached_model:
             for key in dis_keys:
                 cached = self._last_raw.get(key)
                 if cached:
@@ -1315,7 +1320,7 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
             self._log.debug(
                 "DIS skipped (cached, %.0f h until refresh: model=%s sw=%s)",
                 (_DIS_REFRESH_INTERVAL - age) / 3600,
-                self._last_raw.get(DATA_MODEL_ID),
+                cached_model,
                 self._last_raw.get(DATA_SW_VERSION),
             )
             return
@@ -1325,13 +1330,14 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
             DATA_HW_REVISION: DIS_HW_REV_UUID,
             DATA_SW_VERSION: DIS_SW_REV_UUID,
         }
-        got_fresh_dis = False
+        got_fresh_model = False
         for key, uuid in dis_chars.items():
             try:
                 raw = await client.read_gatt_char(uuid)
                 collected[key] = raw.decode("utf-8").strip("\x00").strip()
                 self._log.debug("DIS %s: %s", key, collected[key])
-                got_fresh_dis = True
+                if key == DATA_MODEL_ID and collected[key]:
+                    got_fresh_model = True
             except Exception as err:  # noqa: BLE001
                 self._log.debug("DIS read skipped for %s: %s", uuid[-8:], err)
                 # Fall back to cached value so a transient BLE error (e.g.
@@ -1341,10 +1347,12 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
                 if cached:
                     collected[key] = cached
 
-        # Only advance the refresh timestamp when we actually read fresh data.
-        # If all reads failed we leave _dis_last_read_ts unchanged so the next
-        # poll will retry the DIS read rather than waiting another 24 h.
-        if got_fresh_dis:
+        # Only advance the refresh timestamp once we freshly read the MODEL ID –
+        # the field that selects the protocol profile.  Advancing on a partial
+        # read (HW/SW only) would lock the protocol to UNKNOWN for 24 h when the
+        # MODEL characteristic is flaky (issue #102); leaving the timer unchanged
+        # makes the next poll retry the read.
+        if got_fresh_model:
             self._dis_last_read_ts = time.time()
 
         # Update protocol profile based on the freshly read model ID.

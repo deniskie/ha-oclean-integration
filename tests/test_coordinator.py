@@ -1927,6 +1927,57 @@ class TestReadDeviceInfoServiceCacheExpiry:
         assert collected[DATA_HW_REVISION] == "Rev.D"  # from cache
         assert collected[DATA_SW_VERSION] == "1.0.0.4"  # from cache
 
+    @pytest.mark.asyncio
+    async def test_dis_model_read_fails_does_not_advance_ts(self):
+        """Issue #102: a flaky GATT table that lets HW/SW read but fails the
+        MODEL characteristic must NOT advance the 24 h refresh timer.  Otherwise
+        the protocol is locked to UNKNOWN for 24 h even though the next poll
+        could read the model.  Observed on OCLEANY3S (handle=65534 Invalid handle)."""
+        from custom_components.oclean_ble.const import (
+            DATA_MODEL_ID,
+            DIS_HW_REV_UUID,
+            DIS_MODEL_UUID,
+            DIS_SW_REV_UUID,
+        )
+
+        coord = _make_coordinator()
+        ts_before = coord._dis_last_read_ts  # 0.0
+        assert not coord._last_raw.get(DATA_MODEL_ID)  # no cached model
+
+        def _side_effect(uuid):
+            if uuid == DIS_MODEL_UUID:
+                raise Exception("Bluetooth GATT Error handle=65534 Invalid handle")
+            if uuid == DIS_HW_REV_UUID:
+                return bytearray(b"Rev.D")
+            if uuid == DIS_SW_REV_UUID:
+                return bytearray(b"1.0.0.19")
+            raise AssertionError(f"unexpected uuid {uuid}")
+
+        client = _make_bleak_client()
+        client.read_gatt_char = AsyncMock(side_effect=_side_effect)
+        await coord._read_device_info_service(client, {})
+        # Timer must stay unchanged so the next poll retries the model read.
+        assert coord._dis_last_read_ts == ts_before
+
+    @pytest.mark.asyncio
+    async def test_dis_cache_skip_requires_cached_model(self):
+        """Issue #102: if the 24 h timer is set but no model_id was ever cached
+        (e.g. a prior partial read), the next poll must still attempt a fresh DIS
+        read instead of skipping and leaving the protocol stuck at UNKNOWN."""
+        import time
+
+        from custom_components.oclean_ble.const import DATA_MODEL_ID
+
+        coord = _make_coordinator()
+        coord._dis_last_read_ts = time.time() - 100  # within 24 h window
+        coord._last_raw = {}  # no cached model
+        client = _make_bleak_client()
+        client.read_gatt_char = AsyncMock(return_value=bytearray(b"OCLEANY3S"))
+        collected: dict = {}
+        await coord._read_device_info_service(client, collected)
+        client.read_gatt_char.assert_called()  # must NOT skip
+        assert collected[DATA_MODEL_ID] == "OCLEANY3S"
+
 
 # ---------------------------------------------------------------------------
 # Manual poll mode (poll_interval=0 → update_interval=None)
