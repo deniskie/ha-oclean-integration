@@ -1657,12 +1657,54 @@ class TestParseT1C3352gRecord:
         result = parse_t1_c3352g_record(record)
         assert "last_brush_score" not in result
 
-    def test_areas_never_stored(self):
-        """C3352g record bytes are pressureRatio/gestureCode data, not zone areas."""
-        record = _make_c3352g_record()
+    def test_areas_absent_when_zone_bytes_zero(self):
+        """No tooth-area data when the per-zone bytes (23-30) are all zero."""
+        record = _make_c3352g_record()  # bytes 23-30 default to 0
         result = parse_t1_c3352g_record(record)
         assert "last_brush_areas" not in result
         assert "last_brush_pressure" not in result
+
+    def test_areas_from_bytes23_30(self):
+        """Tooth-area coverage comes from the gestureArray bytes 23-30 (APK m18f).
+
+        These are the only 8-value per-zone array in the 42-byte record and map
+        1:1 onto the 8 TOOTH_AREA_NAMES. Confirmed against a real OCLEANY3P
+        session record (issue #49 comment12)."""
+        record = bytearray(_make_c3352g_record())
+        for i, v in enumerate((15, 13, 38, 16, 1, 0, 13, 1)):
+            record[23 + i] = v
+        result = parse_t1_c3352g_record(bytes(record))
+        assert result["last_brush_areas"] == {
+            "upper_left_out": 15,
+            "upper_left_in": 13,
+            "lower_left_out": 38,
+            "lower_left_in": 16,
+            "upper_right_out": 1,
+            "upper_right_in": 0,
+            "lower_right_out": 13,
+            "lower_right_in": 1,
+        }
+        assert "last_brush_pressure" in result
+        assert "last_brush_coverage" in result
+
+    def test_real_ocleany3p_comment12_record(self):
+        """Real OCLEANY3P *B# record from issue #49 comment12 (synced session,
+        2026-03-18 13:33:09, score 1, duration 120 s). Areas from bytes 23-30."""
+        record = bytes.fromhex("1a03120d2109000078000b6400000000000f001d38010e0f0d261001000d0100000100ffffffffffffff")
+        result = parse_t1_c3352g_record(record)
+        assert result["last_brush_pnum"] == 0
+        assert result["last_brush_duration"] == 120
+        assert result["last_brush_score"] == 1
+        assert result["last_brush_areas"] == {
+            "upper_left_out": 15,
+            "upper_left_in": 13,
+            "lower_left_out": 38,
+            "lower_left_in": 16,
+            "upper_right_out": 1,
+            "upper_right_in": 0,
+            "lower_right_out": 13,
+            "lower_right_in": 1,
+        }
 
     def test_zero_duration_not_stored(self):
         record = _make_c3352g_record(duration=0)
@@ -1734,10 +1776,9 @@ class TestParseT1C3352gRecord:
           ts  = 2026-03-22 23:34:35  (bytes 0-5)
           pNum = 76                  (byte 6 = 0x4c)
           duration = 150 s           (bytes 7-8 = 0x0096)
-          gestureCode = 20           (byte 19 = 0x14, APK-confirmed)
           score = 98                 (byte 33 = 0x62)
           pressureRatio = [0,1,4,30,0]  (bytes 11-15)
-          NO last_brush_areas        (bytes 11-19 are not zone data)
+          areas = bytes 23-30 = [5,14,15,13,8,15,12,14] (gestureArray, plausible)
         """
         raw = bytes.fromhex("1a03161722234c009600960001041e00000f00141f171a050e0f0d080f0c0e00006200ffffffffffffff")
         assert len(raw) == 42
@@ -1747,8 +1788,17 @@ class TestParseT1C3352gRecord:
         assert result["last_brush_pnum"] == 76
         assert result["last_brush_gesture_code"] == 3  # byte 30 = 0x0e, bits 3-2 = 3
         assert result["last_brush_pressure_ratio"] == [0, 1, 4, 30, 0]
-        assert "last_brush_areas" not in result
-        assert "last_brush_pressure" not in result
+        assert result["last_brush_areas"] == {
+            "upper_left_out": 5,
+            "upper_left_in": 14,
+            "lower_left_out": 15,
+            "lower_left_in": 13,
+            "upper_right_out": 8,
+            "upper_right_in": 15,
+            "lower_right_out": 12,
+            "lower_right_in": 14,
+        }
+        assert "last_brush_pressure" in result
         dt = datetime.datetime.fromtimestamp(result["last_brush_time"])
         assert dt.year == 2026
         assert dt.month == 3
@@ -1912,7 +1962,7 @@ def _make_y3p_record(
     record[7] = (duration >> 8) & 0xFF
     record[8] = duration & 0xFF
     for i, v in enumerate(areas[:8]):
-        record[21 + i] = v
+        record[23 + i] = v  # gestureArray / per-zone areas (APK m18f bytes 23-30)
     record[33] = score
     return bytes(record)
 
@@ -1996,7 +2046,8 @@ class TestParseY3pStreamRecord:
         """Decode a realistic 42-byte Y3P record from issue #49 log analysis.
 
         Session observed 2025-08-28 00:59:55: byte 0 = 0x00, bytes 1-5 = 8/28/0/59/55,
-        bytes 7-8 = 0x00/0x78 (120 s), areas at bytes 21-28, score at byte 33.
+        bytes 7-8 = 0x00/0x78 (120 s), areas at bytes 23-30 (gestureArray, APK m18f),
+        score at byte 33.
         """
         record = bytearray(42)
         record[0] = 0x00  # no year encoded
@@ -2007,14 +2058,14 @@ class TestParseY3pStreamRecord:
         record[5] = 55  # second
         record[7] = 0x00
         record[8] = 0x78  # duration = 120 s
-        record[21] = 5  # area pressures
-        record[22] = 14
-        record[23] = 1
-        record[24] = 8
-        record[25] = 12
-        record[26] = 10
-        record[27] = 3
-        record[28] = 7
+        record[23] = 5  # per-zone area values (gestureArray, bytes 23-30)
+        record[24] = 14
+        record[25] = 1
+        record[26] = 8
+        record[27] = 12
+        record[28] = 10
+        record[29] = 3
+        record[30] = 7
         record[33] = 82  # score
         result = parse_y3p_stream_record(bytes(record))
         assert result.get("last_brush_duration") == 120
@@ -2073,7 +2124,6 @@ class TestParseT1OcleanX20Inline:
         assert result == {}
 
 
-
 # ---------------------------------------------------------------------------
 # OCLEANV1a / Oclean X Ultra – inline-only 0307 regression coverage (issue #81)
 # ---------------------------------------------------------------------------
@@ -2102,7 +2152,9 @@ class TestParseNotificationInfoT1OcleanV1aRouting:
             ),
         ],
     )
-    def test_real_ocleanv1a_inline_payloads_parse_core_fields_only(self, raw_hex: str, expected: tuple[int, int, int, int, int, int]):
+    def test_real_ocleanv1a_inline_payloads_parse_core_fields_only(
+        self, raw_hex: str, expected: tuple[int, int, int, int, int, int]
+    ):
         raw = bytes.fromhex(raw_hex)
         result = parse_notification(raw)
 

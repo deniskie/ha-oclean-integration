@@ -140,18 +140,22 @@ grep -c "DIS read" oclean_ble.log
 |--------|----------|----------|-----------------|-----------------|-----------------|
 | Oclean X | OCLEANY3M | TYPE1 | fbb89 (SEND_BRUSH_CMD_UUID) | fbb90 (RECEIVE_BRUSH_UUID) | Score via `0000`, areas via `2604` (enrichment pushes after session) |
 | Oclean X Pro | OCLEANY3 | TYPE1 | fbb89 | fbb90 | Score/areas via enrichment pushes |
-| Oclean X Pro Elite | OCLEANY3P | TYPE1 | fbb89 | fbb90 | Score via `0000`, areas via `021f`, meta via `5100` |
+| Oclean X Pro Elite | OCLEANY3P | TYPE1 | fbb89 | fbb90 | Score + areas **inline** in the 42-byte `*B#` record (areas = gestureArray bytes 23-30). NOT via `021f`/`5100`/`2604` pushes. |
 | Oclean Air 1 | OCLEANA1 | LEGACY | fbb85 (WRITE_CHAR_UUID) | fbb86 READ (no CCCD) | None |
 
 **All TYPE1 devices** send query commands (0303/0202/0302/0307) via `fbb89` (`SEND_BRUSH_CMD_UUID`) during polls. Responses arrive as notifications on `fbb90` (`RECEIVE_BRUSH_UUID`) or `fbb86` (`READ_NOTIFY_CHAR_UUID`). The `write_char` field on `DeviceProtocol` controls which characteristic is used for one-off standalone writes (area_remind, brush_head_max_days, reset_brush_head, time calibration, brush scheme). For TYPE1, standalone writes use `fbb85` (`WRITE_CHAR_UUID`) — confirmed via APK `C3385w0_fallback.java` (the TYPE1 handler); only `0307` poll queries use `fbb89`. Note: `C3376s.java` in the APK sources is the handler for **WiFi-only devices** (model IDs 0005/0006/000D) and must not be used as a reference for TYPE1 BLE behavior.
 
 **OCLEANY3M**: Score and areas arrive as unsolicited enrichment pushes (`0000`, `2604`) on fbb90 after the 0307 session response. In inline mode (no new sessions), the 13-byte truncated record omits score – enrichment pushes may or may not follow depending on firmware.
 
-**OCLEANY3P** (Oclean X Pro Elite): Uses 0307. When the device has stored sessions, it responds with session_count>0 and year_byte=0 (no inline data), then pushes session data via:
-- `021f` – candidate: zone/area pressure data (analogous to `2604` on OCLEANY3M)
-- `5100` – candidate: session metadata with M/D/H/Min/S at bytes 8-12 (analogous to `5a00`, but year field absent or encoded differently)
+**OCLEANY3P** (Oclean X Pro Elite): Uses 0307. When the device has new unsynced sessions, it responds with the `*B#` (hex `2a4223`) multi-packet stream, reassembled by the coordinator into 42-byte records. **All session data — including per-zone tooth areas — is inline in that record**; there is no separate area/score push.
 
-Both `021f` and `5100` are logged for research. Format confirmed once correlated brushing data is available.
+**Empirically disproven (issue #49 logs + APK C3352g analysis, 2026-06):** the old `021f`/`5100`/`2604` "enrichment push" theory for OCLEANY3P is wrong:
+- `2604` never appears on OCLEANY3P (it is the OCLEANY3M variant).
+- `021f` is a static constant (`021f00000f000f211123010d120f010f0f120000`), not session data.
+- `5100` is `0xFF`-filled placeholder.
+- `0000` "notifications" are actually `*B#` stream continuation fragments.
+
+Areas are parsed from record bytes 23-30 (the APK `gestureArray` field) by `parse_t1_c3352g_record` / `parse_y3p_stream_record`. **Still unconfirmed:** the gesture-vs-coverage semantic of bytes 23-30 — needs an app-coverage screenshot correlated with a raw record to verify the zone mapping.
 
 **OCLEANA1** (Oclean Air 1): fbb86 characteristic exists but has no CCCD → cannot subscribe for notifications. Coordinator uses direct `read_gatt_char()` fallback after sending query commands.
 

@@ -379,9 +379,9 @@ class OcleanDeviceSimulator:
           bytes 1-5: month / day / hour / minute / second
           byte  6:   0x00 (reserved)
           bytes 7-8: duration, big-endian uint16 (seconds)
-          bytes 9-20: 0x00 (reserved)
-          bytes 21-28: 8 tooth-area pressure values
-          bytes 29-32: 0x00 (reserved)
+          bytes 9-22: 0x00 (reserved)
+          bytes 23-30: 8 tooth-area / gestureArray values (APK m18f)
+          bytes 31-32: 0x00 (reserved)
           byte  33:  brushing score (0-100; 0xFF = absent)
           bytes 34-41: 0x00 (padding)
 
@@ -400,7 +400,7 @@ class OcleanDeviceSimulator:
         record[7] = (duration >> 8) & 0xFF
         record[8] = duration & 0xFF
         for i, p in enumerate(area_pressures[:8]):
-            record[21 + i] = int(p) & 0xFF
+            record[23 + i] = int(p) & 0xFF  # gestureArray / per-zone areas (APK m18f)
         record[33] = max(0, min(255, score))
 
         header = bytearray(20)

@@ -554,9 +554,11 @@ def parse_t1_c3352g_record(record: bytes) -> dict[str, Any]:
       byte 33:   score (0-100, 0xFF = absent)   ✓
       byte 34:   point (not used)               ✓
 
-    NOTE: bytes 11-15 are **pressureRatio** data, NOT tooth-zone
-    area coverage.  Per-zone area data arrives via separate 021f push
-    notifications and is handled by _parse_brush_areas_y3p_response().
+    NOTE: bytes 11-15 are **pressureRatio** data, NOT tooth-zone area
+    coverage.  Per-zone tooth-area coverage is the 8-value gestureArray at
+    bytes 23-30 (APK m18f) – there is no separate 021f/2604 area push on the
+    C3352g handler (empirically confirmed via issue #49 logs: 021f is a static
+    constant, 5100 is 0xFF-filled, 2604 never appears on OCLEANY3P).
 
     All out-of-range values are silently omitted from the result.
     """
@@ -606,13 +608,25 @@ def parse_t1_c3352g_record(record: bytes) -> dict[str, Any]:
         # gestureArray: bytes 23-30 (8 values, padded to 12 with zeros)
         # powerArray:   2-bit nibbles from bytes 30-32 (APK: m13a / a.b.a)
         # NOTE: bytes 11-15 are pressureRatio, NOT tooth-zone areas.
-        #       Area data comes from 021f push notifications only.
         result[DATA_LAST_BRUSH_GESTURE_CODE] = (record[30] >> 2) & 0x3
         result[DATA_LAST_BRUSH_PRESSURE_RATIO] = list(record[11:16])
         result[DATA_LAST_BRUSH_GESTURE_ARRAY] = list(record[23:31]) + [0, 0, 0, 0]
         result[DATA_LAST_BRUSH_POWER_ARRAY] = (
             _extract_nibbles(record[30]) + _extract_nibbles(record[31]) + _extract_nibbles(record[32])
         )
+
+        # Per-zone tooth-area coverage = the 8-value gestureArray (bytes 23-30).
+        # This is the only 8-element per-zone array in the record and maps 1:1
+        # onto the 8 TOOTH_AREA_NAMES. Empirically confirmed against a real
+        # OCLEANY3P session (issue #49 comment12) where bytes 23-30 held plausible
+        # per-zone values while pressureRatio (11-15) did not. Earlier code wrongly
+        # expected this via a 021f push, which the C3352g handler never sends.
+        area_bytes = bytes(record[23:31])
+        area_dict, _zones_cleaned, avg_pressure, coverage_pct = _build_area_stats(area_bytes)
+        if any(v > 0 for v in area_bytes):
+            result[DATA_LAST_BRUSH_AREAS] = area_dict
+            result[DATA_LAST_BRUSH_PRESSURE] = avg_pressure
+            result[DATA_LAST_BRUSH_COVERAGE] = coverage_pct
         _LOGGER.debug("Oclean C3352g record point=%d (raw byte 34, APK: not used)", record[34])
         _LOGGER.debug(
             "Oclean C3352g record research: gestureCode=%d gestureArray=%s powerArray=%s",
@@ -657,7 +671,7 @@ def parse_y3p_stream_record(record: bytes) -> dict[str, Any]:
       byte  4:   minute (0-59)
       byte  5:   second (0-59)
       bytes 7-8:  session duration, big-endian uint16 (seconds)
-      bytes 21-28: 8 tooth-area pressure values (BrushAreaType order)
+      bytes 23-30: 8 tooth-area / gestureArray values (BrushAreaType order, APK m18f)
       byte  33:  brushing score (0-100; 0xFF = absent)
     """
     if len(record) < T1_C3352G_RECORD_SIZE:
@@ -693,7 +707,10 @@ def parse_y3p_stream_record(record: bytes) -> dict[str, Any]:
         if duration_s > 0:
             result[DATA_LAST_BRUSH_DURATION] = duration_s
 
-        area_bytes = bytes(record[21:29])
+        # Per-zone tooth-area coverage = the 8-value gestureArray (bytes 23-30,
+        # APK m18f), aligned with parse_t1_c3352g_record. Earlier code read 21-28,
+        # a 2-byte misalignment from the confirmed offset.
+        area_bytes = bytes(record[23:31])
         area_dict, _zones_cleaned, avg_pressure, coverage_pct = _build_area_stats(area_bytes)
         if any(v > 0 for v in area_bytes):
             result[DATA_LAST_BRUSH_AREAS] = area_dict
@@ -826,10 +843,14 @@ def _parse_info_t1_response(payload: bytes) -> dict[str, Any]:
 
     if payload[5] == 0:
         if session_count > 0:
-            # OCLEANY3P: device has sessions but defers data via 021f/5100 notifications.
+            # OCLEANY3P: device has sessions but the inline header carries no data.
+            # The full per-session records (incl. tooth areas) arrive as a *B#
+            # multi-packet stream reassembled by the coordinator notification
+            # handler – NOT via 021f/5100 pushes (those are a static constant /
+            # 0xFF-filled placeholder; confirmed via issue #49 logs).
             _LOGGER.debug(
                 "Oclean 0307: year_byte=0x00, session_count=%d – "
-                "device will push session data via 021f/5100 notifications (raw: %s)",
+                "session records arrive via *B# multi-packet stream (raw: %s)",
                 session_count,
                 payload.hex(),
             )
