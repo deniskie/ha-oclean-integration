@@ -1,5 +1,32 @@
 # Changelog
 
+## [v1.3.0] – 2026-06-12
+
+### Fixes
+
+- **OCLEANY3P / OCLEANY3 tooth areas** – Per-zone tooth-area coverage is now extracted **inline** from the 42-byte `*B#` session record (bytes 23–30, the APK `gestureArray` field). The long-standing assumption that areas arrive via separate `021f` / `5100` / `2604` push notifications was disproven through issue #49 log analysis + APK `C3352g` review: `2604` never appears on OCLEANY3P, `021f` is a static constant, and `5100` is `0xFF`-filled. Areas populate only when the device has new, un-synced sessions (i.e. right after brushing, before opening the Oclean app). Confirmed against two real OCLEANY3P session records (#72, #105).
+- **OCLEANY3S "Unknown" protocol lock** – A flaky GATT table (`handle=65534 Invalid handle`) could let the hardware/software Device Information characteristics read while the **model** characteristic failed, which locked the protocol profile to `Unknown` for 24 h even though OCLEANY3S is mapped to TYPE1. The DIS is now re-read every poll until a valid model ID is obtained, and the 24 h refresh timer only advances once the model has actually been read (#102).
+
+### Maintenance
+
+- Dev-dependency bumps via Dependabot: pytest ≥9.0.3, pytest-asyncio ≥1.4.0, pytest-cov ≥7.1.0, voluptuous ≥0.16.0, mypy ≥2.1.0, ruff ≥0.15.16. Test suite at 787 tests.
+
+---
+
+## [v1.2.3] – 2026-04-26
+
+### New Device Support
+
+- **OCLEANY3PB** (Oclean X Pro Digital) mapped to the TYPE1 protocol — BLE logs confirm the same stack as OCLEANY3P (#89).
+- **OCLEANA1e / OCLEANA1f** mapped to TYPE1 (APK `C3352g` mode=3): same GATT setup as TYPE1, brush-head reset via `0313`.
+
+### Fixes
+
+- **OCLEANV1a** (Oclean X Ultra) – Retry the receive-brush probe after an inline-only session, and extract partial brush areas from the `*B#` record; corrected the brush-scheme command constant (#90).
+- **Fallback probe** – Clear `session_received` before the fallback probe and fix a sleep-indentation bug that could shorten the notification wait.
+
+---
+
 ## [v1.2.2] – 2026-03-28
 
 ### Fixes
