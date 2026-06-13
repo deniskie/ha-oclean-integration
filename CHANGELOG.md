@@ -1,5 +1,14 @@
 # Changelog
 
+## [v1.3.1] – 2026-06-13
+
+### Fixes
+
+- **OCLEANY3P coverage % was always ~0** – Follow-up to v1.3.0. APK analysis (`BrushAreaType`, `DentalCastRegionView2`, `BrushRecordEntity.gestureArray = getTime12()`) confirmed that the per-zone bytes 23–30 are brushing **time in seconds**, not pressure. v1.3.0 compared them against the raw-pressure coverage threshold (100), so no zone ever counted as covered. Coverage now uses a 7-second time threshold (the official app's dental-cast bucket: > 7 s = brushed) — e.g. a real session with 5 of 8 zones over 7 s now reports 62 %. The per-zone tooth-area values (time) and zone order are unchanged and remain APK-confirmed.
+- **Bogus `pressure` value removed for TYPE1 `*B#` sessions** – The same path reported the *average of the per-zone times* as `last_brush_pressure`, which is meaningless. It is no longer set from the time bytes; brushing pressure remains available via the Pressure Detail sensor (the 5-segment `pressureRatio`, bytes 11–15).
+
+---
+
 ## [v1.3.0] – 2026-06-12
 
 ### Fixes
