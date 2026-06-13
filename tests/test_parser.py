@@ -1684,8 +1684,10 @@ class TestParseT1C3352gRecord:
             "lower_right_out": 13,
             "lower_right_in": 1,
         }
-        assert "last_brush_pressure" in result
-        assert "last_brush_coverage" in result
+        # 5 of 8 zones have time > 7 s (15, 13, 38, 16, 13) → round(62.5) = 62 %.
+        assert result["last_brush_coverage"] == 62
+        # The per-zone bytes are brushing time, not pressure → no pressure value.
+        assert "last_brush_pressure" not in result
 
     def test_real_ocleany3p_comment12_record(self):
         """Real OCLEANY3P *B# record from issue #49 comment12 (synced session,
@@ -1798,7 +1800,9 @@ class TestParseT1C3352gRecord:
             "lower_right_out": 12,
             "lower_right_in": 14,
         }
-        assert "last_brush_pressure" in result
+        # 7 of 8 zones have time > 7 s → round(87.5) = 88 %; pressure not derived here.
+        assert result["last_brush_coverage"] == 88
+        assert "last_brush_pressure" not in result
         dt = datetime.datetime.fromtimestamp(result["last_brush_time"])
         assert dt.year == 2026
         assert dt.month == 3
@@ -2024,7 +2028,9 @@ class TestParseY3pStreamRecord:
         record = _make_y3p_record(areas=(5, 14, 1, 8, 12, 10, 3, 7))
         result = parse_y3p_stream_record(record)
         assert "last_brush_areas" in result
-        assert "last_brush_pressure" in result
+        # 4 of 8 zones have time > 7 s (14, 8, 12, 10) → 50 %; no pressure from time bytes.
+        assert result["last_brush_coverage"] == 50
+        assert "last_brush_pressure" not in result
 
     def test_zero_areas_not_stored(self):
         record = _make_y3p_record(areas=(0, 0, 0, 0, 0, 0, 0, 0))

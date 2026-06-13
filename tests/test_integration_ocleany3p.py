@@ -27,6 +27,7 @@ import pytest
 from custom_components.oclean_ble.const import (
     DATA_BATTERY,
     DATA_LAST_BRUSH_AREAS,
+    DATA_LAST_BRUSH_COVERAGE,
     DATA_LAST_BRUSH_DURATION,
     DATA_LAST_BRUSH_PRESSURE,
     DATA_LAST_BRUSH_SCORE,
@@ -57,8 +58,8 @@ class TestOcleanY3PStreamSession:
 
     @pytest.mark.asyncio
     async def test_session_all_fields_present(self):
-        """Y3P stream → duration, score, areas, and pressure all populated."""
-        areas = (10, 20, 30, 15, 25, 35, 5, 10)
+        """Y3P stream → duration, score, areas, and coverage all populated."""
+        areas = (10, 20, 30, 15, 25, 35, 5, 10)  # per-zone time (s); 7 zones > 7 s
         client = (
             OcleanDeviceSimulator()
             .with_battery(65)
@@ -81,7 +82,10 @@ class TestOcleanY3PStreamSession:
         assert result[DATA_LAST_BRUSH_SCORE] == 88
         assert isinstance(result[DATA_LAST_BRUSH_AREAS], dict)
         assert len(result[DATA_LAST_BRUSH_AREAS]) == 8
-        assert result[DATA_LAST_BRUSH_PRESSURE] > 0
+        # 7 of 8 zones have time > 7 s (only the 5 s zone fails) → 88 %.
+        assert result[DATA_LAST_BRUSH_COVERAGE] == 88
+        # Pressure is NOT derived from the per-zone time bytes.
+        assert result.get(DATA_LAST_BRUSH_PRESSURE) is None
 
     @pytest.mark.asyncio
     async def test_session_timestamp_is_set(self):
@@ -106,21 +110,21 @@ class TestOcleanY3PStreamSession:
             assert area_dict[name] == areas[i], f"Mismatch for zone {name}"
 
     @pytest.mark.asyncio
-    async def test_pressure_is_rounded_average_of_areas(self):
-        """last_brush_pressure is the rounded average of the 8 area values.
+    async def test_coverage_uses_time_threshold(self):
+        """Coverage counts zones whose brushing time exceeds 7 s (APK DentalCast).
 
-        Uses areas where round() and int() differ: sum=7, /8=0.875
-          round(0.875) = 1  (correct)
-          int(0.875)   = 0  (wrong – would mean floor, not round)
+        A zone with exactly 7 s does NOT count (threshold is strictly > 7);
+        a zone with 8 s does. Here only 1 of 8 zones qualifies → round(1/8) = 12 %.
         """
-        areas = (7, 0, 0, 0, 0, 0, 0, 0)  # sum=7 / 8 = 0.875 → round=1, int=0
+        areas = (8, 7, 0, 0, 0, 0, 0, 0)  # only the 8 s zone is > 7 s
         client = (
             OcleanDeviceSimulator()
             .add_y3p_stream_session(3, 11, 20, 2, 23, duration=90, score=70, area_pressures=areas)
             .build_client()
         )
         result = await run_poll(_coordinator(), client)
-        assert result[DATA_LAST_BRUSH_PRESSURE] == 1
+        assert result[DATA_LAST_BRUSH_COVERAGE] == 12
+        assert result.get(DATA_LAST_BRUSH_PRESSURE) is None
 
     @pytest.mark.asyncio
     async def test_score_0xff_not_set(self):
