@@ -159,6 +159,7 @@ DATA_LAST_BRUSH_COVERAGE = "last_brush_coverage"  # int 0-100: percentage of zon
 DATA_LAST_BRUSH_PNUM = "last_brush_pnum"  # int (brush-scheme ID; see SCHEME_NAMES below)
 DATA_LAST_BRUSH_GESTURE_CODE = "last_brush_gesture_code"  # int 0-255 (APK: byte 14)
 DATA_LAST_BRUSH_PRESSURE_RATIO = "last_brush_pressure_ratio"  # list[int] len=5 (bytes 11-15)
+DATA_LAST_BRUSH_PRESSURE_CODE = "last_brush_pressure_code"  # int 0/50/60/70/80/90 (APK a.b.m14b over pressureRatio)
 DATA_LAST_BRUSH_GESTURE_ARRAY = "last_brush_gesture_array"  # list[int] len=13 (bytes 18-30)
 DATA_LAST_BRUSH_POWER_ARRAY = "last_brush_power_array"  # list[int] len=12, each 0-3 (nibbles from bytes 30-32)
 DATA_BRUSH_MODE = "brush_mode"  # int: active brushing mode number from 0302 device-settings response (byte 5)

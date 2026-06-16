@@ -137,6 +137,9 @@
       "last_brush_pressure_ratio": {
         "name": "Druckverteilung"
       },
+      "last_brush_pressure_code": {
+        "name": "Druckstufe"
+      },
       "last_brush_power_array": {
         "name": "Leistungsverteilung"
       },

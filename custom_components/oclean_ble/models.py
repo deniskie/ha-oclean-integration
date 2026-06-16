@@ -31,6 +31,7 @@ class OcleanDeviceData:
     sw_version: str | None = None
     last_brush_gesture_code: int | None = None
     last_brush_pressure_ratio: list[int] | None = None
+    last_brush_pressure_code: int | None = None
     last_brush_gesture_array: list[int] | None = None
     last_brush_power_array: list[int] | None = None
     last_poll: int | None = None
@@ -69,6 +70,7 @@ class OcleanDeviceData:
             sw_version=data.get("sw_version"),
             last_brush_gesture_code=data.get("last_brush_gesture_code"),
             last_brush_pressure_ratio=data.get("last_brush_pressure_ratio"),
+            last_brush_pressure_code=data.get("last_brush_pressure_code"),
             last_brush_gesture_array=data.get("last_brush_gesture_array"),
             last_brush_power_array=data.get("last_brush_power_array"),
             last_poll=data.get("last_poll"),

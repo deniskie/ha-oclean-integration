@@ -137,6 +137,9 @@
       "last_brush_pressure_ratio": {
         "name": "Pressure Detail"
       },
+      "last_brush_pressure_code": {
+        "name": "Pressure Level"
+      },
       "last_brush_power_array": {
         "name": "Power Distribution"
       },

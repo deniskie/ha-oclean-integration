@@ -1920,6 +1920,31 @@ class TestParseT1C3385w0Record:
         result = parse_t1_c3385w0_record(record)
         assert result["last_brush_pressure_ratio"] == [7, 2, 90, 0, 0]
 
+    @pytest.mark.parametrize(
+        ("ratio", "expected_code"),
+        [
+            ((10, 5, 5, 5, 5), 60),  # single max at index 0 → 60
+            ((5, 10, 5, 5, 5), 60),  # single max at index 1 → 60
+            ((5, 5, 10, 5, 5), 70),  # single max at index 2 → 70
+            ((5, 5, 5, 10, 5), 80),  # single max at index 3 → 80
+            ((5, 5, 5, 5, 10), 90),  # single max at index 4 → 90
+            ((10, 10, 0, 0, 0), 50),  # two-way tie {0,1} sum 1 → 50
+            ((10, 0, 0, 10, 0), 60),  # tie {0,3} sum 3 → 60
+            ((0, 10, 0, 0, 10), 70),  # tie {1,4} sum 5 → 70
+            ((0, 0, 0, 10, 10), 80),  # tie {3,4} sum 7 → 80
+            ((10, 10, 10, 0, 0), 80),  # three-way tie → 80
+            ((10, 10, 10, 10, 0), 90),  # four-way tie → 90
+            ((84, 1, 1, 1, 1), 60),  # bucket 0 dominant but < 85 → still computed (idx0) → 60
+            ((85, 1, 1, 1, 1), 0),  # bucket 0 >= 85 → gated → 0 (predominantly light)
+        ],
+    )
+    def test_pressure_code_replicates_apk_m14b(self, ratio: tuple, expected_code: int):
+        """DATA_LAST_BRUSH_PRESSURE_CODE replicates the APK a.b.m14b mapping (50-90/0)
+        over the 5 pressureRatio buckets (dominant-pressure-bucket → code)."""
+        record = _make_c3385w0_record(pressure_ratio=ratio, zone_times=(0,) * 8)
+        result = parse_t1_c3385w0_record(record)
+        assert result["last_brush_pressure_code"] == expected_code
+
     def test_gesture_array_8_elements_from_byte23(self):
         record = _make_c3385w0_record(zone_times=(1, 2, 3, 4, 5, 6, 7, 8))
         result = parse_t1_c3385w0_record(record)

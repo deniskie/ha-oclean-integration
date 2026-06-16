@@ -33,6 +33,7 @@ from .const import (
     DATA_LAST_BRUSH_PNUM,
     DATA_LAST_BRUSH_POWER_ARRAY,
     DATA_LAST_BRUSH_PRESSURE,
+    DATA_LAST_BRUSH_PRESSURE_CODE,
     DATA_LAST_BRUSH_PRESSURE_RATIO,
     DATA_LAST_BRUSH_SCORE,
     DATA_LAST_BRUSH_TIME,
@@ -182,6 +183,16 @@ SENSOR_DESCRIPTIONS: tuple[SensorEntityDescription, ...] = (
         icon="mdi:hand-wave",
         entity_category=EntityCategory.DIAGNOSTIC,
         # 0-255 raw value from 42-byte 0307 records (byte 14)
+    ),
+    # Pressure code: dominant-pressure-bucket level 0/50/60/70/80/90, replicating the
+    # APK routine a.b.m14b over the pressureRatio buckets (higher = heavier pressure;
+    # 0 = predominantly light). Diagnostic — the exact app label is unconfirmed.
+    SensorEntityDescription(
+        key=DATA_LAST_BRUSH_PRESSURE_CODE,
+        translation_key=DATA_LAST_BRUSH_PRESSURE_CODE,
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:gauge",
+        entity_category=EntityCategory.DIAGNOSTIC,
     ),
     # NOTE: DATA_LAST_BRUSH_PNUM is handled by OcleanSchemeSensor below (custom class).
     # NOTE: Duration Rating, Pressure Detail, and Power Distribution are custom sensors below.

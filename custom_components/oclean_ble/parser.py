@@ -25,6 +25,7 @@ from .const import (
     DATA_LAST_BRUSH_PNUM,
     DATA_LAST_BRUSH_POWER_ARRAY,
     DATA_LAST_BRUSH_PRESSURE,
+    DATA_LAST_BRUSH_PRESSURE_CODE,
     DATA_LAST_BRUSH_PRESSURE_RATIO,
     DATA_LAST_BRUSH_SCORE,
     DATA_LAST_BRUSH_TIME,
@@ -120,6 +121,44 @@ def _build_area_stats(
     avg_value = round(total / len(area_pressures))
     coverage_pct = round(zones_covered / len(area_pressures) * 100)
     return area_dict, zones_cleaned, avg_value, coverage_pct
+
+
+# pressureCode output codes keyed by the dominant pressure bucket, replicating the
+# APK routine a.b.m14b (smali a/b.smali). The 5 pressureRatio values are brushing
+# amounts at 5 increasing pressure buckets (index 0 = lightest … 4 = heaviest).
+_PRESSURE_CODE_SINGLE = {0: 60, 1: 60, 2: 70, 3: 80, 4: 90}  # unique dominant bucket
+_PRESSURE_CODE_PAIR = {1: 50, 2: 50, 3: 60, 4: 60, 5: 70, 6: 70, 7: 80}  # two tied buckets, by index sum
+
+
+def _pressure_code(values: list[int]) -> int:
+    """Replicate the APK pressureCode algorithm (a.b.m14b) over the 5 pressureRatio
+    values (bytes 11-15). Returns 0/50/60/70/80/90.
+
+    The code summarises the *dominant* pressure bucket: a heavier dominant bucket
+    yields a higher code. If the lightest bucket dominates strongly
+    (``values[0] >= 85``) the code is 0 (predominantly light pressure). The exact
+    user-facing label is not present in the APK; this faithfully reproduces the
+    app's internal derivation from the pressure distribution.
+    """
+    if len(values) < 5 or values[0] >= 85:
+        return 0
+    # Indices of the maximum value (argmax; ties accumulate in ascending order).
+    max_idx = [0]
+    cur_max = values[0]
+    for i in range(1, 5):
+        if values[i] == cur_max:
+            max_idx.append(i)
+        elif values[i] > cur_max:
+            max_idx = [i]
+            cur_max = values[i]
+    size = len(max_idx)
+    if size == 1:
+        return _PRESSURE_CODE_SINGLE.get(max_idx[0], 0)
+    if size == 2:
+        return _PRESSURE_CODE_PAIR.get(max_idx[0] + max_idx[1], 0)
+    if size == 3:
+        return 80
+    return 90  # size 4 or 5
 
 
 def _device_datetime(
@@ -398,6 +437,7 @@ def _parse_m18f_record(record: bytes) -> dict[str, Any]:
         # powerArray:   2-bit nibbles from bytes 30-32 (APK: m13a / a.b.a)
         result[DATA_LAST_BRUSH_GESTURE_CODE] = (record[30] >> 2) & 0x3
         result[DATA_LAST_BRUSH_PRESSURE_RATIO] = pressure_ratio
+        result[DATA_LAST_BRUSH_PRESSURE_CODE] = _pressure_code(pressure_ratio)
         result[DATA_LAST_BRUSH_GESTURE_ARRAY] = list(record[23:31]) + [0, 0, 0, 0]
         result[DATA_LAST_BRUSH_POWER_ARRAY] = (
             _extract_nibbles(record[30]) + _extract_nibbles(record[31]) + _extract_nibbles(record[32])
@@ -512,7 +552,9 @@ def parse_t1_c3385w0_record(
         # powerArray:   2-bit nibbles from bytes 30-32 (APK: m13a / a.b.a)
         # NOTE: bytes 11-15 are pressureRatio, NOT tooth-zone areas (issue #109).
         result[DATA_LAST_BRUSH_GESTURE_CODE] = (record[30] >> 2) & 0x3
-        result[DATA_LAST_BRUSH_PRESSURE_RATIO] = list(record[11:16])
+        _pressure_ratio = list(record[11:16])
+        result[DATA_LAST_BRUSH_PRESSURE_RATIO] = _pressure_ratio
+        result[DATA_LAST_BRUSH_PRESSURE_CODE] = _pressure_code(_pressure_ratio)
         result[DATA_LAST_BRUSH_GESTURE_ARRAY] = list(record[23:31]) + [0, 0, 0, 0]
         result[DATA_LAST_BRUSH_POWER_ARRAY] = (
             _extract_nibbles(record[30]) + _extract_nibbles(record[31]) + _extract_nibbles(record[32])
@@ -642,7 +684,9 @@ def parse_t1_c3352g_record(
         # powerArray:   2-bit nibbles from bytes 30-32 (APK: m13a / a.b.a)
         # NOTE: bytes 11-15 are pressureRatio, NOT tooth-zone areas.
         result[DATA_LAST_BRUSH_GESTURE_CODE] = (record[30] >> 2) & 0x3
-        result[DATA_LAST_BRUSH_PRESSURE_RATIO] = list(record[11:16])
+        _pressure_ratio = list(record[11:16])
+        result[DATA_LAST_BRUSH_PRESSURE_RATIO] = _pressure_ratio
+        result[DATA_LAST_BRUSH_PRESSURE_CODE] = _pressure_code(_pressure_ratio)
         result[DATA_LAST_BRUSH_GESTURE_ARRAY] = list(record[23:31]) + [0, 0, 0, 0]
         result[DATA_LAST_BRUSH_POWER_ARRAY] = (
             _extract_nibbles(record[30]) + _extract_nibbles(record[31]) + _extract_nibbles(record[32])
@@ -764,7 +808,9 @@ def parse_y3p_stream_record(
         # gestureArray: bytes 23-30 (8 values, padded to 12 with zeros)
         # powerArray:   2-bit nibbles from bytes 30-32 (APK: m13a / a.b.a)
         result[DATA_LAST_BRUSH_GESTURE_CODE] = (record[30] >> 2) & 0x3
-        result[DATA_LAST_BRUSH_PRESSURE_RATIO] = list(record[11:16])
+        _pressure_ratio = list(record[11:16])
+        result[DATA_LAST_BRUSH_PRESSURE_RATIO] = _pressure_ratio
+        result[DATA_LAST_BRUSH_PRESSURE_CODE] = _pressure_code(_pressure_ratio)
         result[DATA_LAST_BRUSH_GESTURE_ARRAY] = list(record[23:31]) + [0, 0, 0, 0]
         result[DATA_LAST_BRUSH_POWER_ARRAY] = (
             _extract_nibbles(record[30]) + _extract_nibbles(record[31]) + _extract_nibbles(record[32])
