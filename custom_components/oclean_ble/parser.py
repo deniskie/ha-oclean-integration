@@ -11,7 +11,7 @@ from collections.abc import Callable
 from typing import Any
 
 from .const import (
-    AREA_TIME_COVERAGE_THRESHOLD,
+    AREA_COVERAGE_NORM_THRESHOLD,
     COVERAGE_PRESSURE_THRESHOLD,
     DATA_BATTERY,
     DATA_BRUSH_HEAD_DAYS,
@@ -90,23 +90,34 @@ def _build_utc_timestamp(device_dt: datetime.datetime, tz_offset_quarters: int) 
 def _build_area_stats(
     area_pressures: bytes,
     coverage_threshold: int = COVERAGE_PRESSURE_THRESHOLD,
+    share_threshold: float | None = None,
 ) -> tuple[dict[str, int], int, int, int]:
     """Build per-zone dict, cleaned-zone count, average value, and coverage %.
 
-    A zone counts as adequately cleaned when its value exceeds
-    ``coverage_threshold``.  For raw-pressure paths (2604/021f/0308 enrichment)
-    the default ``COVERAGE_PRESSURE_THRESHOLD`` (100) applies (APK C2928q.java).
-    For the gestureArray time-per-zone path (TYPE1 *B# records) callers pass
-    ``AREA_TIME_COVERAGE_THRESHOLD`` (7 s), since those bytes are brushing time,
-    not pressure.
+    Two coverage modes:
+
+    * **Absolute** (default): a zone counts as covered when its value exceeds
+      ``coverage_threshold``.  Used by the raw-pressure paths (2604/021f/0308
+      enrichment) with ``COVERAGE_PRESSURE_THRESHOLD`` (100, APK C2928q.java).
+    * **Share-based**: when ``share_threshold`` is given, a zone counts as covered
+      when its SHARE of the total (``value / sum``) is at least ``share_threshold``.
+      Used by the gestureArray per-zone path (TYPE1 *B# records); callers pass
+      ``AREA_COVERAGE_NORM_THRESHOLD / duration`` so this reproduces the official
+      app's on-device formula ``norm = raw/sum * duration >= 9`` (APK C1793b.m3804z,
+      i10 = getTimeLong).  See ``AREA_COVERAGE_NORM_THRESHOLD`` in const.py — the
+      app's displayed % is a separate cloud field that cannot be reproduced offline.
 
     Returns:
         (area_dict, zones_cleaned, avg_value, coverage_pct)
     """
     area_dict: dict[str, int] = {name: int(area_pressures[i]) for i, name in enumerate(TOOTH_AREA_NAMES)}
     zones_cleaned = sum(1 for v in area_pressures if v > 0)
-    zones_covered = sum(1 for v in area_pressures if v > coverage_threshold)
-    avg_value = round(sum(area_pressures) / len(area_pressures))
+    total = sum(area_pressures)
+    if share_threshold is not None:
+        zones_covered = sum(1 for v in area_pressures if total > 0 and v / total >= share_threshold)
+    else:
+        zones_covered = sum(1 for v in area_pressures if v > coverage_threshold)
+    avg_value = round(total / len(area_pressures))
     coverage_pct = round(zones_covered / len(area_pressures) * 100)
     return area_dict, zones_cleaned, avg_value, coverage_pct
 
@@ -439,8 +450,8 @@ def parse_t1_c3385w0_record(record: bytes) -> dict[str, Any]:
       bytes 11-15: pressureRatio[0..4] (5 pressure buckets) ✓ NOT tooth-zone areas
       byte 16:   discarded by APK (not an area byte)       ✓ APK L1620 result not assigned
       byte 17:   timezone index → getTimeZoneString()      ✓ APK L1638+L1812 (not stored)
-      bytes 23-30: gestureArray[0..7] (8 per-zone times)    ✓ APK m18f = getTime12()
-                   the tooth-area coverage source (bucket >7 s = fully brushed)
+      bytes 23-30: gestureArray[0..7] (8 per-zone values)   ✓ APK m18f = getTime12()
+                   the per-zone tooth-area source (raw values; see coverage note)
       byte 30:   gestureCode (2-bit value at a.b.a(·, 2))  ✓ APK-confirmed
                  + powerArray nibbles a.b.a(·, 0/1/3)
       bytes 31-32: powerArray nibble source                ✓ APK-confirmed
@@ -505,19 +516,18 @@ def parse_t1_c3385w0_record(record: bytes) -> dict[str, Any]:
             _extract_nibbles(record[30]) + _extract_nibbles(record[31]) + _extract_nibbles(record[32])
         )
 
-        # Per-zone brushing TIME (seconds) = the 8-value gestureArray (bytes 23-30,
-        # APK BrushRecordEntity.gestureArray = getTime12()).  Maps 1:1 onto the 8
-        # TOOTH_AREA_NAMES (APK BrushAreaType enum order, value 1..8). A zone counts
-        # as covered when its time exceeds AREA_TIME_COVERAGE_THRESHOLD (APK
-        # DentalCast bucket: >7 s = fully brushed).  Pressure is NOT derived from
-        # these time bytes — the pressure distribution is the pressureRatio (11-15).
+        # Per-zone gestureArray = 8 values (bytes 23-30, APK
+        # BrushRecordEntity.gestureArray = getTime12()).  Maps 1:1 onto the 8
+        # TOOTH_AREA_NAMES (APK BrushAreaType enum order, value 1..8). Coverage
+        # reproduces the app's on-device formula norm = raw/sum * duration >= 9
+        # (i10 = getTimeLong, see const.py). Pressure is NOT derived from these bytes.
         area_bytes = bytes(record[23:31])
-        area_dict, _zones_cleaned, _avg, coverage_pct = _build_area_stats(
-            area_bytes, coverage_threshold=AREA_TIME_COVERAGE_THRESHOLD
-        )
+        share = AREA_COVERAGE_NORM_THRESHOLD / duration_s if duration_s > 0 else None
+        area_dict, _zones_cleaned, _avg, coverage_pct = _build_area_stats(area_bytes, share_threshold=share)
         if any(v > 0 for v in area_bytes):
             result[DATA_LAST_BRUSH_AREAS] = area_dict
-            result[DATA_LAST_BRUSH_COVERAGE] = coverage_pct
+            if share is not None:
+                result[DATA_LAST_BRUSH_COVERAGE] = coverage_pct
             _LOGGER.debug(
                 "Oclean C3385w0 record: areas (8 zones, time/zone): %s coverage=%d%%",
                 area_dict,
@@ -634,20 +644,19 @@ def parse_t1_c3352g_record(record: bytes) -> dict[str, Any]:
             _extract_nibbles(record[30]) + _extract_nibbles(record[31]) + _extract_nibbles(record[32])
         )
 
-        # Per-zone brushing TIME (seconds) = the 8-value gestureArray (bytes 23-30,
-        # APK BrushRecordEntity.gestureArray = getTime12()).  Maps 1:1 onto the 8
-        # TOOTH_AREA_NAMES (APK BrushAreaType enum order, value 1..8). A zone counts
-        # as covered when its time exceeds AREA_TIME_COVERAGE_THRESHOLD (APK
-        # DentalCast bucket: >7 s = fully brushed).  Pressure is NOT derived from
-        # these time bytes — the pressure distribution is the pressureRatio (11-15),
-        # exposed via the dedicated Pressure Detail sensor.
+        # Per-zone gestureArray = 8 values (bytes 23-30, APK
+        # BrushRecordEntity.gestureArray = getTime12()).  Maps 1:1 onto the 8
+        # TOOTH_AREA_NAMES (APK BrushAreaType enum order, value 1..8). Coverage
+        # reproduces the app's on-device formula norm = raw/sum * duration >= 9
+        # (i10 = getTimeLong, see const.py). Pressure is NOT derived from these bytes —
+        # the pressure distribution is the pressureRatio (11-15), via Pressure Detail.
         area_bytes = bytes(record[23:31])
-        area_dict, _zones_cleaned, _avg, coverage_pct = _build_area_stats(
-            area_bytes, coverage_threshold=AREA_TIME_COVERAGE_THRESHOLD
-        )
+        share = AREA_COVERAGE_NORM_THRESHOLD / duration_s if duration_s > 0 else None
+        area_dict, _zones_cleaned, _avg, coverage_pct = _build_area_stats(area_bytes, share_threshold=share)
         if any(v > 0 for v in area_bytes):
             result[DATA_LAST_BRUSH_AREAS] = area_dict
-            result[DATA_LAST_BRUSH_COVERAGE] = coverage_pct
+            if share is not None:
+                result[DATA_LAST_BRUSH_COVERAGE] = coverage_pct
         _LOGGER.debug("Oclean C3352g record point=%d (raw byte 34, APK: not used)", record[34])
         _LOGGER.debug(
             "Oclean C3352g record research: gestureCode=%d gestureArray=%s powerArray=%s",
@@ -728,16 +737,17 @@ def parse_y3p_stream_record(record: bytes) -> dict[str, Any]:
         if duration_s > 0:
             result[DATA_LAST_BRUSH_DURATION] = duration_s
 
-        # Per-zone brushing TIME (seconds) = the 8-value gestureArray (bytes 23-30,
-        # APK m18f), aligned with parse_t1_c3352g_record.  Covered when time > 7 s
-        # (AREA_TIME_COVERAGE_THRESHOLD).  Pressure is not derived from these bytes.
+        # Per-zone gestureArray = 8 values (bytes 23-30, APK m18f), aligned with
+        # parse_t1_c3352g_record.  Coverage reproduces the app's on-device formula
+        # norm = raw/sum * duration >= 9 (i10 = getTimeLong, see const.py).  Pressure
+        # is not derived from these bytes.
         area_bytes = bytes(record[23:31])
-        area_dict, _zones_cleaned, _avg, coverage_pct = _build_area_stats(
-            area_bytes, coverage_threshold=AREA_TIME_COVERAGE_THRESHOLD
-        )
+        share = AREA_COVERAGE_NORM_THRESHOLD / duration_s if duration_s > 0 else None
+        area_dict, _zones_cleaned, _avg, coverage_pct = _build_area_stats(area_bytes, share_threshold=share)
         if any(v > 0 for v in area_bytes):
             result[DATA_LAST_BRUSH_AREAS] = area_dict
-            result[DATA_LAST_BRUSH_COVERAGE] = coverage_pct
+            if share is not None:
+                result[DATA_LAST_BRUSH_COVERAGE] = coverage_pct
 
         score = record[33]
         if 0 < score <= 100:

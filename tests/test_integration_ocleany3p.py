@@ -59,7 +59,7 @@ class TestOcleanY3PStreamSession:
     @pytest.mark.asyncio
     async def test_session_all_fields_present(self):
         """Y3P stream → duration, score, areas, and coverage all populated."""
-        areas = (10, 20, 30, 15, 25, 35, 5, 10)  # per-zone time (s); 7 zones > 7 s
+        areas = (10, 20, 30, 15, 25, 35, 5, 10)  # sum=150; share-based coverage
         client = (
             OcleanDeviceSimulator()
             .with_battery(65)
@@ -82,8 +82,9 @@ class TestOcleanY3PStreamSession:
         assert result[DATA_LAST_BRUSH_SCORE] == 88
         assert isinstance(result[DATA_LAST_BRUSH_AREAS], dict)
         assert len(result[DATA_LAST_BRUSH_AREAS]) == 8
-        # 7 of 8 zones have time > 7 s (only the 5 s zone fails) → 88 %.
-        assert result[DATA_LAST_BRUSH_COVERAGE] == 88
+        # Share-based: sum=150, threshold 7.5 % → value >= 11.25. Zones >= 11.25:
+        # 20, 30, 15, 25, 35 = 5 of 8 → round(62.5) = 62 %.
+        assert result[DATA_LAST_BRUSH_COVERAGE] == 62
         # Pressure is NOT derived from the per-zone time bytes.
         assert result.get(DATA_LAST_BRUSH_PRESSURE) is None
 
@@ -110,20 +111,21 @@ class TestOcleanY3PStreamSession:
             assert area_dict[name] == areas[i], f"Mismatch for zone {name}"
 
     @pytest.mark.asyncio
-    async def test_coverage_uses_time_threshold(self):
-        """Coverage counts zones whose brushing time exceeds 7 s (APK DentalCast).
+    async def test_coverage_is_share_based(self):
+        """Coverage reproduces the app's on-device formula norm = raw/sum * duration
+        >= 9 (AREA_COVERAGE_NORM_THRESHOLD), NOT a raw value threshold.
 
-        A zone with exactly 7 s does NOT count (threshold is strictly > 7);
-        a zone with 8 s does. Here only 1 of 8 zones qualifies → round(1/8) = 12 %.
+        Here sum=15 and duration=90, so a zone is covered when raw/15 * 90 >= 9, i.e.
+        raw >= 1.5. Both the 8 and the 7 clear it → 2 of 8 → round(2/8 * 100) = 25 %.
         """
-        areas = (8, 7, 0, 0, 0, 0, 0, 0)  # only the 8 s zone is > 7 s
+        areas = (8, 7, 0, 0, 0, 0, 0, 0)
         client = (
             OcleanDeviceSimulator()
             .add_y3p_stream_session(3, 11, 20, 2, 23, duration=90, score=70, area_pressures=areas)
             .build_client()
         )
         result = await run_poll(_coordinator(), client)
-        assert result[DATA_LAST_BRUSH_COVERAGE] == 12
+        assert result[DATA_LAST_BRUSH_COVERAGE] == 25
         assert result.get(DATA_LAST_BRUSH_PRESSURE) is None
 
     @pytest.mark.asyncio

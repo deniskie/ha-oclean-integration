@@ -168,12 +168,25 @@ DATA_DURATION_RATIO = "duration_ratio"  # int 0-100+: duration/240*100 (APK: Min
 # Coverage calculation threshold (APK: C2928q.java — raw_pressure * 4 > 400 → pressure > 100)
 COVERAGE_PRESSURE_THRESHOLD = 100
 
-# Coverage threshold for the gestureArray time-per-zone path (TYPE1 *B# records).
-# The gestureArray bytes are brushing TIME in seconds per zone (APK
-# BrushRecordEntity.gestureArray = getTime12()), not raw pressure. The official
-# app's dental-cast view buckets a zone as adequately brushed when its time
-# exceeds ~7 s (DentalCastRegionView2 / C1793b: 0 → none, ≤7 → partial, >7 → good).
-AREA_TIME_COVERAGE_THRESHOLD = 7
+# Per-zone coverage threshold for the gestureArray path (TYPE1 *B# records). This
+# reproduces the official app's on-device tooth-diagram logic, fully verified from
+# the APK — both the formula (C1793b.m3804z) and the i10 multiplier (smali: the
+# caller in MineReportActivity passes BrushRecordEntity.getTimeLong(), the session
+# duration):
+#       norm[k] = raw[k] / sum * duration_seconds
+#       zone "covered" (good) when norm[k] >= threshold
+# 8-zone path thresholds: 8 / 9 / 10 (YD0003 / default / Y3PD). We use the default
+# (9) for all TYPE1 devices; the YD0003 / Y3PD variants are not distinguished yet.
+#
+# Equivalently the decision is the zone's SHARE of the total: raw[k]/sum >= 9/duration.
+# Callers pass `share_threshold = AREA_COVERAGE_NORM_THRESHOLD / duration` to
+# `_build_area_stats`, so coverage scales correctly with the session length.
+#
+# NOTE: the coverage % the official app DISPLAYS is a separate `clean` field sourced
+# from the CLOUD (BrushRecordResult); it is absent from the BLE record and cannot be
+# reproduced exactly offline. This reproduces the on-device DIAGRAM classification,
+# which is the closest faithful local equivalent.
+AREA_COVERAGE_NORM_THRESHOLD = 9
 
 # Tooth area zone names in BrushAreaType enum order (value 1 → index 0 … value 8 → index 7)
 # Source: com/ocleanble/lib/device/BrushAreaType.java

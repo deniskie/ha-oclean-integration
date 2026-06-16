@@ -1912,6 +1912,25 @@ class TestParseT1C3385w0Record:
         result = parse_t1_c3385w0_record(record)
         assert result["last_brush_gesture_array"] == [1, 2, 3, 4, 5, 6, 7, 8, 0, 0, 0, 0]
 
+    def test_coverage_is_share_based_not_raw_threshold(self):
+        """Coverage uses each zone's SHARE of the total (APK m3804z structure),
+        not a raw value threshold. Here every zone has a raw value > 7, but zone 0's
+        share is too low for the 120 s session, so it does NOT count as covered →
+        7 of 8 zones → 88 %. A raw `>7` rule would give 100 %."""
+        record = _make_c3385w0_record(zone_times=(10, 30, 30, 30, 30, 30, 30, 30), duration=120)
+        result = parse_t1_c3385w0_record(record)
+        assert result["last_brush_coverage"] == 88
+
+    def test_coverage_scales_with_session_duration(self):
+        """The coverage threshold is the APK formula norm = raw/sum * duration >= 9
+        (i10 = getTimeLong, confirmed in smali). The SAME per-zone distribution gives
+        different coverage for a shorter session: sum=100, each "10" zone reaches
+        10/100*60 = 6 < 9 (not covered), only the "30" zone (18) clears it → 1/8 = 12 %.
+        At duration 120 the same record would be 100 %."""
+        record = _make_c3385w0_record(zone_times=(10, 10, 10, 10, 10, 10, 10, 30), duration=60)
+        result = parse_t1_c3385w0_record(record)
+        assert result["last_brush_coverage"] == 12
+
     def test_score_0xff_not_stored(self):
         record = _make_c3385w0_record(score=0xFF)
         result = parse_t1_c3385w0_record(record)
@@ -1977,9 +1996,10 @@ class TestParseT1C3385w0Record:
     def test_real_ocleany3_issue109_record(self):
         """Real OCLEANY3 (Oclean X Pro) *B# record from issue #109 (score 100,
         2026-06-07 00:50:43). Before the fix the areas were taken from the
-        pressureRatio bytes 11-15 = [7, 2, 90, 0, 0] which looked unbalanced
-        despite the perfect score. The real per-zone times (bytes 23-30) are all
-        > 7 s → 100 % coverage, consistent with the score."""
+        pressureRatio bytes 11-15 = [7, 2, 90, 0, 0] which looked unbalanced. The
+        real per-zone gestureArray (bytes 23-30) is [9, 14, 13, 13, 12, 9, 14, 13];
+        all 8 values exceed our coverage heuristic (7) → 100 %. (The score is a
+        separate device field, byte 33; it is not derived from these values.)"""
         raw = bytes.fromhex("1a060700322b000078007807025a0000001000171b151d090e0d0d0c090e0d0000643cffffffffffff10")
         assert len(raw) == 42
         result = parse_t1_c3385w0_record(raw)
@@ -1987,7 +2007,7 @@ class TestParseT1C3385w0Record:
         assert result["last_brush_duration"] == 120
         assert result["last_brush_pnum"] == 0
         assert result["last_brush_pressure_ratio"] == [7, 2, 90, 0, 0]
-        # bytes 23-30 = [9, 14, 13, 13, 12, 9, 14, 13] → all > 7 s.
+        # bytes 23-30 = [9, 14, 13, 13, 12, 9, 14, 13] → all > 7 (our heuristic).
         assert result["last_brush_areas"] == {
             "upper_left_out": 9,
             "upper_left_in": 14,
@@ -2090,8 +2110,9 @@ class TestParseY3pStreamRecord:
         record = _make_y3p_record(areas=(5, 14, 1, 8, 12, 10, 3, 7))
         result = parse_y3p_stream_record(record)
         assert "last_brush_areas" in result
-        # 4 of 8 zones have time > 7 s (14, 8, 12, 10) → 50 %; no pressure from time bytes.
-        assert result["last_brush_coverage"] == 50
+        # Share-based: sum=60, threshold 7.5 % → value >= 4.5. Zones >= 4.5:
+        # 5, 14, 8, 12, 10, 7 = 6 of 8 → 75 %. No pressure from these bytes.
+        assert result["last_brush_coverage"] == 75
         assert "last_brush_pressure" not in result
 
     def test_zero_areas_not_stored(self):

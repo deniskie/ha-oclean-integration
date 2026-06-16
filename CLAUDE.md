@@ -147,7 +147,7 @@ grep -c "DIS read" oclean_ble.log
 
 **OCLEANY3M / OCLEANY3**: Both use `parse_t1_c3385w0_record` for the reassembled `*B#` record. **Score and per-zone tooth areas are inline in that record** (score = byte 33, areas = gestureArray bytes 23-30, time-per-zone). The `0000`/`2604` enrichment pushes on fbb90 are additional/optional — they were never the only source of areas. In inline mode (no new sessions) the 13-byte truncated record omits score and gestureArray; enrichment pushes may or may not follow depending on firmware.
 
-**Issue #109 fix (2026-06-16):** `parse_t1_c3385w0_record` previously read tooth areas from bytes 11-15, which are the **pressureRatio** buckets (values 50–90), not zone coverage. A perfectly-scored session therefore looked unbalanced (one zone ≈90, the rest 0). Areas now come from the gestureArray (bytes 23-30, >7 s = covered), identical to `parse_t1_c3352g_record`. `pressure_ratio` remains a separate field from bytes 11-15. This was the same bug as #72/#105 in the other parser path.
+**Issue #109 fix (2026-06-16):** `parse_t1_c3385w0_record` previously read tooth areas from bytes 11-15, which are the **pressureRatio** buckets (values 50–90), not the per-zone gestureArray. A session therefore looked unbalanced (one zone ≈90, the rest 0). Areas now come from the gestureArray (bytes 23-30), identical to `parse_t1_c3352g_record`. `pressure_ratio` remains a separate field from bytes 11-15. This was the same bug as #72/#105 in the other parser path.
 
 **OCLEANY3P** (Oclean X Pro Elite): Uses 0307. When the device has new unsynced sessions, it responds with the `*B#` (hex `2a4223`) multi-packet stream, reassembled by the coordinator into 42-byte records. **All session data — including per-zone tooth areas — is inline in that record**; there is no separate area/score push.
 
@@ -157,7 +157,13 @@ grep -c "DIS read" oclean_ble.log
 - `5100` is `0xFF`-filled placeholder.
 - `0000` "notifications" are actually `*B#` stream continuation fragments.
 
-Areas are parsed from record bytes 23-30 (the APK `gestureArray` field) by **all three TYPE1 `*B#` parsers** — `parse_t1_c3385w0_record` (OCLEANY3M/OCLEANY3), `parse_t1_c3352g_record` (OCLEANY3P) and `parse_y3p_stream_record`. **Semantic confirmed via APK (v1.3.1, 2026-06-13):** bytes 23-30 = `gestureArray` = `getTime12()` = brushing **time per zone in seconds**, mapped 1:1 onto `TOOTH_AREA_NAMES` (BrushAreaType enum order, value 1..8). App coverage bucket: >7 s = fully brushed (`AREA_TIME_COVERAGE_THRESHOLD`). pressureRatio is the separate bytes-11-15 field.
+Areas are parsed from record bytes 23-30 (the APK `gestureArray` field) by **all three TYPE1 `*B#` parsers** — `parse_t1_c3385w0_record` (OCLEANY3M/OCLEANY3), `parse_t1_c3352g_record` (OCLEANY3P) and `parse_y3p_stream_record`. These 8 values are `gestureArray` = `getTime12()`, a per-zone metric mapped 1:1 onto `TOOTH_AREA_NAMES` (BrushAreaType enum order, value 1..8). pressureRatio is the separate bytes-11-15 field.
+
+**Coverage reproduces the app's on-device diagram logic (revised 2026-06-16, fully verified; supersedes the v1.3.1 ">7 s" note).** From APK `C1793b.m3803y`/`m3804z` (formula) + smali (the `i10` multiplier):
+- The app **normalizes** each zone by the sum of all zones, scaled by the session duration: `norm[k] = raw[k] / sum * duration`. The multiplier `i10` was confirmed in smali — the caller in `MineReportActivity` passes `BrushRecordEntity.getTimeLong()` (the session duration in seconds) to `m3803y`/`m3804z`.
+- A zone is "covered" (diagram level 3) when `norm[k] >= threshold`. 8-zone path thresholds: `8 / 9 / 10` (YD0003 / default / Y3PD). We use the default **9** for all TYPE1 devices (YD0003/Y3PD variants not distinguished yet). 12-zone path uses `<=2.0 → 1, <5.5 → 2, else 3`. There is **no literal "7 s" threshold anywhere** in the APK — the old v1.3.1 note was wrong.
+- Our parsers implement this exactly: `share_threshold = AREA_COVERAGE_NORM_THRESHOLD(=9) / duration`, then a zone counts when `raw/sum >= share_threshold` (see `_build_area_stats` and `const.py`). So coverage scales correctly with session length.
+- **Caveat:** the coverage **%** the official app *displays* is a separate `clean` field sourced from the **cloud** (`BrushRecordResult.getClean()`); it is **absent from the BLE record** (no `clean` key in the record JSON) and cannot be reproduced exactly offline. Our value reproduces the on-device *diagram classification*, the closest faithful local equivalent — not the cloud %.
 
 **OCLEANA1** (Oclean Air 1): fbb86 characteristic exists but has no CCCD → cannot subscribe for notifications. Coordinator uses direct `read_gatt_char()` fallback after sending query commands.
 
