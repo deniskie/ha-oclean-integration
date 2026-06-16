@@ -7,3 +7,14 @@ repos:
         files: ^(custom_components|tests)/
       - id: ruff-format
         files: ^(custom_components|tests)/
+  - repo: local
+    hooks:
+      # Mirror the CI type check (tests.yaml) so mypy errors surface locally,
+      # not only after pushing. Uses the project's installed mypy (requirements-test.txt).
+      - id: mypy
+        name: mypy (custom_components/oclean_ble)
+        entry: mypy custom_components/oclean_ble/ --ignore-missing-imports
+        language: system
+        types: [python]
+        pass_filenames: false
+        files: ^custom_components/oclean_ble/
