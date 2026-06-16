@@ -161,6 +161,46 @@ def _pressure_code(values: list[int]) -> int:
     return 90  # size 4 or 5
 
 
+def _apply_m18f_metrics(
+    result: dict[str, Any],
+    record: bytes,
+    duration_s: int,
+    coverage_norm_threshold: int,
+) -> None:
+    """Populate the per-session metrics shared by all three TYPE1 *B# record parsers.
+
+    Same 42-byte m18f layout for OCLEANY3M / OCLEANY3 (C3385w0) and OCLEANY3P (C3352g):
+      * gestureCode  – 2-bit value at byte 30 (APK a.b.a(byte30, 2))
+      * pressureRatio – bytes 11-15, plus the derived pressureCode (APK a.b.m14b)
+      * gestureArray – bytes 23-30 (8 per-zone values, padded to 12)
+      * powerArray   – 2-bit nibbles of bytes 30-32 (APK m13a / a.b.a)
+      * tooth-area coverage – share-based over bytes 23-30: a zone counts when
+        ``raw / sum * duration >= coverage_norm_threshold`` (the on-device formula;
+        see const.py). Bytes 11-15 are pressure, NOT areas (issue #109).
+    """
+    result[DATA_LAST_BRUSH_GESTURE_CODE] = (record[30] >> 2) & 0x3
+    pressure_ratio = list(record[11:16])
+    result[DATA_LAST_BRUSH_PRESSURE_RATIO] = pressure_ratio
+    result[DATA_LAST_BRUSH_PRESSURE_CODE] = _pressure_code(pressure_ratio)
+    result[DATA_LAST_BRUSH_GESTURE_ARRAY] = list(record[23:31]) + [0, 0, 0, 0]
+    result[DATA_LAST_BRUSH_POWER_ARRAY] = (
+        _extract_nibbles(record[30]) + _extract_nibbles(record[31]) + _extract_nibbles(record[32])
+    )
+
+    area_bytes = bytes(record[23:31])
+    share = coverage_norm_threshold / duration_s if duration_s > 0 else None
+    area_dict, _zones_cleaned, _avg, coverage_pct = _build_area_stats(area_bytes, share_threshold=share)
+    if any(v > 0 for v in area_bytes):
+        result[DATA_LAST_BRUSH_AREAS] = area_dict
+        if share is not None:
+            result[DATA_LAST_BRUSH_COVERAGE] = coverage_pct
+        _LOGGER.debug(
+            "Oclean m18f areas (8 zones, time/zone): %s coverage=%s",
+            area_dict,
+            coverage_pct if share is not None else "n/a",
+        )
+
+
 def _device_datetime(
     year_byte: int,
     month: int,
@@ -546,37 +586,7 @@ def parse_t1_c3385w0_record(
         if 0 < score <= 100:
             result[DATA_LAST_BRUSH_SCORE] = score
 
-        # APK m18f format – same 42-byte layout as parse_t1_c3352g_record.
-        # gestureCode:  2-bit value at byte 30 position 2 (APK: a.b.a(byte30, 2))
-        # gestureArray: bytes 23-30 (8 values, padded to 12 with zeros)
-        # powerArray:   2-bit nibbles from bytes 30-32 (APK: m13a / a.b.a)
-        # NOTE: bytes 11-15 are pressureRatio, NOT tooth-zone areas (issue #109).
-        result[DATA_LAST_BRUSH_GESTURE_CODE] = (record[30] >> 2) & 0x3
-        _pressure_ratio = list(record[11:16])
-        result[DATA_LAST_BRUSH_PRESSURE_RATIO] = _pressure_ratio
-        result[DATA_LAST_BRUSH_PRESSURE_CODE] = _pressure_code(_pressure_ratio)
-        result[DATA_LAST_BRUSH_GESTURE_ARRAY] = list(record[23:31]) + [0, 0, 0, 0]
-        result[DATA_LAST_BRUSH_POWER_ARRAY] = (
-            _extract_nibbles(record[30]) + _extract_nibbles(record[31]) + _extract_nibbles(record[32])
-        )
-
-        # Per-zone gestureArray = 8 values (bytes 23-30, APK
-        # BrushRecordEntity.gestureArray = getTime12()).  Maps 1:1 onto the 8
-        # TOOTH_AREA_NAMES (APK BrushAreaType enum order, value 1..8). Coverage
-        # reproduces the app's on-device formula norm = raw/sum * duration >= 9
-        # (i10 = getTimeLong, see const.py). Pressure is NOT derived from these bytes.
-        area_bytes = bytes(record[23:31])
-        share = coverage_norm_threshold / duration_s if duration_s > 0 else None
-        area_dict, _zones_cleaned, _avg, coverage_pct = _build_area_stats(area_bytes, share_threshold=share)
-        if any(v > 0 for v in area_bytes):
-            result[DATA_LAST_BRUSH_AREAS] = area_dict
-            if share is not None:
-                result[DATA_LAST_BRUSH_COVERAGE] = coverage_pct
-            _LOGGER.debug(
-                "Oclean C3385w0 record: areas (8 zones, time/zone): %s coverage=%d%%",
-                area_dict,
-                coverage_pct,
-            )
+        _apply_m18f_metrics(result, record, duration_s, coverage_norm_threshold)
 
         _LOGGER.debug(
             "Oclean C3385w0 record parsed: ts=%d pNum=%d duration=%s score=%s (raw: %s)",
@@ -678,33 +688,8 @@ def parse_t1_c3352g_record(
         if 0 < score <= 100:
             result[DATA_LAST_BRUSH_SCORE] = score
 
-        # APK m18f format – same 42-byte layout as parse_t1_c3385w0_record.
-        # gestureCode:  2-bit value at byte 30 position 2 (APK: a.b.a(byte30, 2))
-        # gestureArray: bytes 23-30 (8 values, padded to 12 with zeros)
-        # powerArray:   2-bit nibbles from bytes 30-32 (APK: m13a / a.b.a)
-        # NOTE: bytes 11-15 are pressureRatio, NOT tooth-zone areas.
-        result[DATA_LAST_BRUSH_GESTURE_CODE] = (record[30] >> 2) & 0x3
-        _pressure_ratio = list(record[11:16])
-        result[DATA_LAST_BRUSH_PRESSURE_RATIO] = _pressure_ratio
-        result[DATA_LAST_BRUSH_PRESSURE_CODE] = _pressure_code(_pressure_ratio)
-        result[DATA_LAST_BRUSH_GESTURE_ARRAY] = list(record[23:31]) + [0, 0, 0, 0]
-        result[DATA_LAST_BRUSH_POWER_ARRAY] = (
-            _extract_nibbles(record[30]) + _extract_nibbles(record[31]) + _extract_nibbles(record[32])
-        )
+        _apply_m18f_metrics(result, record, duration_s, coverage_norm_threshold)
 
-        # Per-zone gestureArray = 8 values (bytes 23-30, APK
-        # BrushRecordEntity.gestureArray = getTime12()).  Maps 1:1 onto the 8
-        # TOOTH_AREA_NAMES (APK BrushAreaType enum order, value 1..8). Coverage
-        # reproduces the app's on-device formula norm = raw/sum * duration >= 9
-        # (i10 = getTimeLong, see const.py). Pressure is NOT derived from these bytes —
-        # the pressure distribution is the pressureRatio (11-15), via Pressure Detail.
-        area_bytes = bytes(record[23:31])
-        share = coverage_norm_threshold / duration_s if duration_s > 0 else None
-        area_dict, _zones_cleaned, _avg, coverage_pct = _build_area_stats(area_bytes, share_threshold=share)
-        if any(v > 0 for v in area_bytes):
-            result[DATA_LAST_BRUSH_AREAS] = area_dict
-            if share is not None:
-                result[DATA_LAST_BRUSH_COVERAGE] = coverage_pct
         _LOGGER.debug("Oclean C3352g record point=%d (raw byte 34, APK: not used)", record[34])
         _LOGGER.debug(
             "Oclean C3352g record research: gestureCode=%d gestureArray=%s powerArray=%s",
@@ -787,34 +772,12 @@ def parse_y3p_stream_record(
         if duration_s > 0:
             result[DATA_LAST_BRUSH_DURATION] = duration_s
 
-        # Per-zone gestureArray = 8 values (bytes 23-30, APK m18f), aligned with
-        # parse_t1_c3352g_record.  Coverage reproduces the app's on-device formula
-        # norm = raw/sum * duration >= 9 (i10 = getTimeLong, see const.py).  Pressure
-        # is not derived from these bytes.
-        area_bytes = bytes(record[23:31])
-        share = coverage_norm_threshold / duration_s if duration_s > 0 else None
-        area_dict, _zones_cleaned, _avg, coverage_pct = _build_area_stats(area_bytes, share_threshold=share)
-        if any(v > 0 for v in area_bytes):
-            result[DATA_LAST_BRUSH_AREAS] = area_dict
-            if share is not None:
-                result[DATA_LAST_BRUSH_COVERAGE] = coverage_pct
-
         score = record[33]
         if 0 < score <= 100:
             result[DATA_LAST_BRUSH_SCORE] = score
 
-        # APK m18f format – same 42-byte layout as parse_t1_c3385w0_record.
-        # gestureCode:  2-bit value at byte 30 position 2 (APK: a.b.a(byte30, 2))
-        # gestureArray: bytes 23-30 (8 values, padded to 12 with zeros)
-        # powerArray:   2-bit nibbles from bytes 30-32 (APK: m13a / a.b.a)
-        result[DATA_LAST_BRUSH_GESTURE_CODE] = (record[30] >> 2) & 0x3
-        _pressure_ratio = list(record[11:16])
-        result[DATA_LAST_BRUSH_PRESSURE_RATIO] = _pressure_ratio
-        result[DATA_LAST_BRUSH_PRESSURE_CODE] = _pressure_code(_pressure_ratio)
-        result[DATA_LAST_BRUSH_GESTURE_ARRAY] = list(record[23:31]) + [0, 0, 0, 0]
-        result[DATA_LAST_BRUSH_POWER_ARRAY] = (
-            _extract_nibbles(record[30]) + _extract_nibbles(record[31]) + _extract_nibbles(record[32])
-        )
+        _apply_m18f_metrics(result, record, duration_s, coverage_norm_threshold)
+
         _LOGGER.debug("Oclean Y3P stream record point=%d (raw byte 34, APK: not used)", record[34])
         _LOGGER.debug(
             "Oclean Y3P stream record research: gestureCode=%d gestureArray=%s powerArray=%s",
