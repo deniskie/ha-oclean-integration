@@ -1,5 +1,13 @@
 # Changelog
 
+## [v1.3.2] – 2026-06-16
+
+### Fixes
+
+- **OCLEANY3 / OCLEANY3M reported wrong tooth-area values** – The X Pro / X parser (`parse_t1_c3385w0_record`) was reading the per-zone values from the **pressureRatio** bytes (11–15) instead of the `gestureArray` (bytes 23–30). A perfectly-scored session therefore looked unbalanced — one zone near 90, the rest 0 (#109). Tooth areas now come from the per-zone brushing-time bytes (23–30, > 7 s = covered) and a coverage % is exposed, identical to the OCLEANY3P path. This was the same root cause as the v1.3.0/v1.3.1 OCLEANY3P fix, in the second parser path that had been missed. The brushing **score** is unaffected — it is read directly from the device (record byte 33).
+
+---
+
 ## [v1.3.1] – 2026-06-13
 
 ### Fixes
