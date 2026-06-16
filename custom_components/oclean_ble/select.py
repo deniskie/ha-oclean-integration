@@ -29,7 +29,7 @@ def _schemes_for_model(
     explicitly recognised model (its pnum→scheme mapping). Unmapped models poll as
     TYPE1 via the fallback but get no scheme select — we won't guess their schemes.
     """
-    if not is_known_model(model_id):
+    if not model_id or not is_known_model(model_id):
         return None
     proto = protocol_for_model(model_id)
     if proto is TYPE1:
