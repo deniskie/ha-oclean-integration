@@ -1,5 +1,18 @@
 # Changelog
 
+## [v1.3.4] – 2026-06-16
+
+### New
+
+- **Unrecognised models now poll out of the box.** A device that reports a model ID we don't explicitly map now falls back to the **TYPE1** protocol (the stack used by every modern Oclean brush) instead of the discovery-only `UNKNOWN` profile, so battery, last-brush time and usually the full session details work immediately. A warning still logs the unknown model ID asking you to report it. Model-specific *write* features (the brush-scheme select) remain disabled for unmapped models, since those need the device's actual scheme list.
+- **Per-model coverage threshold for OCLEANY3PD.** The coverage classifier uses the device-specific threshold confirmed from the APK (`cc.a`/`EnumC1322a` → `C1793b.m3804z`): **OCLEANY3PD** uses 10, all other TYPE1 models use the default 9.
+
+### Notes
+
+- Analysed three further record fields and intentionally left them as-is: `pressureCode` (a derived `50–90` value computed by a complex APK routine over a different byte range, with no user-facing label and no gain over the raw `pressureRatio` we already expose), and `gestureCode` / `powerArray` (extracted as raw research fields, but their `0–3` value meanings are not determinable from the app). See `CLAUDE.md` for details.
+
+---
+
 ## [v1.3.3] – 2026-06-16
 
 ### Changes
