@@ -1,5 +1,14 @@
 # Changelog
 
+## [v1.3.3] – 2026-06-16
+
+### Changes
+
+- **Tooth-area coverage now follows the official app's on-device formula.** Previously a zone counted as "covered" when its raw per-zone value exceeded a fixed threshold (7) — a homegrown heuristic. APK analysis (`C1793b.m3803y`/`m3804z`) plus smali tracing of the caller (`MineReportActivity` passes `BrushRecordEntity.getTimeLong()`) confirmed the app instead **normalizes** each zone by the sum of all zones and scales by the session duration: `norm = raw / sum * duration`, with a zone counting as covered when `norm >= 9` (the default-device threshold). Coverage is now computed this way, so it is scale-invariant and adjusts correctly to the session length (e.g. shorter brush programs). The per-zone raw values exposed as sensors are unchanged.
+- **Honest documentation of coverage limits.** The coverage % the official app *displays* is a separate `clean` field computed in the Oclean cloud (`BrushRecordResult.getClean()`); it is not present in the BLE record and cannot be reproduced exactly offline. Our value reproduces the on-device diagram classification — the closest faithful local equivalent. The earlier ">7 s = brushed" note (v1.3.1) was incorrect and has been corrected. Device-specific thresholds (8 / 9 / 10) exist; we use the default 9 for all TYPE1 devices for now.
+
+---
+
 ## [v1.3.2] – 2026-06-16
 
 ### Fixes
