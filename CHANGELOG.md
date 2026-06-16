@@ -1,5 +1,13 @@
 # Changelog
 
+## [v1.3.5] – 2026-06-16
+
+### New
+
+- **New "Pressure Level" sensor** (`last_brush_pressure_code`). Replicates the official app's internal pressure code (APK routine `a.b.m14b`) computed from the per-session pressure distribution: a single value `0 / 50 / 60 / 70 / 80 / 90` summarising the dominant brushing-pressure bucket — higher means more of the session was at higher pressure, `0` means predominantly light. Exposed as a diagnostic sensor. (The exact label the app shows for this code is not present in the APK; the derivation itself is reproduced faithfully.)
+
+---
+
 ## [v1.3.4] – 2026-06-16
 
 ### New
