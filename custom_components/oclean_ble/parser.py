@@ -436,23 +436,22 @@ def parse_t1_c3385w0_record(record: bytes) -> dict[str, Any]:
       byte  6:   pNum (brush-scheme ID)                    ✓
       bytes 7-8: duration BE uint16 (seconds)              ✓
       bytes 9-10: validDuration BE (not stored as sensor)  ✓
-      bytes 11-15: area1..area5 (tooth zones)              ✓ APK + real device confirmed
+      bytes 11-15: pressureRatio[0..4] (5 pressure buckets) ✓ NOT tooth-zone areas
       byte 16:   discarded by APK (not an area byte)       ✓ APK L1620 result not assigned
       byte 17:   timezone index → getTimeZoneString()      ✓ APK L1638+L1812 (not stored)
-      bytes 18-29: gestureArray[0..11] (12 elements)       ✓ APK-confirmed; NOT area7-8
-                   (areas 6-8 absent from *B# record; arrive via 2604 enrichment push)
-      byte 30:   gestureCode (2-bit value at a.b.a(·, 2))  ✓ APK-confirmed; not yet extracted
+      bytes 23-30: gestureArray[0..7] (8 per-zone times)    ✓ APK m18f = getTime12()
+                   the tooth-area coverage source (bucket >7 s = fully brushed)
+      byte 30:   gestureCode (2-bit value at a.b.a(·, 2))  ✓ APK-confirmed
                  + powerArray nibbles a.b.a(·, 0/1/3)
-      bytes 31-32: powerArray nibble source                ✓ APK-confirmed; not yet extracted
+      bytes 31-32: powerArray nibble source                ✓ APK-confirmed
       byte 33:   score (0-100, 0xFF = absent)              ✓
       byte 34:   point (not used as sensor)                ✓ APK-confirmed
       bytes 35-41: reserved                                ?
 
-    Note: pressureRatio in the APK C3385w0 class maps to bytes 11-15, which are
-    the same bytes as area1-5. It is therefore not a distinct sensor field.
-
-    gestureCode, gestureArray and powerArray are not currently extracted (byte
-    offsets are APK-confirmed but no real-device correlation available yet).
+    Identical layout to ``parse_t1_c3352g_record``. Earlier versions wrongly read
+    the tooth-area coverage from bytes 11-15 (pressureRatio), which made a
+    perfectly-scored session look unbalanced (issue #109). The real per-zone
+    coverage is the 8-value gestureArray at bytes 23-30.
 
     All out-of-range values are silently omitted from the result.
     """
@@ -494,21 +493,35 @@ def parse_t1_c3385w0_record(record: bytes) -> dict[str, Any]:
         if 0 < score <= 100:
             result[DATA_LAST_BRUSH_SCORE] = score
 
-        # Bytes 11-15 are area1-5 (tooth zones), confirmed via APK C3385w0 analysis.
-        # Stored as DATA_LAST_BRUSH_PRESSURE_RATIO (list) and additionally as
-        # DATA_LAST_BRUSH_AREAS (partial dict, 5/8 zones) when at least one value > 0.
-        # The remaining 3 zones are absent from the *B# record; they arrive via 2604 push
-        # but that push is not observed on OCLEANY3M in paginated mode.
-        area_vals = list(record[11:16])
-        result[DATA_LAST_BRUSH_PRESSURE_RATIO] = area_vals
+        # APK m18f format – same 42-byte layout as parse_t1_c3352g_record.
+        # gestureCode:  2-bit value at byte 30 position 2 (APK: a.b.a(byte30, 2))
+        # gestureArray: bytes 23-30 (8 values, padded to 12 with zeros)
+        # powerArray:   2-bit nibbles from bytes 30-32 (APK: m13a / a.b.a)
+        # NOTE: bytes 11-15 are pressureRatio, NOT tooth-zone areas (issue #109).
+        result[DATA_LAST_BRUSH_GESTURE_CODE] = (record[30] >> 2) & 0x3
+        result[DATA_LAST_BRUSH_PRESSURE_RATIO] = list(record[11:16])
+        result[DATA_LAST_BRUSH_GESTURE_ARRAY] = list(record[23:31]) + [0, 0, 0, 0]
+        result[DATA_LAST_BRUSH_POWER_ARRAY] = (
+            _extract_nibbles(record[30]) + _extract_nibbles(record[31]) + _extract_nibbles(record[32])
+        )
 
-        if any(v > 0 for v in area_vals):
-            areas: dict[str, int] = {name: area_vals[i] for i, name in enumerate(TOOTH_AREA_NAMES[:5])}
-            areas.update(dict.fromkeys(TOOTH_AREA_NAMES[5:], 0))
-            result[DATA_LAST_BRUSH_AREAS] = areas
+        # Per-zone brushing TIME (seconds) = the 8-value gestureArray (bytes 23-30,
+        # APK BrushRecordEntity.gestureArray = getTime12()).  Maps 1:1 onto the 8
+        # TOOTH_AREA_NAMES (APK BrushAreaType enum order, value 1..8). A zone counts
+        # as covered when its time exceeds AREA_TIME_COVERAGE_THRESHOLD (APK
+        # DentalCast bucket: >7 s = fully brushed).  Pressure is NOT derived from
+        # these time bytes — the pressure distribution is the pressureRatio (11-15).
+        area_bytes = bytes(record[23:31])
+        area_dict, _zones_cleaned, _avg, coverage_pct = _build_area_stats(
+            area_bytes, coverage_threshold=AREA_TIME_COVERAGE_THRESHOLD
+        )
+        if any(v > 0 for v in area_bytes):
+            result[DATA_LAST_BRUSH_AREAS] = area_dict
+            result[DATA_LAST_BRUSH_COVERAGE] = coverage_pct
             _LOGGER.debug(
-                "Oclean C3385w0 record: areas (partial, 5/8 zones): %s",
-                areas,
+                "Oclean C3385w0 record: areas (8 zones, time/zone): %s coverage=%d%%",
+                area_dict,
+                coverage_pct,
             )
 
         _LOGGER.debug(

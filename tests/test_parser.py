@@ -1825,13 +1825,14 @@ def _make_c3385w0_record(
     pnum: int = 0,
     duration: int = 120,
     score: int = 91,
-    areas: tuple = (5, 20, 75, 0, 0),
+    pressure_ratio: tuple = (5, 20, 75, 0, 0),
+    zone_times: tuple = (0, 0, 0, 0, 0, 0, 0, 0),
 ) -> bytes:
-    """Build a full 42-byte C3385w0 session record with tooth-zone area data.
+    """Build a full 42-byte C3385w0 session record.
 
-    Only areas 1-5 (bytes 11-15) are stored in the *B# record per APK analysis.
-    Byte 16 is discarded by the APK; bytes 18-19 are gestureArray[0-1], not areas.
-    Areas 6-8 arrive via the 2604 enrichment push and are not part of this record.
+    Same m18f layout as the C3352g record: bytes 11-15 are the 5 pressureRatio
+    buckets, bytes 23-30 are the 8-value gestureArray (per-zone brushing time in
+    seconds) that feeds the tooth-area coverage.
     """
     record = bytearray(42)
     record[0] = year - 2000
@@ -1843,9 +1844,12 @@ def _make_c3385w0_record(
     record[6] = pnum
     record[7] = (duration >> 8) & 0xFF
     record[8] = duration & 0xFF
-    # Area bytes 11-15: area1-5 only (APK-confirmed)
-    for i, v in enumerate(areas[:5]):
+    # pressureRatio buckets: bytes 11-15
+    for i, v in enumerate(pressure_ratio[:5]):
         record[11 + i] = v
+    # gestureArray (per-zone time, seconds): bytes 23-30
+    for i, v in enumerate(zone_times[:8]):
+        record[23 + i] = v
     record[33] = score
     return bytes(record)
 
@@ -1867,27 +1871,46 @@ class TestParseT1C3385w0Record:
         assert result["last_brush_duration"] == 90
         assert result["last_brush_score"] == 85
 
-    def test_areas_absent_when_all_zero(self):
-        """DATA_LAST_BRUSH_AREAS is not stored when all 5 area bytes are zero."""
-        record = _make_c3385w0_record(areas=(0, 0, 0, 0, 0))
+    def test_areas_absent_when_zone_bytes_zero(self):
+        """No tooth-area data when the per-zone bytes (23-30) are all zero."""
+        record = _make_c3385w0_record(zone_times=(0, 0, 0, 0, 0, 0, 0, 0))
         result = parse_t1_c3385w0_record(record)
         assert "last_brush_areas" not in result
+        assert "last_brush_coverage" not in result
 
-    def test_areas_present_when_nonzero(self):
-        """Bytes 11-15 (area1-5) are stored as a partial 8-key areas dict."""
-        record = _make_c3385w0_record(areas=(5, 20, 75, 0, 0))
+    def test_areas_from_bytes23_30(self):
+        """Tooth-area coverage comes from the gestureArray bytes 23-30 (APK m18f),
+        the same path as parse_t1_c3352g_record – NOT the pressureRatio (11-15)."""
+        record = _make_c3385w0_record(
+            pressure_ratio=(7, 2, 90, 0, 0),
+            zone_times=(15, 13, 38, 16, 1, 0, 13, 1),
+        )
         result = parse_t1_c3385w0_record(record)
-        assert "last_brush_areas" in result
-        areas = result["last_brush_areas"]
-        assert len(areas) == 8
-        assert list(areas.values())[:5] == [5, 20, 75, 0, 0]
-        assert list(areas.values())[5:] == [0, 0, 0]
+        assert result["last_brush_areas"] == {
+            "upper_left_out": 15,
+            "upper_left_in": 13,
+            "lower_left_out": 38,
+            "lower_left_in": 16,
+            "upper_right_out": 1,
+            "upper_right_in": 0,
+            "lower_right_out": 13,
+            "lower_right_in": 1,
+        }
+        # 5 of 8 zones have time > 7 s (15, 13, 38, 16, 13) → round(62.5) = 62 %.
+        assert result["last_brush_coverage"] == 62
+        # The per-zone bytes are brushing time, not pressure.
+        assert "last_brush_pressure" not in result
 
-    def test_pressure_ratio_always_stored(self):
-        """DATA_LAST_BRUSH_PRESSURE_RATIO is stored regardless of area values."""
-        record = _make_c3385w0_record(areas=(0, 0, 0, 0, 0))
+    def test_pressure_ratio_from_bytes11_15(self):
+        """DATA_LAST_BRUSH_PRESSURE_RATIO comes from bytes 11-15, independent of areas."""
+        record = _make_c3385w0_record(pressure_ratio=(7, 2, 90, 0, 0), zone_times=(0,) * 8)
         result = parse_t1_c3385w0_record(record)
-        assert result["last_brush_pressure_ratio"] == [0, 0, 0, 0, 0]
+        assert result["last_brush_pressure_ratio"] == [7, 2, 90, 0, 0]
+
+    def test_gesture_array_8_elements_from_byte23(self):
+        record = _make_c3385w0_record(zone_times=(1, 2, 3, 4, 5, 6, 7, 8))
+        result = parse_t1_c3385w0_record(record)
+        assert result["last_brush_gesture_array"] == [1, 2, 3, 4, 5, 6, 7, 8, 0, 0, 0, 0]
 
     def test_score_0xff_not_stored(self):
         record = _make_c3385w0_record(score=0xFF)
@@ -1934,9 +1957,48 @@ class TestParseT1C3385w0Record:
         assert result["last_brush_score"] == 91
         assert result["last_brush_duration"] == 120
         assert result["last_brush_pnum"] == 0
-        # bytes 11-15 = [0x05, 0x14, 0x4b, 0x00, 0x00] = [5, 20, 75, 0, 0] → areas stored
-        assert "last_brush_areas" in result
+        # bytes 11-15 = pressureRatio [5, 20, 75, 0, 0]
         assert result["last_brush_pressure_ratio"] == [5, 20, 75, 0, 0]
+        # bytes 23-30 = gestureArray [0x1c,0x14,0x19,0x0c,0x0a,0x0a,0x0a,0x00]
+        # = [28, 20, 25, 12, 10, 10, 10, 0] → tooth-area coverage
+        assert result["last_brush_areas"] == {
+            "upper_left_out": 28,
+            "upper_left_in": 20,
+            "lower_left_out": 25,
+            "lower_left_in": 12,
+            "upper_right_out": 10,
+            "upper_right_in": 10,
+            "lower_right_out": 10,
+            "lower_right_in": 0,
+        }
+        # 7 of 8 zones > 7 s → round(87.5) = 88 %.
+        assert result["last_brush_coverage"] == 88
+
+    def test_real_ocleany3_issue109_record(self):
+        """Real OCLEANY3 (Oclean X Pro) *B# record from issue #109 (score 100,
+        2026-06-07 00:50:43). Before the fix the areas were taken from the
+        pressureRatio bytes 11-15 = [7, 2, 90, 0, 0] which looked unbalanced
+        despite the perfect score. The real per-zone times (bytes 23-30) are all
+        > 7 s → 100 % coverage, consistent with the score."""
+        raw = bytes.fromhex("1a060700322b000078007807025a0000001000171b151d090e0d0d0c090e0d0000643cffffffffffff10")
+        assert len(raw) == 42
+        result = parse_t1_c3385w0_record(raw)
+        assert result["last_brush_score"] == 100
+        assert result["last_brush_duration"] == 120
+        assert result["last_brush_pnum"] == 0
+        assert result["last_brush_pressure_ratio"] == [7, 2, 90, 0, 0]
+        # bytes 23-30 = [9, 14, 13, 13, 12, 9, 14, 13] → all > 7 s.
+        assert result["last_brush_areas"] == {
+            "upper_left_out": 9,
+            "upper_left_in": 14,
+            "lower_left_out": 13,
+            "lower_left_in": 13,
+            "upper_right_out": 12,
+            "upper_right_in": 9,
+            "lower_right_out": 14,
+            "lower_right_in": 13,
+        }
+        assert result["last_brush_coverage"] == 100
 
 
 # ---------------------------------------------------------------------------

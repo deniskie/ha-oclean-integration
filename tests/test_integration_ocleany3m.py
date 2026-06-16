@@ -9,9 +9,9 @@ Protocol:      Type-1 – 0307 *B# multi-packet reassembly
 Session path:  0307 header + continuation packets → parse_t1_c3385w0_record()
                (not 2604 / 0000 push notifications)
 
-Note: last_brush_areas IS extracted from the *B# record (bytes 11-15, 5 partial zones).
-The remaining 3 zones default to 0.  All 8 authoritative values come from the 2604
-enrichment push (_parse_brush_areas_t1_response) which only arrives after a new session.
+Note: last_brush_areas IS extracted from the *B# record gestureArray (bytes 23-30,
+8 per-zone brushing times in seconds), the same path as the C3352g parser (issue #109).
+The pressureRatio (bytes 11-15) is a separate field and not the tooth-area coverage.
 
 Real poll sequence captured in log (2026-03-11 20:08:22):
   0303020e461b0100                        → battery=27, is_brushing=False
@@ -134,21 +134,19 @@ class TestOcleanY3MRealData:
         assert result[DATA_LAST_BRUSH_PNUM] == _EXPECTED_PNUM
 
     @pytest.mark.asyncio
-    async def test_partial_areas_in_star_b_record(self):
-        """Bytes 11-15 of the *B# record are extracted as a partial 5/8 areas dict.
+    async def test_areas_from_gesture_array_in_star_b_record(self):
+        """Tooth-area coverage comes from the gestureArray bytes 23-30 (issue #109).
 
-        Real bytes: record[11]=0x05, [12]=0x14, [13]=0x4b, [14]=0x00, [15]=0x00
-        → area_vals=[5, 20, 75, 0, 0] → last_brush_areas set with zones 1-5 nonzero
-        and zones 6-8 padded to 0.  All 8 authoritative values come from the 2604
-        enrichment push which only arrives after a fresh brushing session.
+        Real bytes 23-30: [0x1c, 0x14, 0x19, 0x0c, 0x0a, 0x0a, 0x0a, 0x00]
+        = [28, 20, 25, 12, 10, 10, 10, 0] per-zone brushing time in seconds.
+        7 of 8 zones exceed the 7 s coverage threshold → round(87.5) = 88 %.
+        (Earlier versions wrongly read areas from the pressureRatio bytes 11-15.)
         """
         result = await run_poll(_coordinator(), _full_session_client())
         assert DATA_LAST_BRUSH_AREAS in result
         areas = result[DATA_LAST_BRUSH_AREAS]
         assert len(areas) == 8
-        area_values = list(areas.values())
-        assert area_values[:5] == [5, 20, 75, 0, 0]
-        assert area_values[5:] == [0, 0, 0]
+        assert list(areas.values()) == [28, 20, 25, 12, 10, 10, 10, 0]
 
     @pytest.mark.asyncio
     async def test_no_session_when_only_0303_received(self):

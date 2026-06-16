@@ -138,14 +138,16 @@ grep -c "DIS read" oclean_ble.log
 
 | Device | Model-ID | Protocol | All commands via | Session response | Extended fields |
 |--------|----------|----------|-----------------|-----------------|-----------------|
-| Oclean X | OCLEANY3M | TYPE1 | fbb89 (SEND_BRUSH_CMD_UUID) | fbb90 (RECEIVE_BRUSH_UUID) | Score via `0000`, areas via `2604` (enrichment pushes after session) |
-| Oclean X Pro | OCLEANY3 | TYPE1 | fbb89 | fbb90 | Score/areas via enrichment pushes |
+| Oclean X | OCLEANY3M | TYPE1 | fbb89 (SEND_BRUSH_CMD_UUID) | fbb90 (RECEIVE_BRUSH_UUID) | Score + areas **inline** in the 42-byte `*B#` record (areas = gestureArray bytes 23-30). `0000`/`2604` enrichment pushes may additionally arrive. |
+| Oclean X Pro | OCLEANY3 | TYPE1 | fbb89 | fbb90 | Score + areas **inline** in the 42-byte `*B#` record (areas = gestureArray bytes 23-30). Same `parse_t1_c3385w0_record` path as OCLEANY3M. |
 | Oclean X Pro Elite | OCLEANY3P | TYPE1 | fbb89 | fbb90 | Score + areas **inline** in the 42-byte `*B#` record (areas = gestureArray bytes 23-30). NOT via `021f`/`5100`/`2604` pushes. |
 | Oclean Air 1 | OCLEANA1 | LEGACY | fbb85 (WRITE_CHAR_UUID) | fbb86 READ (no CCCD) | None |
 
 **All TYPE1 devices** send query commands (0303/0202/0302/0307) via `fbb89` (`SEND_BRUSH_CMD_UUID`) during polls. Responses arrive as notifications on `fbb90` (`RECEIVE_BRUSH_UUID`) or `fbb86` (`READ_NOTIFY_CHAR_UUID`). The `write_char` field on `DeviceProtocol` controls which characteristic is used for one-off standalone writes (area_remind, brush_head_max_days, reset_brush_head, time calibration, brush scheme). For TYPE1, standalone writes use `fbb85` (`WRITE_CHAR_UUID`) — confirmed via APK `C3385w0_fallback.java` (the TYPE1 handler); only `0307` poll queries use `fbb89`. Note: `C3376s.java` in the APK sources is the handler for **WiFi-only devices** (model IDs 0005/0006/000D) and must not be used as a reference for TYPE1 BLE behavior.
 
-**OCLEANY3M**: Score and areas arrive as unsolicited enrichment pushes (`0000`, `2604`) on fbb90 after the 0307 session response. In inline mode (no new sessions), the 13-byte truncated record omits score – enrichment pushes may or may not follow depending on firmware.
+**OCLEANY3M / OCLEANY3**: Both use `parse_t1_c3385w0_record` for the reassembled `*B#` record. **Score and per-zone tooth areas are inline in that record** (score = byte 33, areas = gestureArray bytes 23-30, time-per-zone). The `0000`/`2604` enrichment pushes on fbb90 are additional/optional — they were never the only source of areas. In inline mode (no new sessions) the 13-byte truncated record omits score and gestureArray; enrichment pushes may or may not follow depending on firmware.
+
+**Issue #109 fix (2026-06-16):** `parse_t1_c3385w0_record` previously read tooth areas from bytes 11-15, which are the **pressureRatio** buckets (values 50–90), not zone coverage. A perfectly-scored session therefore looked unbalanced (one zone ≈90, the rest 0). Areas now come from the gestureArray (bytes 23-30, >7 s = covered), identical to `parse_t1_c3352g_record`. `pressure_ratio` remains a separate field from bytes 11-15. This was the same bug as #72/#105 in the other parser path.
 
 **OCLEANY3P** (Oclean X Pro Elite): Uses 0307. When the device has new unsynced sessions, it responds with the `*B#` (hex `2a4223`) multi-packet stream, reassembled by the coordinator into 42-byte records. **All session data — including per-zone tooth areas — is inline in that record**; there is no separate area/score push.
 
@@ -155,7 +157,7 @@ grep -c "DIS read" oclean_ble.log
 - `5100` is `0xFF`-filled placeholder.
 - `0000` "notifications" are actually `*B#` stream continuation fragments.
 
-Areas are parsed from record bytes 23-30 (the APK `gestureArray` field) by `parse_t1_c3352g_record` / `parse_y3p_stream_record`. **Still unconfirmed:** the gesture-vs-coverage semantic of bytes 23-30 — needs an app-coverage screenshot correlated with a raw record to verify the zone mapping.
+Areas are parsed from record bytes 23-30 (the APK `gestureArray` field) by **all three TYPE1 `*B#` parsers** — `parse_t1_c3385w0_record` (OCLEANY3M/OCLEANY3), `parse_t1_c3352g_record` (OCLEANY3P) and `parse_y3p_stream_record`. **Semantic confirmed via APK (v1.3.1, 2026-06-13):** bytes 23-30 = `gestureArray` = `getTime12()` = brushing **time per zone in seconds**, mapped 1:1 onto `TOOTH_AREA_NAMES` (BrushAreaType enum order, value 1..8). App coverage bucket: >7 s = fully brushed (`AREA_TIME_COVERAGE_THRESHOLD`). pressureRatio is the separate bytes-11-15 field.
 
 **OCLEANA1** (Oclean Air 1): fbb86 characteristic exists but has no CCCD → cannot subscribe for notifications. Coordinator uses direct `read_gatt_char()` fallback after sending query commands.
 
@@ -175,13 +177,14 @@ Areas are parsed from record bytes 23-30 (the APK `gestureArray` field) by `pars
 3. If extended detected: does `"extended running-data"` appear? If not, check `"extended record parse error"`
 4. If simple parser runs instead: fields like Areas/Pressure/Scheme are not in that format
 
-### What to look for when debugging missing Score/Areas on TYPE1 (OCLEANY3M)
+### What to look for when debugging missing Score/Areas on TYPE1 (OCLEANY3M/OCLEANY3)
 
-Score (`0000`) and areas (`2604`) are enrichment pushes from the device after the 0307 session response:
-1. Check if 0307 session is received at all: `grep "0307 inline\|0307 paginated\|C3352g record\|m18f parsed" oclean_ble.log`
-2. If session received, check if enrichment arrives: `grep "0000 score\|2604 areas" oclean_ble.log`
-3. If enrichment missing: likely inline mode (device has no new sessions since last poll); enrichment only reliably arrives in paginated mode (new sessions present)
-4. Check 0302 device-settings response: `grep "0302 brush-head counters" oclean_ble.log` – confirms all TYPE1 commands now reach the device via fbb89
+Score and per-zone areas are **inline in the reassembled 42-byte `*B#` record** (score = byte 33, areas = gestureArray bytes 23-30). The `0000`/`2604` pushes are optional enrichment.
+1. Check if 0307 session is received at all: `grep "0307 inline\|0307 paginated\|C3385w0 record\|C3352g record\|m18f parsed" oclean_ble.log`
+2. If the full `*B#` record was reassembled, check the parsed areas/coverage: `grep "C3385w0 record: areas\|C3385w0 record parsed" oclean_ble.log`
+3. If only a 13-byte truncated record arrived (inline mode, no new sessions), score/gestureArray are absent — optional enrichment may follow: `grep "0000 score\|2604 areas" oclean_ble.log`
+4. Areas look unbalanced despite a high score? Confirm areas come from bytes 23-30, not the pressureRatio bytes 11-15 (the issue #109 bug).
+5. Check 0302 device-settings response: `grep "0302 brush-head counters" oclean_ble.log` – confirms all TYPE1 commands reach the device via fbb89
 
 ### `b2` byte in 0303 STATE response
 
