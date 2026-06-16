@@ -1684,10 +1684,23 @@ class TestParseT1C3352gRecord:
             "lower_right_out": 13,
             "lower_right_in": 1,
         }
-        # 5 of 8 zones have time > 7 s (15, 13, 38, 16, 13) → round(62.5) = 62 %.
+        # Coverage: sum=97, duration=120 → share threshold 9/120; raw >= 7.28 counts.
+        # 15, 13, 38, 16, 13 qualify → round(5/8 * 100) = 62 %.
         assert result["last_brush_coverage"] == 62
         # The per-zone bytes are brushing time, not pressure → no pressure value.
         assert "last_brush_pressure" not in result
+
+    def test_coverage_norm_threshold_param_for_y3pd(self):
+        """OCLEANY3PD uses the APK Y3PD threshold 10 (vs the default 9). The same
+        record gives different coverage: one zone normalizes to 9.6 (8/100 * 120),
+        which clears 9 (→ 100 %) but not 10 (→ 88 %)."""
+        record = bytearray(_make_c3352g_record(duration=120))
+        for i, v in enumerate((8, 13, 13, 13, 13, 13, 14, 13)):  # sum = 100
+            record[23 + i] = v
+        default = parse_t1_c3352g_record(bytes(record))
+        assert default["last_brush_coverage"] == 100  # threshold 9
+        y3pd = parse_t1_c3352g_record(bytes(record), coverage_norm_threshold=10)
+        assert y3pd["last_brush_coverage"] == 88  # threshold 10
 
     def test_real_ocleany3p_comment12_record(self):
         """Real OCLEANY3P *B# record from issue #49 comment12 (synced session,

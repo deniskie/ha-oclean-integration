@@ -188,6 +188,12 @@ COVERAGE_PRESSURE_THRESHOLD = 100
 # which is the closest faithful local equivalent.
 AREA_COVERAGE_NORM_THRESHOLD = 9
 
+# OCLEANY3PD (Oclean X Pro Elite D) uses a higher threshold of 10 in the same APK
+# formula (C1793b.m3804z: enum Y3PD → < 10.0). All other TYPE1 models use the
+# default 9 (Y3M/Y3/Y3P/Y3S map to non-Y3PD enum constants → < 9.0). The coordinator
+# passes this to the record parser when the DIS model ID is exactly "OCLEANY3PD".
+AREA_COVERAGE_Y3PD_THRESHOLD = 10
+
 # Tooth area zone names in BrushAreaType enum order (value 1 → index 0 … value 8 → index 7)
 # Source: com/ocleanble/lib/device/BrushAreaType.java
 TOOTH_AREA_NAMES: tuple[str, ...] = (

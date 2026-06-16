@@ -430,7 +430,9 @@ def _parse_m18f_record(record: bytes) -> dict[str, Any]:
         return {}
 
 
-def parse_t1_c3385w0_record(record: bytes) -> dict[str, Any]:
+def parse_t1_c3385w0_record(
+    record: bytes, coverage_norm_threshold: int = AREA_COVERAGE_NORM_THRESHOLD
+) -> dict[str, Any]:
     """Parse one 42-byte session record for OCLEANY3M / OCLEANY3 (C3385w0 class).
 
     Used by OCLEANY3M (Oclean X) and OCLEANY3 (Oclean X Pro) when the coordinator
@@ -522,7 +524,7 @@ def parse_t1_c3385w0_record(record: bytes) -> dict[str, Any]:
         # reproduces the app's on-device formula norm = raw/sum * duration >= 9
         # (i10 = getTimeLong, see const.py). Pressure is NOT derived from these bytes.
         area_bytes = bytes(record[23:31])
-        share = AREA_COVERAGE_NORM_THRESHOLD / duration_s if duration_s > 0 else None
+        share = coverage_norm_threshold / duration_s if duration_s > 0 else None
         area_dict, _zones_cleaned, _avg, coverage_pct = _build_area_stats(area_bytes, share_threshold=share)
         if any(v > 0 for v in area_bytes):
             result[DATA_LAST_BRUSH_AREAS] = area_dict
@@ -553,7 +555,9 @@ def parse_t1_c3385w0_record(record: bytes) -> dict[str, Any]:
         return {}
 
 
-def parse_t1_c3352g_record(record: bytes) -> dict[str, Any]:
+def parse_t1_c3352g_record(
+    record: bytes, coverage_norm_threshold: int = AREA_COVERAGE_NORM_THRESHOLD
+) -> dict[str, Any]:
     """Parse one 42-byte session record from the C3352g *B# multi-packet stream.
 
     Used by OCLEANY3P (Oclean X Pro Elite) when the coordinator reassembles the
@@ -651,7 +655,7 @@ def parse_t1_c3352g_record(record: bytes) -> dict[str, Any]:
         # (i10 = getTimeLong, see const.py). Pressure is NOT derived from these bytes —
         # the pressure distribution is the pressureRatio (11-15), via Pressure Detail.
         area_bytes = bytes(record[23:31])
-        share = AREA_COVERAGE_NORM_THRESHOLD / duration_s if duration_s > 0 else None
+        share = coverage_norm_threshold / duration_s if duration_s > 0 else None
         area_dict, _zones_cleaned, _avg, coverage_pct = _build_area_stats(area_bytes, share_threshold=share)
         if any(v > 0 for v in area_bytes):
             result[DATA_LAST_BRUSH_AREAS] = area_dict
@@ -685,7 +689,9 @@ def parse_t1_c3352g_record(record: bytes) -> dict[str, Any]:
         return {}
 
 
-def parse_y3p_stream_record(record: bytes) -> dict[str, Any]:
+def parse_y3p_stream_record(
+    record: bytes, coverage_norm_threshold: int = AREA_COVERAGE_NORM_THRESHOLD
+) -> dict[str, Any]:
     """Parse one 42-byte session record from the OCLEANY3P *B# stream.
 
     OCLEANY3P uses the same *B# multi-packet reassembly as OCLEANY3, but encodes
@@ -742,7 +748,7 @@ def parse_y3p_stream_record(record: bytes) -> dict[str, Any]:
         # norm = raw/sum * duration >= 9 (i10 = getTimeLong, see const.py).  Pressure
         # is not derived from these bytes.
         area_bytes = bytes(record[23:31])
-        share = AREA_COVERAGE_NORM_THRESHOLD / duration_s if duration_s > 0 else None
+        share = coverage_norm_threshold / duration_s if duration_s > 0 else None
         area_dict, _zones_cleaned, _avg, coverage_pct = _build_area_stats(area_bytes, share_threshold=share)
         if any(v > 0 for v in area_bytes):
             result[DATA_LAST_BRUSH_AREAS] = area_dict

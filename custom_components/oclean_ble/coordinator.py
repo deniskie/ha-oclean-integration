@@ -25,6 +25,8 @@ from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import (
+    AREA_COVERAGE_NORM_THRESHOLD,
+    AREA_COVERAGE_Y3PD_THRESHOLD,
     BATTERY_CHAR_UUID,
     BLE_ENRICHMENT_WAIT,
     BLE_NOTIFICATION_WAIT,
@@ -82,7 +84,7 @@ from .parser import (
     parse_t1_c3385w0_record,
     parse_y3p_stream_record,
 )
-from .protocol import UNKNOWN, DeviceProtocol, protocol_for_model
+from .protocol import UNKNOWN, DeviceProtocol, is_known_model, protocol_for_model
 from .statistics import import_new_sessions
 
 _LOGGER = logging.getLogger(__name__)
@@ -1079,10 +1081,14 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
             _t1["expected"] = 0
             _t1["parse_fn"] = parse_t1_c3385w0_record
             num_records = len(buf) // T1_C3352G_RECORD_SIZE
+            # OCLEANY3PD uses the APK Y3PD coverage threshold (10) instead of the
+            # default (9); all other TYPE1 models use the default.
+            _model = collected.get(DATA_MODEL_ID) or (self.data.model_id if self.data else None) or ""
+            norm_thr = AREA_COVERAGE_Y3PD_THRESHOLD if _model == "OCLEANY3PD" else AREA_COVERAGE_NORM_THRESHOLD
             _log.debug("*B# reassembly complete: parsing %d record(s)", num_records)
             for i in range(num_records):
                 chunk = buf[i * T1_C3352G_RECORD_SIZE : (i + 1) * T1_C3352G_RECORD_SIZE]
-                _accept(parse_fn(chunk))
+                _accept(parse_fn(chunk, coverage_norm_threshold=norm_thr))
 
         def handler(_sender: Any, raw: bytearray) -> None:
             data = bytes(raw)
@@ -1366,13 +1372,14 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
                 model_id,
             )
             self._protocol = new_protocol
-        if new_protocol is UNKNOWN and model_id:
+        if model_id and not is_known_model(model_id):
             self._log.warning(
-                "unrecognised model ID '%s' on %s – using generic fallback protocol. "
-                "Basic sensors (battery, last brush time) may work, but session details "
-                "(score, duration, areas) may be missing. "
+                "unrecognised model ID '%s' on %s – using the TYPE1 fallback protocol. "
+                "Basic polling (battery, last brush time, and usually session details) "
+                "should work, but model-specific features (e.g. brush-scheme selection) "
+                "are disabled and some details may be missing. "
                 "Please open an issue at https://github.com/deniskie/ha-oclean-integration "
-                "with this model ID so full support can be added.",
+                "with this model ID so explicit support can be added.",
                 model_id,
                 self._mac,
             )

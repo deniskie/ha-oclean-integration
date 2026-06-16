@@ -17,14 +17,19 @@ from .const import (
 )
 from .coordinator import OcleanCoordinator
 from .entity import OcleanEntity
-from .protocol import TYPE1, TYPE_Z1, protocol_for_model
+from .protocol import TYPE1, TYPE_Z1, is_known_model, protocol_for_model
 
 
 def _schemes_for_model(
     model_id: str | None,
 ) -> dict[int, tuple[str, list[tuple[int, int]]]] | None:
-    """Return the scheme dict for a device model, or None if unsupported."""
-    if not model_id:
+    """Return the scheme dict for a device model, or None if unsupported.
+
+    Scheme selection writes a device-specific scheme command, so it requires an
+    explicitly recognised model (its pnum→scheme mapping). Unmapped models poll as
+    TYPE1 via the fallback but get no scheme select — we won't guess their schemes.
+    """
+    if not is_known_model(model_id):
         return None
     proto = protocol_for_model(model_id)
     if proto is TYPE1:

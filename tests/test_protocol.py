@@ -20,6 +20,7 @@ from custom_components.oclean_ble.protocol import (
     TYPE1,
     UNKNOWN,
     DeviceProtocol,
+    is_known_model,
     protocol_for_model,
 )
 
@@ -223,18 +224,24 @@ class TestProtocolForModel:
     def test_known_models(self, model_id: str, expected: DeviceProtocol):
         assert protocol_for_model(model_id) is expected
 
-    def test_unknown_model_returns_unknown(self):
-        assert protocol_for_model("OCLEANFUTURE99") is UNKNOWN
+    def test_unrecognized_model_falls_back_to_type1(self):
+        """A present-but-unmapped model ID falls back to TYPE1 (most modern Oclean
+        brushes use the TYPE1 BLE stack), so new devices get a working poll instead
+        of the discovery-only UNKNOWN profile."""
+        assert protocol_for_model("OCLEANFUTURE99") is TYPE1
 
     def test_none_returns_unknown(self):
+        """No model read yet → UNKNOWN (discovery profile; DIS re-read keeps trying)."""
         assert protocol_for_model(None) is UNKNOWN
 
     def test_empty_string_returns_unknown(self):
         assert protocol_for_model("") is UNKNOWN
 
     def test_case_sensitive(self):
-        """Model IDs from DIS are uppercase; lowercase must not match."""
-        assert protocol_for_model("ocleany3m") is UNKNOWN
+        """Model IDs from DIS are uppercase; a lowercase legacy ID must NOT match its
+        LEGACY mapping — it falls through to the TYPE1 fallback instead."""
+        assert protocol_for_model("ocleana1") is not LEGACY
+        assert protocol_for_model("ocleana1") is TYPE1
 
     def test_ocleany3p_is_type1_not_type0(self):
         """OCLEANY3P sends 0307 on RECEIVE_BRUSH_UUID – must NOT map to TYPE0."""
@@ -249,3 +256,17 @@ class TestProtocolForModel:
         assert RECEIVE_BRUSH_UUID in proto.notify_chars
         assert CHANGE_INFO_UUID not in proto.notify_chars
         assert proto.supports_pagination is False
+
+
+class TestIsKnownModel:
+    def test_mapped_model_is_known(self):
+        assert is_known_model("OCLEANY3M") is True
+
+    def test_unmapped_model_is_not_known(self):
+        """A model that only resolves via the TYPE1 fallback is NOT 'known'."""
+        assert is_known_model("OCLEANFUTURE99") is False
+        assert protocol_for_model("OCLEANFUTURE99") is TYPE1  # but still polls as TYPE1
+
+    def test_none_and_empty_are_not_known(self):
+        assert is_known_model(None) is False
+        assert is_known_model("") is False

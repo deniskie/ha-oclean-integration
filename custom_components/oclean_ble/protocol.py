@@ -230,9 +230,27 @@ _MODEL_MAP: dict[str, DeviceProtocol] = {
 def protocol_for_model(model_id: str | None) -> DeviceProtocol:
     """Return the DeviceProtocol for a BLE DIS model-ID string.
 
-    Falls back to UNKNOWN for unrecognised or absent model IDs so that
-    new devices are handled gracefully and produce useful debug logs.
+    Behaviour:
+    * Absent model ID (None/empty) → UNKNOWN, the discovery profile (subscribes to
+      all characteristics and sends all commands). The coordinator keeps re-reading
+      the DIS until a model is known, so this is only the transient pre-DIS state.
+    * Present but unmapped model ID → TYPE1. Every modern Oclean brush (Oclean X /
+      X Pro / X Pro Elite families, the C3385w0 / C3352g handlers) uses the TYPE1
+      BLE stack, so a new/unrecognised model gets a working poll out of the box
+      instead of the noisier discovery-only UNKNOWN profile. Out-of-scope families
+      (Dialog/Wone serial, WiFi-only) would not yield session data under UNKNOWN
+      either, so TYPE1 is no worse for them.
     """
     if not model_id:
         return UNKNOWN
-    return _MODEL_MAP.get(model_id, UNKNOWN)
+    return _MODEL_MAP.get(model_id, TYPE1)
+
+
+def is_known_model(model_id: str | None) -> bool:
+    """True if the model ID is explicitly mapped (not just the TYPE1 fallback).
+
+    Used to gate device-specific *write* features (e.g. brush-scheme selection)
+    that need per-model knowledge, even though unmapped models still *poll* as
+    TYPE1 via ``protocol_for_model``.
+    """
+    return bool(model_id) and model_id in _MODEL_MAP
