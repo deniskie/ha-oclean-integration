@@ -1,5 +1,17 @@
 # Changelog
 
+## [v1.3.7] – 2026-06-17
+
+### Fixes
+
+- **Stable session values on devices with a long session backlog (issue #109 follow-up).** Some devices (e.g. Oclean X Pro with many stored sessions) send a large multi-record `*B#` burst that does not always arrive completely. This could make two consecutive reads of an *unchanged* brush show different values (e.g. a wrong score like 24, or zones flipping to 0), because a misaligned trailing record with the same timestamp overwrote the correctly-parsed one, and a poll that only retrieved older sessions could regress the displayed "last brush":
+  - A later record with the **same timestamp** can no longer overwrite the first, correctly-parsed record (strict newer-than check).
+  - The displayed last session is now **monotonic** — a poll that only retrieves older sessions never downgrades it to an earlier timestamp.
+
+  Note: this makes the displayed values stable and correct. If a device's burst is truncated by a slow BLE link (e.g. a distant ESPHome proxy), the very newest sessions may still take additional polls to appear — that part depends on BLE throughput, not the integration.
+
+---
+
 ## [v1.3.6] – 2026-06-17
 
 ### Changed
