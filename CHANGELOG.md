@@ -1,5 +1,14 @@
 # Changelog
 
+## [v1.3.6] – 2026-06-17
+
+### Changed
+
+- **Tidied up the diagnostic block.** Three raw fields whose values have no confirmed user-facing meaning are now **disabled by default** (still available — enable them manually under the device's entities if you want the raw data): **Gesture** (`gesture_code`, a 0-3 value with no mapping found in the app), **Power Distribution** (`power_array`, per-zone 0-3, meaning unconfirmed) and **Pressure Detail** (`pressure_ratio`, the raw 5-bucket distribution — superseded by the new "Pressure Level" sensor). Existing installs keep whatever state these entities already had; this only affects how they appear on new setups.
+- **Coverage is now a primary sensor** (no longer under "Diagnostic"), since it is a user-facing brushing-quality metric alongside the score.
+
+---
+
 ## [v1.3.5] – 2026-06-16
 
 ### New
