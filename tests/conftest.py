@@ -259,6 +259,8 @@ def _install_ha_stubs() -> None:
             native_unit_of_measurement=None,
             suggested_unit_of_measurement=None,
             icon=None,
+            entity_category=None,
+            entity_registry_enabled_default=True,
             **kwargs,
         ):
             self.key = key
@@ -267,6 +269,8 @@ def _install_ha_stubs() -> None:
             self.state_class = state_class
             self.native_unit_of_measurement = native_unit_of_measurement
             self.icon = icon
+            self.entity_category = entity_category
+            self.entity_registry_enabled_default = entity_registry_enabled_default
 
     class SensorEntity:
         pass

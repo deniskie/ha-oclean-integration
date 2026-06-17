@@ -11,6 +11,7 @@ from homeassistant.components.sensor import SensorDeviceClass, SensorEntityDescr
 
 from custom_components.oclean_ble.const import (
     DATA_LAST_BRUSH_AREAS,
+    DATA_LAST_BRUSH_COVERAGE,
     DATA_LAST_BRUSH_DURATION,
     DATA_LAST_BRUSH_GESTURE_ARRAY,
     DATA_LAST_BRUSH_GESTURE_CODE,
@@ -23,6 +24,7 @@ from custom_components.oclean_ble.const import (
     TOOTH_AREA_NAMES,
 )
 from custom_components.oclean_ble.sensor import (
+    SENSOR_DESCRIPTIONS,
     OcleanBrushAreasSensor,
     OcleanDurationRatingSensor,
     OcleanPowerDistributionSensor,
@@ -334,6 +336,29 @@ def _make_pressure_detail_sensor(data=None, last_update_success=True):
 def _make_power_distribution_sensor(data=None, last_update_success=True):
     coord = _make_coordinator(data=data, last_update_success=last_update_success)
     return OcleanPowerDistributionSensor(coord, "AA:BB:CC:DD:EE:FF", "Oclean")
+
+
+class TestDiagnosticBlockTidyUp:
+    """Diagnostic-block cleanup: meaningless raw fields hidden, coverage promoted."""
+
+    def _desc(self, key):
+        return next(d for d in SENSOR_DESCRIPTIONS if d.key == key)
+
+    def test_coverage_is_primary_sensor(self):
+        """Coverage is a meaningful brushing-quality metric → primary, not diagnostic."""
+        assert self._desc(DATA_LAST_BRUSH_COVERAGE).entity_category is None
+
+    def test_gesture_code_disabled_by_default(self):
+        """gestureCode (0-3) has no confirmed meaning → hidden by default."""
+        assert self._desc(DATA_LAST_BRUSH_GESTURE_CODE).entity_registry_enabled_default is False
+
+    def test_pressure_detail_disabled_by_default(self):
+        """Raw 5-bucket pressureRatio is superseded by the Pressure Level sensor."""
+        assert OcleanPressureDetailSensor._attr_entity_registry_enabled_default is False
+
+    def test_power_distribution_disabled_by_default(self):
+        """powerArray (12x 0-3) meaning unconfirmed → hidden by default."""
+        assert OcleanPowerDistributionSensor._attr_entity_registry_enabled_default is False
 
 
 # ---------------------------------------------------------------------------

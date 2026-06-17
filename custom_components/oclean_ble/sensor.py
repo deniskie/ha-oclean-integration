@@ -98,8 +98,8 @@ SENSOR_DESCRIPTIONS: tuple[SensorEntityDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=PERCENTAGE,
         icon="mdi:tooth",
-        entity_category=EntityCategory.DIAGNOSTIC,
-        # 0–100 %: zones with pressure > 100 (APK threshold) / 8 total zones
+        # Primary sensor (not diagnostic): coverage is a user-facing brushing-quality
+        # metric alongside the score. 0–100 %: covered zones / 8 (per-zone share-based).
     ),
     SensorEntityDescription(
         key=DATA_LAST_BRUSH_DURATION,
@@ -175,14 +175,17 @@ SENSOR_DESCRIPTIONS: tuple[SensorEntityDescription, ...] = (
         icon="mdi:clock-check-outline",
         entity_category=EntityCategory.DIAGNOSTIC,
     ),
-    # Gesture code: raw brushing technique indicator from BLE (APK: BrushRecordEntity.gesture)
+    # Gesture code: raw 0-3 value (APK: BrushRecordEntity.gesture). Disabled by
+    # default — an exhaustive APK search found no 0-3 → meaning mapping, so the raw
+    # value is not useful to most users (kept for research; enable manually if needed).
     SensorEntityDescription(
         key=DATA_LAST_BRUSH_GESTURE_CODE,
         translation_key=DATA_LAST_BRUSH_GESTURE_CODE,
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:hand-wave",
         entity_category=EntityCategory.DIAGNOSTIC,
-        # 0-255 raw value from 42-byte 0307 records (byte 14)
+        entity_registry_enabled_default=False,
+        # 0-3 raw value from 42-byte 0307 records (byte 30, 2-bit)
     ),
     # Pressure code: dominant-pressure-bucket level 0/50/60/70/80/90, replicating the
     # APK routine a.b.m14b over the pressureRatio buckets (higher = heavier pressure;
@@ -429,6 +432,8 @@ class OcleanPressureDetailSensor(OcleanEntity, SensorEntity):
     _attr_icon = "mdi:gauge-low"
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_entity_category = EntityCategory.DIAGNOSTIC
+    # Disabled by default: raw 5-bucket detail, superseded by the Pressure Level sensor.
+    _attr_entity_registry_enabled_default = False
 
     def __init__(self, coordinator: OcleanCoordinator, mac: str, device_name: str) -> None:
         super().__init__(coordinator, mac, device_name, DATA_LAST_BRUSH_PRESSURE_RATIO)
@@ -470,6 +475,8 @@ class OcleanPowerDistributionSensor(OcleanEntity, SensorEntity):
     _attr_icon = "mdi:flash"
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_entity_category = EntityCategory.DIAGNOSTIC
+    # Disabled by default: per-zone 0-3 values whose meaning is unconfirmed in the APK.
+    _attr_entity_registry_enabled_default = False
 
     def __init__(self, coordinator: OcleanCoordinator, mac: str, device_name: str) -> None:
         super().__init__(coordinator, mac, device_name, DATA_LAST_BRUSH_POWER_ARRAY)
