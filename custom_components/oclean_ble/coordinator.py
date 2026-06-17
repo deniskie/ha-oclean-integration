@@ -55,9 +55,15 @@ from .const import (
     DATA_BRUSH_HEAD_USAGE,
     DATA_HW_REVISION,
     DATA_LAST_BRUSH_AREAS,
+    DATA_LAST_BRUSH_COVERAGE,
     DATA_LAST_BRUSH_DURATION,
+    DATA_LAST_BRUSH_GESTURE_ARRAY,
+    DATA_LAST_BRUSH_GESTURE_CODE,
     DATA_LAST_BRUSH_PNUM,
+    DATA_LAST_BRUSH_POWER_ARRAY,
     DATA_LAST_BRUSH_PRESSURE,
+    DATA_LAST_BRUSH_PRESSURE_CODE,
+    DATA_LAST_BRUSH_PRESSURE_RATIO,
     DATA_LAST_BRUSH_SCORE,
     DATA_LAST_BRUSH_TIME,
     DATA_LAST_POLL,
@@ -300,6 +306,25 @@ _ENRICHMENT_KEYS: tuple[str, ...] = (
     DATA_LAST_BRUSH_SCORE,
     DATA_LAST_BRUSH_AREAS,
     DATA_LAST_BRUSH_PRESSURE,
+)
+
+# All fields that belong to one brushing session. Used to keep the displayed
+# session coherent and monotonic: a poll that only retrieves OLDER sessions (e.g.
+# a truncated *B# stream that missed the newest records) must not regress these to
+# an older timestamp's values (issue #109).
+_SESSION_SNAPSHOT_KEYS: tuple[str, ...] = (
+    DATA_LAST_BRUSH_TIME,
+    DATA_LAST_BRUSH_PNUM,
+    DATA_LAST_BRUSH_DURATION,
+    DATA_LAST_BRUSH_SCORE,
+    DATA_LAST_BRUSH_AREAS,
+    DATA_LAST_BRUSH_COVERAGE,
+    DATA_LAST_BRUSH_PRESSURE,
+    DATA_LAST_BRUSH_PRESSURE_RATIO,
+    DATA_LAST_BRUSH_PRESSURE_CODE,
+    DATA_LAST_BRUSH_GESTURE_CODE,
+    DATA_LAST_BRUSH_GESTURE_ARRAY,
+    DATA_LAST_BRUSH_POWER_ARRAY,
 )
 
 # All notify characteristics across all device types (used as fallback set for
@@ -975,6 +1000,18 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
                 if key not in collected:
                     merged.pop(key, None)
 
+        # No-regress: if this poll only retrieved an OLDER session than the one we
+        # already have (e.g. a truncated *B# stream that missed the newest records),
+        # keep the newer stored session snapshot — a brushing timestamp can never go
+        # backwards (issue #109). Non-session fields (battery, model, …) still update.
+        if new_ts and prev_ts and new_ts < prev_ts:
+            for key in _SESSION_SNAPSHOT_KEYS:
+                if key in self._last_raw:
+                    merged[key] = self._last_raw[key]
+                else:
+                    merged.pop(key, None)
+            self._log.debug("kept newer stored session (ts=%d) over older polled ts=%d", prev_ts, new_ts)
+
         self._last_raw = merged
 
         # Persist after every successful poll so that battery, model, and session
@@ -1059,13 +1096,15 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
             if not parsed:
                 return
             incoming_ts = parsed.get(DATA_LAST_BRUSH_TIME)
-            # Only update collected when the incoming data is at least as new as
+            # Only update collected when the incoming data is strictly newer than
             # what we already have.  Older timestamped sessions (e.g. from *B#
             # pagination) are appended to all_sessions for stats import but must
             # not overwrite score/areas/pressure of the most-recent session in
-            # collected.  Enrichment notifications (0000, 2604) never carry a
-            # timestamp (incoming_ts = None) so they always update collected.
-            if incoming_ts is None or incoming_ts >= collected.get(DATA_LAST_BRUSH_TIME, 0):
+            # collected.  Strict ">" (not ">=") ensures a later record with the SAME
+            # timestamp — e.g. a misaligned duplicate from a truncated stream — cannot
+            # clobber the first, correctly-parsed record.  Enrichment notifications
+            # (0000, 2604) carry no timestamp (incoming_ts = None) so always update.
+            if incoming_ts is None or incoming_ts > collected.get(DATA_LAST_BRUSH_TIME, 0):
                 collected.update(parsed)
             if incoming_ts and incoming_ts not in seen_ts:
                 seen_ts.add(incoming_ts)

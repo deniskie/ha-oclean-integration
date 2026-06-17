@@ -2204,6 +2204,102 @@ class TestT1C3352gReassembly:
         assert len(captured_runs[1]) == 1
 
 
+class TestT1StreamTruncationRobustness:
+    """Robustness against truncated *B# bursts (issue #109 follow-up)."""
+
+    async def _poll_records(self, coordinator, records, *, count_override=None) -> dict:
+        """Run one poll on *coordinator* delivering *records* as a *B# stream.
+
+        ``count_override`` lets the header announce more records than are actually
+        sent (simulating a device whose burst stalls mid-stream). Returns the merged
+        result dict from _poll_device().
+        """
+        if count_override is None:
+            packets = _make_t1_c3352g_packets(records)
+        else:
+            header = bytes([0x03, 0x07, 0x2A, 0x42, 0x23, (count_override >> 8) & 0xFF, count_override & 0xFF])
+            stream = header + b"".join(records)
+            packets = [stream[i : i + 20] for i in range(0, len(stream), 20)]
+
+        call_count = [0]
+
+        async def fake_start_notify(uuid, handler, _pkts=packets, _c=call_count):
+            _c[0] += 1
+            if _c[0] == 1:
+                for p in _pkts:
+                    handler(None, bytearray(p))
+
+        client = _make_bleak_client(battery_value=80)
+        client.start_notify = AsyncMock(side_effect=fake_start_notify)
+
+        with (
+            patch("custom_components.oclean_ble.coordinator.bluetooth") as bt_mock,
+            patch(
+                "custom_components.oclean_ble.coordinator.establish_connection",
+                new_callable=AsyncMock,
+                return_value=client,
+            ),
+            patch("custom_components.oclean_ble.coordinator.asyncio.sleep", new_callable=AsyncMock),
+            patch(
+                "custom_components.oclean_ble.coordinator.import_new_sessions",
+                side_effect=AsyncMock(return_value=0),
+            ),
+        ):
+            bt_mock.async_last_service_info.return_value = _make_service_info()
+            return await coordinator._poll_device()
+
+    @pytest.mark.asyncio
+    async def test_truncated_stream_same_ts_tail_garbage_ignored(self):
+        """The exact issue #109 case: a truncated burst (count says 5, only 3 arrive)
+        whose last block is a misaligned duplicate of the newest real record (same
+        timestamp, garbage score). It must NOT clobber the correctly-parsed values."""
+        coordinator = _make_coordinator()
+        coordinator._store_loaded = True
+        rec1 = _make_c3352g_record_bytes(month=3, day=1, hour=7, minute=0, second=0, duration=120, score=70)
+        rec2 = _make_c3352g_record_bytes(month=3, day=2, hour=7, minute=0, second=0, duration=120, score=98)
+        # Misaligned tail: same timestamp as rec2 but garbage score 24.
+        garbage = _make_c3352g_record_bytes(month=3, day=2, hour=7, minute=0, second=0, duration=120, score=24)
+        result = await self._poll_records(coordinator, [rec1, rec2, garbage], count_override=5)
+        assert result[DATA_LAST_BRUSH_SCORE] == 98  # real value kept, not clobbered by 24
+        import datetime
+
+        assert datetime.datetime.fromtimestamp(result[DATA_LAST_BRUSH_TIME]).day == 2
+
+    @pytest.mark.asyncio
+    async def test_complete_stream_keeps_all_records(self):
+        """A fully-received stream must NOT drop its last record (no over-drop)."""
+        coordinator = _make_coordinator()
+        coordinator._store_loaded = True
+        rec1 = _make_c3352g_record_bytes(month=3, day=1, hour=7, minute=0, second=0, duration=120, score=70)
+        rec2 = _make_c3352g_record_bytes(month=3, day=2, hour=7, minute=0, second=0, duration=120, score=88)
+        result = await self._poll_records(coordinator, [rec1, rec2])  # count=2, complete
+        assert result[DATA_LAST_BRUSH_SCORE] == 88  # rec2 (newest) kept
+
+    @pytest.mark.asyncio
+    async def test_same_ts_garbage_does_not_clobber(self):
+        """A later record with the SAME timestamp must not overwrite the first one
+        (a misaligned duplicate could otherwise replace good data with garbage)."""
+        coordinator = _make_coordinator()
+        coordinator._store_loaded = True
+        good = _make_c3352g_record_bytes(month=3, day=5, hour=8, minute=0, second=0, duration=120, score=90)
+        dupe = _make_c3352g_record_bytes(month=3, day=5, hour=8, minute=0, second=0, duration=120, score=24)
+        result = await self._poll_records(coordinator, [good, dupe])  # complete, same ts
+        assert result[DATA_LAST_BRUSH_SCORE] == 90  # first kept, not clobbered by 24
+
+    @pytest.mark.asyncio
+    async def test_does_not_regress_to_older_session(self):
+        """A later poll returning only OLDER sessions must not downgrade the displayed
+        last session (the device re-dumped its backlog without the newest records)."""
+        coordinator = _make_coordinator()
+        coordinator._store_loaded = True
+        newer = _make_c3352g_record_bytes(month=6, day=10, hour=8, minute=0, second=0, duration=120, score=95)
+        older = _make_c3352g_record_bytes(month=3, day=1, hour=8, minute=0, second=0, duration=120, score=40)
+        result1 = await self._poll_records(coordinator, [newer])
+        result2 = await self._poll_records(coordinator, [older])
+        assert result2[DATA_LAST_BRUSH_SCORE] == 95  # newer session kept
+        assert result2[DATA_LAST_BRUSH_TIME] == result1[DATA_LAST_BRUSH_TIME]
+
+
 # ---------------------------------------------------------------------------
 # _CoordLoggerAdapter – per-device log prefix
 # ---------------------------------------------------------------------------
