@@ -475,6 +475,23 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         try:
             raw = await self._poll_device()
             return OcleanDeviceData.from_dict(raw)
+        except asyncio.CancelledError as err:
+            # The ESPHome BLE-proxy connect path leaks a *spurious* CancelledError
+            # when a connection to a sleeping device times out (its internal
+            # disconnect-guard cancels an await). CancelledError is a
+            # BaseException, so the `except Exception` below never catches it and
+            # it would otherwise abort async_setup_entry ("config entry cancelled").
+            # A *genuine* task cancellation (HA shutdown / entry reload) sets
+            # current_task().cancelling() > 0 and MUST propagate – only translate
+            # the spurious proxy cancellation into a retryable UpdateFailed.
+            task = asyncio.current_task()
+            if task is not None and task.cancelling():
+                raise
+            self._log.debug("poll cancelled by BLE proxy (device likely asleep): %s", err)
+            self.last_poll_successful = False
+            if self._last_raw:
+                return OcleanDeviceData.from_dict(self._last_raw)
+            raise UpdateFailed(f"Oclean device not reachable (proxy cancelled): {err}") from err
         except Exception as err:
             # Catch all exceptions (BleakError, TimeoutError, IndexError from
             # habluetooth proxy backend, etc.) so HA can keep retrying rather
