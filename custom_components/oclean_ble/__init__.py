@@ -172,10 +172,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             schema=vol.Schema({vol.Optional("entry_id"): str}),
         )
 
-    # Initial poll: best-effort.  If the device is sleeping, entities stay
-    # unavailable and will update as soon as the next poll succeeds (either on
-    # the configured interval or via a manual service call).
-    await coordinator.async_refresh()
+    # Initial poll: best-effort and NON-BLOCKING.  Awaiting async_refresh() here
+    # would stall HA startup by up to BLE_POLL_TOTAL_TIMEOUT + several connect
+    # attempts while the BLE stack waits for a possibly-sleeping toothbrush,
+    # triggering HA's "still starting / not everything available" warning.
+    # Run it as a background task tied to the entry lifecycle instead so setup
+    # returns immediately; entities stay unavailable until the poll succeeds
+    # (on the configured interval or via a manual service call).  The task is
+    # cancelled automatically on unload.
+    entry.async_create_background_task(
+        hass,
+        coordinator.async_refresh(),
+        name=f"{DOMAIN}_initial_refresh_{entry.entry_id}",
+    )
 
     return True
 
