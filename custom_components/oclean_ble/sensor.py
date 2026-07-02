@@ -11,8 +11,14 @@ from homeassistant.components.sensor import (
     SensorEntityDescription,
     SensorStateClass,
 )
+from homeassistant.components import bluetooth
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfTime
+from homeassistant.const import (
+    PERCENTAGE,
+    SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
+    EntityCategory,
+    UnitOfTime,
+)
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -219,6 +225,7 @@ async def async_setup_entry(
     entities.append(OcleanSchemeSensor(coordinator, mac, device_name))
     entities.extend(OcleanToothAreaSensor(coordinator, mac, device_name, zone_name) for zone_name in TOOTH_AREA_NAMES)
     entities.append(OcleanMacSensor(coordinator, mac, device_name))
+    entities.append(OcleanRssiSensor(coordinator, mac, device_name))
     entities.append(OcleanDurationRatingSensor(coordinator, mac, device_name))
     entities.append(OcleanPressureDetailSensor(coordinator, mac, device_name))
     entities.append(OcleanPowerDistributionSensor(coordinator, mac, device_name))
@@ -535,3 +542,34 @@ class OcleanMacSensor(OcleanEntity, SensorEntity):
     @property
     def available(self) -> bool:
         return True
+
+
+class OcleanRssiSensor(OcleanEntity, SensorEntity):
+    """Diagnostic sensor exposing the latest advertisement RSSI (signal strength).
+
+    Read live from Home Assistant's Bluetooth registry (last seen advertisement,
+    local adapter or ESPHome proxy) rather than from a BLE poll — the value is
+    available even between polls and while the brush is asleep, reflecting the
+    most recent advertisement. Refreshes on each coordinator update.
+    """
+
+    _attr_translation_key = "rssi"
+    _attr_icon = "mdi:bluetooth-audio"
+    _attr_device_class = SensorDeviceClass.SIGNAL_STRENGTH
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = SIGNAL_STRENGTH_DECIBELS_MILLIWATT
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator: OcleanCoordinator, mac: str, device_name: str) -> None:
+        super().__init__(coordinator, mac, device_name, "rssi")
+
+    @property
+    def native_value(self) -> int | None:
+        """Return the RSSI of the last seen advertisement, or None if unknown."""
+        service_info = bluetooth.async_last_service_info(self.hass, self._mac, connectable=False)
+        return service_info.rssi if service_info is not None else None
+
+    @property
+    def available(self) -> bool:
+        """Available whenever an advertisement has been seen for this MAC."""
+        return bluetooth.async_last_service_info(self.hass, self._mac, connectable=False) is not None
