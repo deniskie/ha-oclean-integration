@@ -3,4 +3,4 @@ pytest-asyncio>=1.4.0
 pytest-cov>=7.1.0
 voluptuous>=0.16.0
 ruff>=0.15.17
-mypy>=2.1.0
+mypy>=2.3.0
