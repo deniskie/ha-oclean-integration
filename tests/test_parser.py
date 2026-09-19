@@ -1731,11 +1731,16 @@ class TestParseT1C3352gRecord:
 
     def test_real_ocleany3p_comment12_record(self):
         """Real OCLEANY3P *B# record from issue #49 comment12 (synced session,
-        2026-03-18 13:33:09, score 1, duration 120 s). Areas from bytes 23-30."""
+        2026-03-18 13:33:09, score 1). Areas from bytes 23-30.
+
+        Bytes 7-8 = 120 is the scheduled programme, bytes 9-10 = 11 the real
+        brushed time (issues #111/#137). Score 1 corroborates the short run:
+        in the #137 buffer the score tracks bytes 9-10 (120/8 -> 1)."""
         record = bytes.fromhex("1a03120d2109000078000b6400000000000f001d38010e0f0d261001000d0100000100ffffffffffffff")
         result = parse_t1_c3352g_record(record)
         assert result["last_brush_pnum"] == 0
-        assert result["last_brush_duration"] == 120
+        assert result["last_brush_duration"] == 11
+        assert result["last_brush_duration_scheduled"] == 120
         assert result["last_brush_score"] == 1
         assert result["last_brush_areas"] == {
             "upper_left_out": 15,

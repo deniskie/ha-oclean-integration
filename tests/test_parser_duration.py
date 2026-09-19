@@ -67,26 +67,36 @@ def test_real_duration_helper(scheduled, valid, expected):
 # ---------------------------------------------------------------------------
 
 
-def test_area_sum_corroborates_valid_duration_on_c3385w0():
-    """The gestureArray holds per-zone seconds, so it sums to roughly the REAL
-    brushing time — the independent cross-check that bytes 9-10 are right on
-    this layout: 0+1+0+0+18+2+9+0 = 30 against valid=31, not scheduled=180."""
-    assert sum(REC_ABORTED_31S[23:31]) == 30
-
-
-def test_y3p_layout_not_switched_to_valid_duration():
-    """Real OCLEANY3P record (issue #49 comment12): bytes 7-8 = 120, bytes
-    9-10 = 11, but the gestureArray sums to 97 — consistent with 120, not 11.
-    The field order is not confirmed on this layout, so it must keep bytes
-    7-8 and expose no scheduled attribute."""
+def test_y3p_layout_also_reports_valid_duration():
+    """Real OCLEANY3P record (issue #49 comment12): bytes 7-8 = 120 is the
+    programme, bytes 9-10 = 11 the real run. Score 1 fits 11 s, not 120 s —
+    in the issue #137 buffer the score tracks bytes 9-10 throughout."""
     from custom_components.oclean_ble.parser import parse_t1_c3352g_record
 
     record = bytes.fromhex("1a03120d2109000078000b6400000000000f001d38010e0f0d261001000d0100000100ffffffffffffff")
     result = parse_t1_c3352g_record(record)
 
-    assert sum(record[23:31]) == 97
-    assert result[DATA_LAST_BRUSH_DURATION] == 120
-    assert DATA_LAST_BRUSH_DURATION_SCHEDULED not in result
+    assert result[DATA_LAST_BRUSH_DURATION] == 11
+    assert result[DATA_LAST_BRUSH_DURATION_SCHEDULED] == 120
+
+
+@pytest.mark.parametrize(
+    ("scheduled", "valid", "score"),
+    [(120, 8, 1), (120, 26, 47), (120, 50, 60), (120, 100, 88), (150, 129, 97), (150, 150, 97)],
+)
+def test_issue_137_device_buffer_rows(scheduled, valid, score):
+    """Rows from the 32-session OCLEANY3M buffer in issue #137. Bytes 7-8 are
+    constant per pNum; bytes 9-10 vary per session and the score follows them."""
+    record = bytearray(REC_FULL_306S)
+    record[7:9] = scheduled.to_bytes(2, "big")
+    record[9:11] = valid.to_bytes(2, "big")
+    record[33] = score
+
+    result = parse_t1_c3385w0_record(bytes(record))
+
+    assert result[DATA_LAST_BRUSH_DURATION] == valid
+    assert result[DATA_LAST_BRUSH_DURATION_SCHEDULED] == scheduled
+    assert result[DATA_LAST_BRUSH_SCORE] == score
 
 
 def test_extended_record_not_switched_to_valid_duration():

@@ -433,17 +433,24 @@ def _real_duration_s(scheduled_s: int, valid_s: int) -> int | None:
     scheduled value when the device leaves validDuration empty. Returns None
     when both are 0.
 
-    SCOPE: only applied on the m18f / C3385w0 42-byte layout, where the field
-    order is confirmed. Corroboration on the OCLEANY3MH record above: the
-    gestureArray (per-zone seconds, bytes 23-30) sums to 30, matching
-    valid=31 rather than scheduled=180.
+    SCOPE: applied on every parser sharing the 42-byte m18f layout —
+    _parse_m18f_record, parse_t1_c3385w0_record, parse_t1_c3352g_record and
+    parse_y3p_stream_record.
 
-    Deliberately NOT applied to parse_t1_c3352g_record, parse_y3p_stream_record,
-    _parse_xx03_session_record or _parse_extended_running_data_record: on the
-    real OCLEANY3P record from issue #49 the gestureArray sums to 97 against
-    bytes 7-8 = 120, while bytes 9-10 hold 11 — so 9-10 is not the brushed
-    time there. Those paths need a captured record of a deliberately aborted
-    session before they can be switched over.
+    Evidence (issue #137, OCLEANY3M, whole 32-session device buffer): bytes
+    7-8 take only two values and follow pNum (pNum 0 -> 120, pNum 83 -> 150),
+    while bytes 9-10 differ per session and are always <= bytes 7-8. The score
+    tracks bytes 9-10, not 7-8:
+
+        7-8 / 9-10 / score:  120/8/1   120/26/47   120/100/88   150/150/97
+
+    A controlled 8-second run stored 120 / 8. Issue #111 shows the same shape
+    on a real OCLEANY3P log (120 / 74), which is why the C3352g and Y3P stream
+    parsers are included.
+
+    NOT applied to _parse_xx03_session_record or
+    _parse_extended_running_data_record: those are different record layouts
+    and no capture of an aborted session exists for them yet.
     """
     if valid_s > 0 and (scheduled_s == 0 or valid_s <= scheduled_s):
         return valid_s
@@ -722,20 +729,22 @@ def parse_t1_c3352g_record(
         # pNum at byte 6 (uncertain offset – positional from C3385w0)
         result[DATA_LAST_BRUSH_PNUM] = int(record[6])
 
-        # Duration at bytes 7-8 BE (uncertain offset). NOT switched to
-        # validDuration: on the real OCLEANY3P record from issue #49 the
-        # gestureArray sums to 97 against bytes 7-8 = 120, while bytes 9-10
-        # hold 11 – so 9-10 is not the brushed time on this layout.
-        duration_s = (record[7] << 8) | record[8]
-        if duration_s > 0:
-            result[DATA_LAST_BRUSH_DURATION] = duration_s
+        # bytes 7-8 = scheduled programme length, bytes 9-10 = real brushed time
+        scheduled_s = (record[7] << 8) | record[8]
+        real_s = _real_duration_s(scheduled_s, (record[9] << 8) | record[10])
+        if real_s is not None:
+            result[DATA_LAST_BRUSH_DURATION] = real_s
+        if scheduled_s > 0:
+            result[DATA_LAST_BRUSH_DURATION_SCHEDULED] = scheduled_s
 
         # Score at byte 33 (confirmed APK: C3352g_fallback.java r57=byte[33])
         score = record[33]
         if 0 < score <= 100:
             result[DATA_LAST_BRUSH_SCORE] = score
 
-        _apply_m18f_metrics(result, record, duration_s, coverage_norm_threshold)
+        # Coverage norm intentionally keeps the scheduled length (unchanged
+        # behaviour; which length the app divides by is not APK-confirmed).
+        _apply_m18f_metrics(result, record, scheduled_s, coverage_norm_threshold)
 
         _LOGGER.debug("Oclean C3352g record point=%d (raw byte 34, APK: not used)", record[34])
         _LOGGER.debug(
@@ -815,17 +824,20 @@ def parse_y3p_stream_record(
         timestamp_s = int(time.mktime(device_dt.timetuple()))
         result: dict[str, Any] = {DATA_LAST_BRUSH_TIME: timestamp_s}
 
-        # Duration at bytes 7-8 BE. Same reasoning as parse_t1_c3352g_record:
-        # validDuration is not confirmed at bytes 9-10 on this layout.
-        duration_s = (record[7] << 8) | record[8]
-        if duration_s > 0:
-            result[DATA_LAST_BRUSH_DURATION] = duration_s
+        # bytes 7-8 = scheduled programme length, bytes 9-10 = real brushed time
+        scheduled_s = (record[7] << 8) | record[8]
+        real_s = _real_duration_s(scheduled_s, (record[9] << 8) | record[10])
+        if real_s is not None:
+            result[DATA_LAST_BRUSH_DURATION] = real_s
+        if scheduled_s > 0:
+            result[DATA_LAST_BRUSH_DURATION_SCHEDULED] = scheduled_s
 
         score = record[33]
         if 0 < score <= 100:
             result[DATA_LAST_BRUSH_SCORE] = score
 
-        _apply_m18f_metrics(result, record, duration_s, coverage_norm_threshold)
+        # Coverage norm intentionally keeps the scheduled length.
+        _apply_m18f_metrics(result, record, scheduled_s, coverage_norm_threshold)
 
         _LOGGER.debug("Oclean Y3P stream record point=%d (raw byte 34, APK: not used)", record[34])
         _LOGGER.debug(
