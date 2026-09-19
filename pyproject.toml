@@ -35,6 +35,9 @@ ignore = [
     # Complexity limits – coordinator is intentionally dense
     "PLR0912",
     "PLR0913",
+    # Sister rule to PLR0913, enforced since ruff 0.16: byte-layout builders and
+    # the coordinator constructor legitimately take many positional parameters.
+    "PLR0917",
     "PLR0915",
     "PLR1702",
     # Loop variable reassignment (part = part.strip()) is an acceptable idiom here
