@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from custom_components.oclean_ble import (
     _FILE_HANDLER_KEY,
+    _LOG_LISTENER_KEY,
     PLATFORMS,
     _attach_file_handler,
     _build_file_handler,
@@ -156,16 +157,45 @@ class _debug_disabled:
 
 
 class TestAttachFileHandler:
-    def test_attaches_handler_to_logger(self):
+    def test_attaches_queue_handler_to_logger(self):
+        # The logger must get a QueueHandler, not the file handler itself:
+        # its emit() is a queue put, so a log call from the event loop never
+        # performs file I/O (issue #124).
         hass = _make_hass()
         with _debug_enabled() as oclean_logger:
             asyncio.run(_attach_file_handler(hass))
             handler = hass.data[DOMAIN][_FILE_HANDLER_KEY]
-            assert handler is not None
-            assert isinstance(handler, logging.handlers.RotatingFileHandler)
+            assert isinstance(handler, logging.handlers.QueueHandler)
             assert handler in oclean_logger.handlers
-            oclean_logger.removeHandler(handler)
-            handler.close()
+            assert not any(isinstance(h, logging.handlers.RotatingFileHandler) for h in oclean_logger.handlers)
+            asyncio.run(_detach_file_handler(hass))
+
+    def test_listener_owns_the_rotating_file_handler(self):
+        hass = _make_hass()
+        with _debug_enabled():
+            asyncio.run(_attach_file_handler(hass))
+            listener = hass.data[DOMAIN][_LOG_LISTENER_KEY]
+            assert [type(h) for h in listener.handlers] == [logging.handlers.RotatingFileHandler]
+            asyncio.run(_detach_file_handler(hass))
+
+    def test_record_reaches_the_file_through_the_queue(self):
+        hass = _make_hass()
+        with _debug_enabled() as oclean_logger:
+            asyncio.run(_attach_file_handler(hass))
+            listener = hass.data[DOMAIN][_LOG_LISTENER_KEY]
+            log_path = pathlib.Path(listener.handlers[0].baseFilename)
+            oclean_logger.debug("queued marker line")
+            asyncio.run(_detach_file_handler(hass))  # stop() drains the queue
+            assert "queued marker line" in log_path.read_text(encoding="utf-8")
+
+    def test_detach_stops_the_listener_thread(self):
+        hass = _make_hass()
+        with _debug_enabled():
+            asyncio.run(_attach_file_handler(hass))
+            listener = hass.data[DOMAIN][_LOG_LISTENER_KEY]
+            asyncio.run(_detach_file_handler(hass))
+            assert listener._thread is None
+            assert _LOG_LISTENER_KEY not in hass.data[DOMAIN]
 
     def test_idempotent_second_call_no_op(self):
         hass = _make_hass()

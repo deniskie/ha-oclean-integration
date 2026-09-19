@@ -6,6 +6,7 @@ import json
 import logging
 import logging.handlers
 import pathlib
+import queue
 
 import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
@@ -38,8 +39,10 @@ PLATFORMS: list[Platform] = [
     Platform.SWITCH,
 ]
 
-# Key under hass.data[DOMAIN] where the shared file handler is stored
+# Key under hass.data[DOMAIN] where the shared (queue) log handler is stored
 _FILE_HANDLER_KEY = "_file_handler"
+# Key for the QueueListener thread that owns the RotatingFileHandler
+_LOG_LISTENER_KEY = "_log_listener"
 
 
 def _build_file_handler(log_path: pathlib.Path) -> logging.handlers.RotatingFileHandler:
@@ -96,24 +99,46 @@ async def _attach_file_handler(hass: HomeAssistant) -> None:
 
     log_path = pathlib.Path(hass.config.config_dir) / "oclean_ble.log"
     # open() is blocking – run in the default executor to avoid loop warnings
-    handler = await hass.async_add_executor_job(_build_file_handler, log_path)
+    file_handler = await hass.async_add_executor_job(_build_file_handler, log_path)
 
-    oclean_logger.addHandler(handler)
-    domain_data[_FILE_HANDLER_KEY] = handler
+    # All file I/O happens on the listener thread, never on the event loop.
+    # The logger itself only gets a QueueHandler, whose emit() is a queue put.
+    # Without this, a log call made from the loop performs the write – and on
+    # rollover also a close()/open() pair – inline, which HA reports as a
+    # blocking call inside the event loop (issue #124).
+    log_queue: queue.SimpleQueue[logging.LogRecord] = queue.SimpleQueue()
+    listener = logging.handlers.QueueListener(log_queue, file_handler, respect_handler_level=True)
+    listener.start()
+    queue_handler = logging.handlers.QueueHandler(log_queue)
+    queue_handler.setLevel(logging.NOTSET)
+
+    oclean_logger.addHandler(queue_handler)
+    domain_data[_FILE_HANDLER_KEY] = queue_handler
+    domain_data[_LOG_LISTENER_KEY] = listener
     _LOGGER.info("Oclean log file: %s", log_path)
 
 
 async def _detach_file_handler(hass: HomeAssistant) -> None:
-    """Remove the file handler when the last entry is unloaded."""
+    """Remove the log handler when the last entry is unloaded."""
     domain_data = hass.data.get(DOMAIN, {})
     handler = domain_data.pop(_FILE_HANDLER_KEY, None)
+    listener = domain_data.pop(_LOG_LISTENER_KEY, None)
     if handler is None:
         return
     oclean_logger = logging.getLogger("custom_components.oclean_ble")
     oclean_logger.removeHandler(handler)
-    # handler.close() flushes and closes the underlying file – run in executor
+    if listener is not None:
+        # stop() drains the queue and closes the file – both blocking.
+        await hass.async_add_executor_job(_stop_listener, listener)
     await hass.async_add_executor_job(handler.close)
     _LOGGER.debug("Oclean file log handler detached")
+
+
+def _stop_listener(listener: logging.handlers.QueueListener) -> None:
+    """Drain the queue, then close the file handlers it owns (blocking)."""
+    listener.stop()
+    for handler in listener.handlers:
+        handler.close()
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

@@ -28,6 +28,22 @@ _STAT_METRICS: tuple[tuple[str, str, str | None], ...] = (
 )
 
 
+def _mean_metadata_kwargs() -> dict[str, Any]:
+    """Return the StatisticMetaData kwargs describing how the mean is computed.
+
+    HA 2025.8 replaced the boolean ``has_mean`` with ``mean_type``; passing the
+    old flag logs a deprecation warning and stops working in HA 2026.11
+    (issue #124). ``StatisticMeanType`` is absent on older cores, so fall back
+    to ``has_mean`` there — all our series are plain arithmetic means.
+    """
+    try:
+        from homeassistant.components.recorder.models import StatisticMeanType
+
+        return {"mean_type": StatisticMeanType.ARITHMETIC}
+    except ImportError:
+        return {"has_mean": True}
+
+
 def _load_recorder_api():
     """Load recorder statistics API lazily (absent on some HA setups).
 
@@ -104,7 +120,7 @@ async def import_new_sessions(
             continue
 
         metadata = StatisticMetaData(
-            has_mean=True,
+            **_mean_metadata_kwargs(),
             has_sum=False,
             name=f"Oclean {device_name} {stat_suffix.replace('_', ' ').title()}",
             source=DOMAIN,
@@ -144,7 +160,7 @@ async def import_new_sessions(
 
     for zone_name, stat_rows in area_stats_by_zone.items():
         metadata = StatisticMetaData(
-            has_mean=True,
+            **_mean_metadata_kwargs(),
             has_sum=False,
             name=f"Oclean {device_name} Area {zone_name.replace('_', ' ').title()}",
             source=DOMAIN,

@@ -3118,3 +3118,57 @@ class TestAsyncUpdateDataCancelledError:
             await task
 
         assert coord.last_poll_successful is True
+
+
+# ---------------------------------------------------------------------------
+# _mean_metadata_kwargs – mean_type replaces has_mean (issue #124)
+# ---------------------------------------------------------------------------
+
+
+class TestMeanMetadataKwargs:
+    """HA 2025.8 replaced has_mean with mean_type; has_mean stops working in
+    HA 2026.11, so the metadata must carry mean_type on cores that have it."""
+
+    def test_uses_mean_type_when_available(self):
+        import sys
+        from enum import Enum
+        from types import ModuleType
+
+        from custom_components.oclean_ble.statistics import _mean_metadata_kwargs
+
+        class StatisticMeanType(Enum):
+            ARITHMETIC = "arithmetic"
+
+        module = ModuleType("homeassistant.components.recorder.models")
+        module.StatisticMeanType = StatisticMeanType
+        original = sys.modules.get("homeassistant.components.recorder.models")
+        sys.modules["homeassistant.components.recorder.models"] = module
+        try:
+            assert _mean_metadata_kwargs() == {"mean_type": StatisticMeanType.ARITHMETIC}
+        finally:
+            if original is None:
+                del sys.modules["homeassistant.components.recorder.models"]
+            else:
+                sys.modules["homeassistant.components.recorder.models"] = original
+
+    def test_falls_back_to_has_mean_on_older_cores(self):
+        import builtins
+
+        from custom_components.oclean_ble.statistics import _mean_metadata_kwargs
+
+        real_import = builtins.__import__
+
+        def _no_mean_type(name, *args, **kwargs):
+            if name == "homeassistant.components.recorder.models":
+                raise ImportError(name)
+            return real_import(name, *args, **kwargs)
+
+        with patch.object(builtins, "__import__", _no_mean_type):
+            assert _mean_metadata_kwargs() == {"has_mean": True}
+
+    def test_never_emits_both_keys(self):
+        # Passing both would be rejected by StatisticMetaData.
+        from custom_components.oclean_ble.statistics import _mean_metadata_kwargs
+
+        kwargs = _mean_metadata_kwargs()
+        assert ("mean_type" in kwargs) != ("has_mean" in kwargs)
