@@ -10,10 +10,13 @@ pip install -r requirements-test.txt
 pytest
 ```
 
-### Lint (always include tests/)
+### Lint and format (always include tests/)
 ```bash
 ruff check custom_components/ tests/
+ruff format --check custom_components/ tests/
 ```
+CI runs both over the whole tree. The pre-commit hook only sees *staged*
+files, so a change that leaves another file unformatted still passes locally.
 
 ### Run a single test file
 ```bash
