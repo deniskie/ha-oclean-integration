@@ -257,6 +257,9 @@ Unknown notification types are logged as hex – this helps extend the parser.
 | Oclean Air 1 | OCLEANA1 | ✅ Tested | Battery confirmed. No CCCD on notify characteristic – uses direct READ fallback. Session fields not available on this model. |
 | Oclean Air 1 variants | OCLEANA1a–d | ⚠️ Partial | Same protocol as OCLEANA1; untested on real hardware. |
 | Oclean X Ultra | OCLEANV1a | ⚠️ Partial | Battery, timestamp, duration, programme confirmed. Score and tooth areas pending (issue #81). |
+| Oclean X Ultra 20 | OCLEANV20 | ⚠️ Partial | Mapped to Type-1 as the same Ultra family as OCLEANV1a; no device log yet (issue #134). |
+| Oclean X Pro Elite (X) | OCLEANY3X | ⚠️ Partial | Same product as OCLEANY3P per the reporter; mapped to Type-1 (issue #110). |
+| Oclean SE | OCLEANY2 | ⚠️ Partial | APK handler `C3391z0` uses the Type-1 characteristics (0303/0202/0302 via fbb85, 0307 via fbb89). Firmware below 1.0.0.4 would need `0306` instead of `0307` and is not supported (issue #141). |
 | Other Oclean models | – | ⚠️ Unknown | Open an issue with raw log output |
 
 > If brush session detail fields (areas, pressure, scheme) are missing or the timestamp looks wrong, enable debug logging, brush your teeth, and open an issue with the raw hex output from the HA log.

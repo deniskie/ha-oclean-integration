@@ -270,3 +270,33 @@ class TestIsKnownModel:
     def test_none_and_empty_are_not_known(self):
         assert is_known_model(None) is False
         assert is_known_model("") is False
+
+
+class TestNewlyMappedModelIds:
+    """Model IDs added from user reports (#110, #134, #141).
+
+    Mapping them explicitly (rather than leaving them to the TYPE1 fallback)
+    silences the "unrecognised model" warning and enables the write features
+    gated by is_known_model, e.g. the brush-scheme select.
+    """
+
+    @pytest.mark.parametrize("model_id", ["OCLEANY3X", "OCLEANV20", "OCLEANY2"])
+    def test_maps_to_type1(self, model_id):
+        assert protocol_for_model(model_id) is TYPE1
+
+    @pytest.mark.parametrize("model_id", ["OCLEANY3X", "OCLEANV20", "OCLEANY2"])
+    def test_is_known_model(self, model_id):
+        assert is_known_model(model_id) is True
+
+    def test_ocleany2_uses_the_type1_characteristics(self):
+        # APK C3391z0: 0303/0202/0302/030201 and the time calibration go to
+        # fbb85 (OCLEAN_WRITE_INFO_UUID), the session query to fbb89
+        # (OCLEAN_SEND_BRUSH_CMD_UUID) — exactly the TYPE1 profile.
+        proto = protocol_for_model("OCLEANY2")
+        assert proto.write_char == WRITE_CHAR_UUID
+        assert {char for char, _cmd in proto.query_commands} == {SEND_BRUSH_CMD_UUID}
+
+    def test_ocleany2_plus_stays_unmapped(self):
+        # OCLEANY2+ is a different handler (C3352g mode=2) and was not part of
+        # the report; it must keep falling back rather than claim support.
+        assert is_known_model("OCLEANY2+") is False

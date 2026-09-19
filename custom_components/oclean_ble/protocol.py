@@ -178,11 +178,18 @@ _MODEL_MAP: dict[str, DeviceProtocol] = {
     "OCLEANY3P": TYPE1,  # Oclean X Pro Elite    – confirmed (logs 2026-02-25, issue #3)
     "OCLEANY3PB": TYPE1,  # Oclean X Pro Digital  – confirmed TYPE1 BLE stack (issue #89)
     "OCLEANY3PD": TYPE1,  # Oclean X Pro Elite D  – APK DeviceType 29
+    # OCLEANY3X is newer than this APK (no DeviceType entry), but the reporter
+    # in issue #110 identifies it as an Oclean X Pro Elite, i.e. the same
+    # product as OCLEANY3P, which uses the C3352g TYPE1 stack.
+    "OCLEANY3X": TYPE1,  # Oclean X Pro Elite (X) – issue #110
     # OCLEANX20 – Oclean X Pro 20: confirmed TYPE1 via debug logs (issue #37, 2026-03-09)
     # No CHANGE_INFO_UUID, fbb89 write-only (subscribe fails), 0307 push via fbb90.
     # Same year_byte=0/021f/5100 pattern as OCLEANY3P.
     "OCLEANX20": TYPE1,  # Oclean X Pro 20       – confirmed (logs 2026-03-09, issue #37)
     "OCLEANV1a": TYPE1,  # Oclean X Ultra        – confirmed TYPE1 inline format (issue #81)
+    # Also newer than this APK. Same Oclean X Ultra family as OCLEANV1a, which
+    # was confirmed TYPE1 from device logs.
+    "OCLEANV20": TYPE1,  # Oclean X Ultra 20     – issue #134
     # ------------------------------------------------------------------
     # Type-1 – Oclean X Pro / OCLEANY3 family
     # Previously mapped to Type-0 (0308/fbb86) based on APK analysis, but
@@ -218,8 +225,24 @@ _MODEL_MAP: dict[str, DeviceProtocol] = {
     "OCLEANA1e": TYPE1,  # Oclean Air 1e         – APK DeviceType 31
     "OCLEANA1f": TYPE1,  # Oclean Air 1f         – APK DeviceType 33
     # ------------------------------------------------------------------
+    # Oclean SE / OCLEANY2 – APK handler C3391z0 (DeviceType OCLEAN_SE).
+    # Despite being an older Dialog-era class, its GATT usage is exactly the
+    # TYPE1 profile: 0303 / 0202 / 0302 / 030201 and the time calibration all
+    # go to OCLEAN_WRITE_INFO_UUID (fbb85), and the session query goes to
+    # OCLEAN_SEND_BRUSH_CMD_UUID (fbb89).
+    #
+    # Caveat: C3391z0 branches on CheckDeviceVision.seProtocol(firmware), which
+    # is a *firmware revision* check, not a model one:
+    #   fw >= 1.0.0.6 -> 3 (0307 + 030201)  <- what TYPE1 sends
+    #   fw >= 1.0.0.4 -> 2 (0307 + 0302)
+    #   older         -> 1 (0306 + 0301)    <- NOT supported by TYPE1
+    # So current firmware works; a pre-1.0.0.4 device would need 0306 instead
+    # of 0307. No such device has been reported (issue #141).
+    # ------------------------------------------------------------------
+    "OCLEANY2": TYPE1,  # Oclean SE             – APK C3391z0 (issue #141)
+    # ------------------------------------------------------------------
     # Not mapped → UNKNOWN fallback (tries all chars/commands, logs everything):
-    #   OCLEANX1/OCLEANY2/OCLEANX1+/OCLEANY2+/OCLEANK1 – older Dialog handler classes
+    #   OCLEANX1/OCLEANX1+/OCLEANY2+/OCLEANK1 – older Dialog handler classes
     #   OCLEANW1/W1a/W1b/W1d – Wone serial protocol, unrelated BLE stack
     #   OCLEANC1 – WiFi only, no BLE session data
     #   0001..000F generic model IDs – handler confirmed but protocol untested via BLE
