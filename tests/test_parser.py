@@ -109,6 +109,13 @@ def _expected_utc_ts(year, month, day, hour, minute, second, tz_quarters) -> int
 # ---------------------------------------------------------------------------
 
 
+# CPython reworded the day-range ValueError in 3.14:
+#   <= 3.13: "day is out of range for month"
+#   >= 3.14: "day 0 must be in range 1..31 for month 1 in year 2024"
+# Match both so the suite is not pinned to one interpreter version.
+_DAY_OUT_OF_RANGE = r"day (is out of range|\d+ must be in range)"
+
+
 class TestDeviceDatetime:
     """Tests for _device_datetime() – the shared year-2000 datetime builder."""
 
@@ -172,11 +179,11 @@ class TestDeviceDatetime:
             _device_datetime(24, 13, 1, 0, 0, 0)
 
     def test_day_zero_raises(self):
-        with pytest.raises(ValueError, match="day is out of range"):
+        with pytest.raises(ValueError, match=_DAY_OUT_OF_RANGE):
             _device_datetime(24, 1, 0, 0, 0, 0)
 
     def test_day_32_raises(self):
-        with pytest.raises(ValueError, match="day is out of range"):
+        with pytest.raises(ValueError, match=_DAY_OUT_OF_RANGE):
             _device_datetime(24, 1, 32, 0, 0, 0)
 
     def test_hour_24_raises(self):
@@ -193,7 +200,7 @@ class TestDeviceDatetime:
 
     def test_leap_day_in_non_leap_year_raises(self):
         """Feb 29 in a non-leap year must raise."""
-        with pytest.raises(ValueError, match="day is out of range"):
+        with pytest.raises(ValueError, match=_DAY_OUT_OF_RANGE):
             _device_datetime(23, 2, 29, 0, 0, 0)  # 2023 is not a leap year
 
 
