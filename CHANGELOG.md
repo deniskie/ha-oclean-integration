@@ -1,5 +1,14 @@
 # Changelog
 
+## [Unreleased]
+
+### New Features
+
+- **Command probe.** On the first successful poll for a model and firmware, every known read-only query is sent on both write characteristics and the answers are stored. Sensors fed only by a query the device ignores (Brush Mode, Brush Head Days from `0302`) are no longer created for that device. Probe answers are recorded only, never imported as sessions.
+- **`oclean_ble.probe_commands` and `oclean_ble.send_command` services** (with response) to re-run the probe or send a known command / raw bytes and see every frame received, decoded where the parser knows it.
+- **Diagnostics download** with the probe report, the last 200 raw notification frames (in memory only) and the unknown ones; MAC and device name redacted.
+- **`tools/oclean_btsnoop.py`** decodes an Android `btsnoop_hci.log` captured while using the official app and lists the writes and notifications the integration does not know yet.
+
 ## [v1.4.0] – 2026-09-19
 
 ### New Features

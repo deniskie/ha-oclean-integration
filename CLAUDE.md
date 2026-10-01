@@ -71,6 +71,8 @@ BLE Device
 | `coordinator.py` | `OcleanCoordinator` – BLE polling, session pagination, HA long-term statistics import, stale-data persistence |
 | `parser.py` | Pure functions: BLE byte payload → dict. Strategy registry `_PARSERS` keyed on 2-byte response prefix. Two binary record formats (simple 18-byte and extended 32-byte). |
 | `protocol.py` | `DeviceProtocol` dataclass – per-family capability profile: `notify_chars`, `query_commands`, `supports_pagination`, `write_char`. `protocol_for_model()` maps DIS model-IDs to profiles. |
+| `commands.py` | `KNOWN_COMMANDS` table (bytes, write chars, expected response prefix, `probe` = read-only). Used by the command probe, the `send_command` service and `tools/oclean_btsnoop.py`. `ENTITY_SOURCE_COMMAND` maps sensors to the query that feeds them. |
+| `diagnostics.py` | Diagnostics download: probe report + last raw frames (`coordinator.raw_frames`, in memory only), MAC/name redacted |
 | `models.py` | `OcleanDeviceData` dataclass – typed snapshot returned by the coordinator. Field names match `DATA_*` string constants from `const.py` so sensors look up values via `getattr`. |
 | `const.py` | All GATT UUIDs, BLE command bytes, response type markers, `DATA_*` / `SENSOR_*` key constants, `SCHEME_NAMES` lookup, `TOOTH_AREA_NAMES` tuple |
 | `entity.py` | `OcleanEntity` base class – shared `unique_id`, `device_info`, and `available` logic |

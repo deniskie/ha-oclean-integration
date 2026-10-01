@@ -1566,6 +1566,20 @@ _PARSERS: dict[bytes, Callable[[bytes], dict[str, Any]]] = {
 }
 
 
+def is_known_frame(data: bytes) -> bool:
+    """True if *data* is a notification the parser recognises by its structure.
+
+    Used by the command probe and diagnostics to separate known frames from new
+    ones worth reporting. *B# continuation packets are not recognisable on their
+    own and count as unknown here.
+    """
+    if len(data) < 2:
+        return False
+    if data[:2] in _PARSERS:
+        return True
+    return len(data) >= 20 and data[1] == 0x03 and data[2] == 0x03 and data[4:9] == b"\xff\xff\xff\xff\xff"
+
+
 # Public set of all 2-byte prefixes recognised by parse_notification().
 # Available for external callers (e.g. tests, diagnostic tools) that need to
 # inspect which notification types this parser handles.

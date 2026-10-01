@@ -12,8 +12,10 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.const import __version__ as HA_VERSION
-from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.core import HomeAssistant, ServiceCall, ServiceResponse, SupportsResponse
+from homeassistant.exceptions import HomeAssistantError
 
+from .commands import COMMANDS_BY_KEY, resolve_char
 from .const import (
     CONF_DEVICE_NAME,
     CONF_MAC_ADDRESS,
@@ -24,6 +26,8 @@ from .const import (
     DEFAULT_POST_BRUSH_COOLDOWN,
     DOMAIN,
     SERVICE_POLL,
+    SERVICE_PROBE_COMMANDS,
+    SERVICE_SEND_COMMAND,
 )
 from .coordinator import OcleanCoordinator
 
@@ -176,7 +180,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         poll_interval,
         poll_windows=poll_windows,
         post_brush_cooldown_h=post_brush_cooldown_h,
+        auto_probe=True,
     )
+    # Load the stored probe report before the platforms decide which entities exist.
+    await coordinator.async_load_store()
 
     # Register coordinator and set up platforms *before* the first poll so that
     # the poll service and all entities always exist, even when the device is
@@ -212,6 +219,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             schema=vol.Schema({vol.Optional("entry_id"): str}),
         )
 
+    if not hass.services.has_service(DOMAIN, SERVICE_SEND_COMMAND):
+        _register_research_services(hass)
+
     # Initial poll: best-effort and NON-BLOCKING.  Awaiting async_refresh() here
     # would stall HA startup by up to BLE_POLL_TOTAL_TIMEOUT + several connect
     # attempts while the BLE stack waits for a possibly-sleeping toothbrush,
@@ -229,6 +239,82 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return True
 
 
+def _coordinator_for(hass: HomeAssistant, entry_id: str | None) -> OcleanCoordinator:
+    """Return the coordinator for *entry_id*, or the only one when it is omitted."""
+    coordinators = {
+        key: value
+        for key, value in hass.data.get(DOMAIN, {}).items()
+        if not key.startswith("_") and isinstance(value, OcleanCoordinator)
+    }
+    if entry_id:
+        if entry_id not in coordinators:
+            raise HomeAssistantError(f"Unknown Oclean config entry: {entry_id}")
+        return coordinators[entry_id]
+    if len(coordinators) != 1:
+        raise HomeAssistantError("Several Oclean devices are configured: pass entry_id")
+    return next(iter(coordinators.values()))
+
+
+def _register_research_services(hass: HomeAssistant) -> None:
+    """Register the protocol research services (command probe and raw commands)."""
+
+    async def _handle_probe(call: ServiceCall) -> ServiceResponse:
+        coordinator = _coordinator_for(hass, call.data.get("entry_id"))
+        try:
+            report = await coordinator.async_probe_commands()
+        except Exception as err:
+            raise HomeAssistantError(f"Oclean probe failed: {err}") from err
+        return report
+
+    async def _handle_send_command(call: ServiceCall) -> ServiceResponse:
+        coordinator = _coordinator_for(hass, call.data.get("entry_id"))
+        command = call.data.get("command")
+        try:
+            args = bytes.fromhex(call.data.get("payload", "").replace(" ", "").replace(":", ""))
+        except ValueError as err:
+            raise HomeAssistantError(f"payload is not valid hex: {err}") from err
+        if command:
+            known = COMMANDS_BY_KEY[command]
+            payload = known.payload + args
+            default_char = known.chars[0]
+        else:
+            payload = args
+            default_char = coordinator.default_command_char
+        if not payload:
+            raise HomeAssistantError("Pass a command, a payload, or both")
+        try:
+            char_uuid = resolve_char(call.data.get("characteristic"), default_char)
+        except ValueError as err:
+            raise HomeAssistantError(str(err)) from err
+        try:
+            return await coordinator.async_send_command(payload, char_uuid, call.data["wait"])
+        except Exception as err:
+            raise HomeAssistantError(f"Oclean send_command failed: {err}") from err
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_PROBE_COMMANDS,
+        _handle_probe,
+        schema=vol.Schema({vol.Optional("entry_id"): str}),
+        supports_response=SupportsResponse.ONLY,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_SEND_COMMAND,
+        _handle_send_command,
+        schema=vol.Schema(
+            {
+                vol.Optional("entry_id"): str,
+                vol.Optional("command"): vol.In(sorted(COMMANDS_BY_KEY)),
+                vol.Optional("payload", default=""): str,
+                vol.Optional("characteristic"): str,
+                vol.Optional("wait", default=2.0): vol.All(vol.Coerce(float), vol.Range(min=0.2, max=30)),
+            }
+        ),
+        supports_response=SupportsResponse.OPTIONAL,
+    )
+
+
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
@@ -239,6 +325,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if not remaining:
             await _detach_file_handler(hass)
             hass.services.async_remove(DOMAIN, SERVICE_POLL)
+            hass.services.async_remove(DOMAIN, SERVICE_PROBE_COMMANDS)
+            hass.services.async_remove(DOMAIN, SERVICE_SEND_COMMAND)
     return unload_ok
 
 

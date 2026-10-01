@@ -22,6 +22,7 @@ from homeassistant.const import (
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
+from .commands import ENTITY_SOURCE_COMMAND
 from .const import (
     CONF_DEVICE_NAME,
     CONF_MAC_ADDRESS,
@@ -225,7 +226,9 @@ async def async_setup_entry(
     device_name = entry.data.get(CONF_DEVICE_NAME, "Oclean")
 
     entities: list[Any] = [
-        OcleanSensor(coordinator, description, mac, device_name) for description in SENSOR_DESCRIPTIONS
+        OcleanSensor(coordinator, description, mac, device_name)
+        for description in SENSOR_DESCRIPTIONS
+        if _source_answered(coordinator, description.key)
     ]
     entities.append(OcleanBrushAreasSensor(coordinator, mac, device_name))
     entities.append(OcleanSchemeSensor(coordinator, mac, device_name))
@@ -237,6 +240,12 @@ async def async_setup_entry(
     entities.append(OcleanPressureDetailSensor(coordinator, mac, device_name))
     entities.append(OcleanPowerDistributionSensor(coordinator, mac, device_name))
     async_add_entities(entities)
+
+
+def _source_answered(coordinator: OcleanCoordinator, key: str) -> bool:
+    """False only when the command probe showed the entity's source query unanswered."""
+    command = ENTITY_SOURCE_COMMAND.get(key)
+    return command is None or coordinator.command_supported(command) is not False
 
 
 class OcleanSensor(OcleanEntity, SensorEntity):

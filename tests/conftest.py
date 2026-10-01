@@ -43,6 +43,16 @@ def _install_ha_stubs() -> None:
     core.HomeAssistant = MagicMock
     core.ServiceCall = MagicMock
     core.callback = lambda f: f
+    core.ServiceResponse = dict
+
+    from enum import StrEnum
+
+    class SupportsResponse(StrEnum):
+        NONE = "none"
+        OPTIONAL = "optional"
+        ONLY = "only"
+
+    core.SupportsResponse = SupportsResponse
 
     # ---- homeassistant.const ----
     from enum import Enum, StrEnum
@@ -73,6 +83,11 @@ def _install_ha_stubs() -> None:
         pass
 
     exc.ConfigEntryNotReady = ConfigEntryNotReady
+
+    class HomeAssistantError(Exception):
+        pass
+
+    exc.HomeAssistantError = HomeAssistantError
 
     # ---- homeassistant.data_entry_flow ----
     daf = _stub("homeassistant.data_entry_flow")
@@ -249,6 +264,19 @@ def _install_ha_stubs() -> None:
 
     # ---- homeassistant.components ----
     comp = _stub("homeassistant.components")
+
+    # ---- homeassistant.components.diagnostics ----
+    diag = _stub("homeassistant.components.diagnostics")
+
+    def _redact(data, to_redact):
+        if isinstance(data, dict):
+            return {k: ("**REDACTED**" if k in to_redact else _redact(v, to_redact)) for k, v in data.items()}
+        if isinstance(data, list):
+            return [_redact(v, to_redact) for v in data]
+        return data
+
+    diag.async_redact_data = _redact
+    comp.diagnostics = diag
 
     # ---- homeassistant.components.bluetooth ----
     bt = _stub("homeassistant.components.bluetooth")

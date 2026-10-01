@@ -21,6 +21,7 @@ Usage (builder pattern)::
 from __future__ import annotations
 
 import struct
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 # ---------------------------------------------------------------------------
@@ -259,6 +260,8 @@ class OcleanDeviceSimulator:
         self._notifications: list[bytes] = []
         self._notify_errors: dict[str, type[Exception] | Exception] = {}
         self._read_char_responses: dict[str, bytes] = {}
+        # (command bytes, write char or None for any) -> frames sent back on write
+        self._command_responses: list[tuple[bytes, str | None, list[bytes]]] = []
 
     def with_battery(self, battery: int) -> OcleanDeviceSimulator:
         """Set the battery level returned by the GATT Battery Characteristic read."""
@@ -430,6 +433,16 @@ class OcleanDeviceSimulator:
         self._notifications.append(build_5a00_payload(year, month, day, hour, minute, second, duration))
         return self
 
+    def on_command(self, command: bytes, *frames: bytes, char: str | None = None) -> OcleanDeviceSimulator:
+        """Answer *frames* whenever *command* is written (optionally only on *char*).
+
+        Frames are delivered to every subscribed characteristic's handler with
+        a sender that carries the characteristic UUID, like bleak does.  Use it
+        to model which queries a device answers (command probe, send_command).
+        """
+        self._command_responses.append((command, char, list(frames)))
+        return self
+
     def build_client(self) -> AsyncMock:
         """Build a BleakClient mock that fires the accumulated notifications.
 
@@ -442,9 +455,21 @@ class OcleanDeviceSimulator:
         notify_errors = dict(self._notify_errors)
         read_responses = dict(self._read_char_responses)
 
+        command_responses = list(self._command_responses)
+        handlers: dict[str, object] = {}
+
         client = AsyncMock()
         client.is_connected = True
-        client.write_gatt_char = AsyncMock()
+
+        async def _write_gatt_char(uuid: str, data: bytes, response: bool = False) -> None:
+            for command, char, frames in command_responses:
+                if bytes(data) == command and char in (None, uuid):
+                    for frame in frames:
+                        for sub_uuid, handler in list(handlers.items()):
+                            handler(SimpleNamespace(uuid=sub_uuid), bytearray(frame))
+                            break
+
+        client.write_gatt_char = AsyncMock(side_effect=_write_gatt_char)
         client.stop_notify = AsyncMock()
         client.disconnect = AsyncMock()
 
@@ -462,6 +487,7 @@ class OcleanDeviceSimulator:
                 err = notify_errors[uuid]
                 raise err() if isinstance(err, type) else err
             call_count[0] += 1
+            handlers[uuid] = handler
             if call_count[0] == 1:
                 for payload in notifications:
                     handler(None, bytearray(payload))

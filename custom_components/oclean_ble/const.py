@@ -10,6 +10,8 @@ POLL_INTERVAL_MANUAL = 0  # sentinel: disable automatic polling; only poll on-de
 
 # Service names
 SERVICE_POLL = "poll"
+SERVICE_PROBE_COMMANDS = "probe_commands"
+SERVICE_SEND_COMMAND = "send_command"
 
 # BLE UUIDs
 OCLEAN_SERVICE_UUID = "8082caa8-41a6-4021-91c6-56f9b954cc18"
@@ -131,6 +133,14 @@ BLE_ACTION_TOTAL_TIMEOUT = 45
 # Timeout for a single write_gatt_char() call in the polling path.
 # Guards against BlueZ or ESPHome proxy hangs on individual write operations.
 BLE_WRITE_TIMEOUT = 5.0
+# Command probe: how long to listen after each probed command, and the total
+# ceiling for a standalone probe (7 queries x 2 characteristics + connect).
+BLE_PROBE_WAIT = 1.2
+BLE_PROBE_TOTAL_TIMEOUT = 90
+# Extra poll budget when the probe runs inside a regular poll connection.
+BLE_PROBE_POLL_BUDGET = 30
+# Raw notification frames kept in memory for the diagnostics download.
+RAW_FRAME_BUFFER_SIZE = 200
 # Polling fallback: when notification subscriptions fail persistently (e.g. BlueZ
 # "Notify acquired"), read the response characteristic in a loop instead.
 BLE_POLL_FALLBACK_ATTEMPTS = 6
