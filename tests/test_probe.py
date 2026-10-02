@@ -40,6 +40,7 @@ from custom_components.oclean_ble.const import (
 from custom_components.oclean_ble.coordinator import OcleanCoordinator
 from custom_components.oclean_ble.diagnostics import async_get_config_entry_diagnostics
 from custom_components.oclean_ble.parser import is_known_frame
+from custom_components.oclean_ble.protocol import protocol_for_model
 from custom_components.oclean_ble.sensor import async_setup_entry as sensor_setup_entry
 from tests.integration_helpers import make_coordinator, run_poll
 from tests.simulator import OcleanDeviceSimulator
@@ -145,6 +146,34 @@ class TestProbe:
         report = await _probe(_v1a_coordinator(), client)
         assert report["supported"] == []
         assert "gatt write failed" in report["results"]["status"]["attempts"][0]["error"]
+        # Nothing was actually tested: no verdict, and the report is not trusted
+        assert report["tested"] is False
+        assert report["results"]["status"]["answered"] is None
+        coord = _v1a_coordinator()
+        coord._probe_report = report
+        assert coord.command_supported("status") is None
+
+    async def test_failed_probe_not_stored(self):
+        from bleak import BleakError
+
+        coord = _v1a_coordinator()
+        coord._store = MagicMock(async_save=AsyncMock())
+        client = _x_ultra_client()
+        client.write_gatt_char.side_effect = OSError("dropped")
+        bt, conn, sleep = _patched_connection(client)
+        with bt, conn, sleep, pytest.raises(BleakError, match="nothing stored"):
+            await coord.async_probe_commands()
+        assert coord.probe_report is None
+        coord._store.async_save.assert_not_called()
+
+    async def test_listens_only_on_model_notify_chars(self):
+        coord = _v1a_coordinator()
+        coord._protocol = protocol_for_model("OCLEANV1a")
+        client = _x_ultra_client()
+        await coord._listen_all(client)
+        subscribed = {c.args[0] for c in client.start_notify.call_args_list}
+        assert subscribed == set(coord._protocol.notify_chars)
+        assert SEND_BRUSH_CMD_UUID not in subscribed
 
     async def test_frames_kept_for_diagnostics(self):
         coord = _v1a_coordinator()
@@ -256,9 +285,17 @@ class TestStandaloneActions:
         coord = _v1a_coordinator()
         coord._store_loaded = False
         report = {"supported": ["device_info"], "results": {}}
+        report["tested"] = True
         coord._store = MagicMock(async_load=AsyncMock(return_value={"probe_report": report}))
         await coord.async_load_store()
         assert coord.probe_report == report
+
+    async def test_untested_stored_report_discarded(self):
+        coord = _v1a_coordinator()
+        coord._store_loaded = False
+        coord._store = MagicMock(async_load=AsyncMock(return_value={"probe_report": {"supported": []}}))
+        await coord.async_load_store()
+        assert coord.probe_report is None
 
 
 # ---------------------------------------------------------------------------

@@ -26,7 +26,7 @@ from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .ble_utils import is_genuine_cancellation
-from .commands import LISTEN_CHARS, PROBE_COMMANDS, char_short
+from .commands import PROBE_COMMANDS, char_short
 from .const import (
     AREA_COVERAGE_NORM_THRESHOLD,
     AREA_COVERAGE_Y3PD_THRESHOLD,
@@ -887,9 +887,9 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         if not self._probe_report:
             return None
         result = self._probe_report.get("results", {}).get(key)
-        if result is None:
+        if result is None or result.get("answered") is None:
             return None
-        return bool(result.get("answered"))
+        return bool(result["answered"])
 
     def _record_frame(self, sender: Any, raw: bytearray | bytes) -> None:
         """Keep a raw notification frame for diagnostics and active collectors."""
@@ -908,7 +908,10 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
     async def _listen_all(self, client: BleakClient) -> list[str]:
         """Subscribe every candidate notify characteristic with the frame recorder."""
         subscribed: list[str] = []
-        for char_uuid in LISTEN_CHARS:
+        # Only the model's own notify characteristics: subscribing to one the
+        # device does not offer (e.g. fbb89, write-only) can drop the connection
+        # through an ESPHome proxy.
+        for char_uuid in self._protocol.notify_chars:
             try:
                 await asyncio.wait_for(
                     client.start_notify(char_uuid, self._record_frame),
@@ -957,9 +960,11 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
                     if any(prefix and f["hex"].startswith(prefix) for f in attempt["frames"]):
                         answered_on.append(attempt["char"])
                     unknown.extend(f["hex"] for f in attempt["frames"] if not f["known"])
+                tested = any(a["error"] is None for a in attempts)
                 results[cmd.key] = {
                     "payload": cmd.payload.hex(),
-                    "answered": bool(answered_on),
+                    # None = every write failed, so the device was not actually tested
+                    "answered": bool(answered_on) if tested else None,
                     "answered_on": answered_on,
                     "attempts": attempts,
                 }
@@ -972,6 +977,7 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
             "sw_version": self._last_raw.get(DATA_SW_VERSION),
             "protocol": self._protocol.name,
             "supported": [key for key, res in results.items() if res["answered"]],
+            "tested": any(res["answered"] is not None for res in results.values()),
             "unknown_frames": sorted(set(unknown)),
             "results": results,
         }
@@ -999,6 +1005,8 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
             report.update(await self._run_probe(client))
 
         await self._run_ble_action("command probe", _action, total_timeout=BLE_PROBE_TOTAL_TIMEOUT)
+        if not report.get("tested"):
+            raise BleakError("probe could not write to the device (connection dropped?); nothing stored")
         self._probe_report = report
         await self._save_store()
         return report
@@ -1089,7 +1097,10 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
             self._brush_head_max_days = stored.get("brush_head_max_days")
             self._brush_head_sw_count = stored.get("brush_head_sw_count", 0)
             self._active_scheme_pnum = stored.get("active_scheme_pnum")
-            self._probe_report = stored.get("probe_report")
+            # Reports without "tested" come from an early build that stored a failed
+            # probe as "device answers nothing"; discard them so the probe re-runs.
+            report = stored.get("probe_report")
+            self._probe_report = report if report and report.get("tested") else None
             last_session = stored.get("last_session", {})
             if last_session:
                 self._last_raw.update(last_session)
@@ -1542,7 +1553,10 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         # the sessions have been read so probed queries cannot swallow them.
         if self._auto_probe and self._probe_due(collected.get(DATA_MODEL_ID), collected.get(DATA_SW_VERSION)):
             with contextlib.suppress(Exception):
-                self._probe_report = await self._run_probe(client)
+                report = await self._run_probe(client)
+                # A probe whose writes all failed says nothing about the device.
+                if report["tested"]:
+                    self._probe_report = report
 
         await self._read_battery_and_unsubscribe(client, collected)
 
