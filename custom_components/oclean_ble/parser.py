@@ -1230,6 +1230,62 @@ def _parse_device_settings_response(payload: bytes) -> dict[str, Any]:
     return result
 
 
+# 0302 device-settings record carried in a length-prefixed, fragmented response.
+# Observed on OCLEANV1a (fw 1.1.3.8) with a 23-byte ATT MTU: two notifications,
+# each starting with its own "0302" header:
+#   0302 | 23 | 24 | 24 00 01 01 00 03 00 01 01 01 01 03 00 02 00 00
+#   0302 | 1a 0a 02 09 1d 13 01 01 10 00 f0 00 5a 00 00 08 02 00
+# Header stripped and joined, byte 0 is the length of what follows (0x23 = 35),
+# byte 1 is unknown, and the remaining 34 bytes are the APK device-settings
+# record (see _parse_device_settings_response for the field list). Six fields
+# agreed with independent sources in that capture: battery = 0303 battery,
+# device clock = time of the query, areaRemind = the switch state set from HA,
+# headUsedTimes = sessions since the last brush-head reset.
+DEVICE_SETTINGS_RECORD_SIZE = 34
+
+
+def device_settings_record_valid(record: bytes) -> bool:
+    """True if *record* looks like a 34-byte device-settings record (sane battery and clock)."""
+    if len(record) < DEVICE_SETTINGS_RECORD_SIZE:
+        return False
+    year, month, day, hour, minute, second = record[16:22]
+    return (
+        record[0] <= 100 and 20 <= year <= 60 and 1 <= month <= 12 and 1 <= day <= 31 and hour < 24 and minute < 60
+    ) and second < 60
+
+
+def parse_device_settings_record(record: bytes) -> dict[str, Any]:
+    """Parse a reassembled 34-byte 0302 device-settings record (APK field layout).
+
+    Returns battery, brush mode, brush-head counters and the area-reminder
+    state.  headMaxTimeLong / headUsedTimeLong (bytes 25-28) and the device
+    clock are logged only: their units/meaning are not confirmed.
+    """
+    if not device_settings_record_valid(record):
+        _LOGGER.debug("Oclean 0302 record rejected (implausible): %s", record.hex())
+        return {}
+    head_max = int.from_bytes(record[25:27], "big")
+    head_used = int.from_bytes(record[27:29], "big")
+    result: dict[str, Any] = {
+        DATA_BATTERY: int(record[0]),
+        DATA_BRUSH_MODE: int(record[5]),
+        DATA_BRUSH_HEAD_DAYS: int.from_bytes(record[29:31], "big"),
+        DATA_BRUSH_HEAD_USAGE: int(record[31]),
+        "area_remind": bool(record[23]),
+    }
+    _LOGGER.debug(
+        "Oclean 0302 record: clock=20%02d-%02d-%02d %02d:%02d:%02d tz=%d headMaxTimeLong=%d headUsedTimeLong=%d "
+        "-> %s (raw: %s)",
+        *record[16:22],
+        record[24],
+        head_max,
+        head_used,
+        result,
+        record.hex(),
+    )
+    return result
+
+
 def _parse_score_t1_response(payload: bytes) -> dict[str, Any]:
     """Parse 0000 score-push notification (Type-1 devices: Oclean X series).
 

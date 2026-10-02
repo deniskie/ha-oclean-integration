@@ -26,7 +26,7 @@ from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .ble_utils import is_genuine_cancellation
-from .commands import PROBE_COMMANDS, char_short
+from .commands import PROBE_COMMANDS, char_short, resolve_char
 from .const import (
     AREA_COVERAGE_NORM_THRESHOLD,
     AREA_COVERAGE_Y3PD_THRESHOLD,
@@ -92,9 +92,12 @@ from .const import (
 )
 from .models import OcleanDeviceData
 from .parser import (
+    DEVICE_SETTINGS_RECORD_SIZE,
     T1_C3352G_RECORD_SIZE,
+    device_settings_record_valid,
     is_known_frame,
     parse_battery,
+    parse_device_settings_record,
     parse_notification,
     parse_t1_c3352g_record,
     parse_t1_c3385w0_record,
@@ -1217,6 +1220,11 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         # Software brush-head counter: fallback when device does not report headUsedTimes
         # via 0302. Incremented per new session; hardware value from 0302 takes priority
         # and keeps the SW counter in sync so switching between HW/SW is seamless.
+        # Area reminder read back from the 0302 record keeps the switch in sync
+        # with the device (it was write-only state before).
+        if "area_remind" in collected:
+            self._area_remind = collected.pop("area_remind")
+
         if DATA_BRUSH_HEAD_USAGE in collected:
             self._brush_head_sw_count = collected[DATA_BRUSH_HEAD_USAGE]
         else:
@@ -1329,6 +1337,10 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
             "parse_fn": parse_t1_c3385w0_record,
         }
 
+        # Length-prefixed 0302 device-settings response split over several
+        # notifications, each with its own 0302 header (see parser.py).
+        _s302: dict[str, Any] = {"buf": bytearray(), "expected": 0, "first": b""}
+
         # Magic header bytes for the *B# multi-packet format (after 0307 prefix).
         _T1_MAGIC = b"\x2a\x42\x23"  # '*B#'
 
@@ -1370,6 +1382,38 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
                 chunk = buf[i * T1_C3352G_RECORD_SIZE : (i + 1) * T1_C3352G_RECORD_SIZE]
                 _accept(parse_fn(chunk, coverage_norm_threshold=norm_thr))
 
+        def _handle_0302_fragment(data: bytes) -> bool:
+            """Reassemble a length-prefixed 0302 response; True if *data* was consumed.
+
+            A fragment that does not fit the length-prefixed layout falls back
+            to the regular single-packet parser, so other models are unaffected.
+            """
+            payload = data[2:]
+            if not _s302["expected"]:
+                length = payload[0] if payload else 0
+                # LEN + unknown byte + 34-byte record, and more than this packet holds
+                if length != DEVICE_SETTINGS_RECORD_SIZE + 1 or len(payload) - 1 >= length:
+                    return False
+                _s302["buf"] = bytearray(payload[1:])
+                _s302["expected"] = length
+                _s302["first"] = data
+                return True
+            _s302["buf"].extend(payload)
+            if len(_s302["buf"]) < _s302["expected"]:
+                return True
+            record = bytes(_s302["buf"][1 : 1 + DEVICE_SETTINGS_RECORD_SIZE])
+            first = _s302["first"]
+            _s302.update(buf=bytearray(), expected=0, first=b"")
+            if device_settings_record_valid(record):
+                parsed = parse_device_settings_record(record)
+                _log.debug("0302 reassembled device-settings record: %s", parsed)
+                _accept(parsed)
+            else:
+                _log.debug("0302 fragments did not form a valid record; parsing them separately")
+                _accept(parse_notification(first))
+                _accept(parse_notification(data))
+            return True
+
         def handler(_sender: Any, raw: bytearray) -> None:
             data = bytes(raw)
             _log.debug("notification raw: %s", data.hex())
@@ -1393,6 +1437,10 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
                 )
                 if len(_t1["buf"]) >= _t1["expected"]:
                     _flush_t1_buffer()
+                return
+
+            # --- Fragmented, length-prefixed 0302 device-settings response ---
+            if data[:2] == b"" and _handle_0302_fragment(data):
                 return
 
             # --- Normal notification dispatch ---
@@ -1961,7 +2009,8 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         *notify_wait* overrides the default notification timeout (used when
         subscriptions failed and a polling fallback will follow).
         """
-        for char_uuid, cmd in self._protocol.query_commands:
+        for default_char, cmd in self._protocol.query_commands:
+            char_uuid = self._query_char(default_char, cmd)
             try:
                 await asyncio.wait_for(
                     client.write_gatt_char(char_uuid, cmd, response=True),
@@ -1985,6 +2034,23 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
                 "no session notification within %.1f s (device may have no records)",
                 wait,
             )
+
+    def _query_char(self, default_char: str, cmd: bytes) -> str:
+        """Characteristic to send query *cmd* on, preferring what the probe learned.
+
+        Some models answer a query only on the other write characteristic (an
+        OCLEANV1a answers 0303/0202/0302 on fbb85 although Type-1 sends them on
+        fbb89).  When the stored probe saw *cmd* answered, but not on
+        *default_char*, use the characteristic it was answered on.
+        """
+        for result in (self._probe_report or {}).get("results", {}).values():
+            if result.get("payload") != cmd.hex() or not result.get("answered"):
+                continue
+            answered_on = result.get("answered_on") or []
+            if answered_on and char_short(default_char) not in answered_on:
+                with contextlib.suppress(ValueError):
+                    return resolve_char(answered_on[0], default_char)
+        return default_char
 
     async def _paginate_sessions(
         self,

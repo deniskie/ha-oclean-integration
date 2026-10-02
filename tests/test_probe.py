@@ -25,7 +25,9 @@ from custom_components.oclean_ble.commands import (
 from custom_components.oclean_ble.const import (
     CONF_DEVICE_NAME,
     CONF_MAC_ADDRESS,
+    DATA_BATTERY,
     DATA_BRUSH_HEAD_DAYS,
+    DATA_BRUSH_HEAD_USAGE,
     DATA_BRUSH_MODE,
     DATA_LAST_BRUSH_TIME,
     DATA_MODEL_ID,
@@ -428,3 +430,103 @@ class TestGatingAndDiagnostics:
         assert diag["unknown_frames"] == ["11223344"]
         assert diag["raw_frames"][0]["char"] == "fbb90"
         assert _MAC not in str(diag)
+
+
+# ---------------------------------------------------------------------------
+# Fragmented 0302 device-settings response and probe-driven query routing
+# ---------------------------------------------------------------------------
+
+# OCLEANV1a answer to 030201 on fbb85: two notifications, each with a 0302
+# header. Layout from a real capture; the device clock bytes are made up.
+_V1A_0302_A = bytes.fromhex("0302232424000101000300010101010300020000")
+_V1A_0302_B = bytes.fromhex("03021a010f0800000101" + "1000f0005a0000080200")
+_V1A_0303 = bytes.fromhex("030302000024")
+
+
+def _feed(coord, *frames):
+    collected: dict = {}
+    handler, _ = coord._make_notification_handler(collected, [], set(), asyncio.Event())
+    for frame in frames:
+        handler(None, bytearray(frame))
+    return collected
+
+
+class TestDeviceSettingsReassembly:
+    def test_record_parsed_from_two_fragments(self):
+        collected = _feed(_v1a_coordinator(), _V1A_0302_A, _V1A_0302_B)
+        assert collected[DATA_BATTERY] == 36
+        assert collected[DATA_BRUSH_MODE] == 3
+        assert collected[DATA_BRUSH_HEAD_USAGE] == 8
+        assert collected[DATA_BRUSH_HEAD_DAYS] == 0
+        assert collected["area_remind"] is True
+
+    def test_first_fragment_alone_sets_nothing(self):
+        # The old per-packet parse read the length byte as battery (35) and
+        # byte 5 as the mode; the fragment is now held until the record is whole.
+        assert _feed(_v1a_coordinator(), _V1A_0302_A) == {}
+
+    def test_invalid_record_falls_back_to_single_packet_parse(self):
+        garbage = bytes.fromhex("0302") + bytes([0xFF] * 18)
+        collected = _feed(_v1a_coordinator(), _V1A_0302_A, garbage)
+        # fallback: the regular parser saw both packets separately
+        assert DATA_BRUSH_HEAD_USAGE not in collected
+        assert collected[DATA_BRUSH_MODE] == 0xFF  # byte 5 of the last packet, as before
+
+    def test_unprefixed_0302_uses_existing_parser(self):
+        collected = _feed(_v1a_coordinator(), bytes.fromhex("0302500000000004"))
+        assert collected[DATA_BATTERY] == 80
+        assert collected[DATA_BRUSH_MODE] == 4
+
+    def test_record_validation(self):
+        from custom_components.oclean_ble.parser import device_settings_record_valid, parse_device_settings_record
+
+        good = (_V1A_0302_A[4:] + _V1A_0302_B[2:])[:34]
+        assert device_settings_record_valid(good)
+        assert not device_settings_record_valid(good[:20])
+        bad_clock = good[:17] + bytes([13]) + good[18:]  # month 13
+        assert parse_device_settings_record(bad_clock) == {}
+
+
+_V1A_PROBE = {
+    "tested": True,
+    "results": {
+        "status": {"payload": "0303", "answered": True, "answered_on": ["fbb85"]},
+        "device_info": {"payload": "0202", "answered": True, "answered_on": ["fbb85"]},
+        "device_settings": {"payload": "030201", "answered": True, "answered_on": ["fbb85"]},
+        "running_data_t1": {"payload": "0307", "answered": True, "answered_on": ["fbb89", "fbb85"]},
+    },
+}
+
+
+class TestProbeDrivenRouting:
+    def test_query_char_follows_probe(self):
+        coord = _v1a_coordinator()
+        assert coord._query_char(SEND_BRUSH_CMD_UUID, bytes.fromhex("0303")) == SEND_BRUSH_CMD_UUID
+        coord._probe_report = _V1A_PROBE
+        assert coord._query_char(SEND_BRUSH_CMD_UUID, bytes.fromhex("0303")) == WRITE_CHAR_UUID
+        assert coord._query_char(SEND_BRUSH_CMD_UUID, bytes.fromhex("030201")) == WRITE_CHAR_UUID
+        # answered on the default char too: keep the default
+        assert coord._query_char(SEND_BRUSH_CMD_UUID, bytes.fromhex("0307")) == SEND_BRUSH_CMD_UUID
+        # never answered: keep the default
+        assert coord._query_char(SEND_BRUSH_CMD_UUID, bytes.fromhex("0314")) == SEND_BRUSH_CMD_UUID
+
+    async def test_poll_reads_settings_after_probe(self):
+        def device():
+            return (
+                OcleanDeviceSimulator()
+                .on_command(bytes.fromhex("0303"), _V1A_0303, char=WRITE_CHAR_UUID)
+                .on_command(bytes.fromhex("030201"), _V1A_0302_A, _V1A_0302_B, char=WRITE_CHAR_UUID)
+                .on_command(bytes.fromhex("0307"), _V1A_0307, char=SEND_BRUSH_CMD_UUID)
+                .build_client()
+            )
+
+        coord = _v1a_coordinator()
+        coord._dis_last_read_ts = 9e18  # DIS cached: keep the model from _last_raw
+        before = await run_poll(coord, device())
+        assert DATA_BRUSH_MODE not in before or before[DATA_BRUSH_MODE] is None
+
+        coord._probe_report = _V1A_PROBE
+        after = await run_poll(coord, device())
+        assert after[DATA_BRUSH_MODE] == 3
+        assert after[DATA_BRUSH_HEAD_USAGE] == 8
+        assert coord.area_remind is True
