@@ -339,6 +339,7 @@ class TestServices:
     def _coordinator(self):
         coord = MagicMock(spec=OcleanCoordinator)
         coord.default_command_char = SEND_BRUSH_CMD_UUID
+        coord.preferred_char = MagicMock(side_effect=lambda char, _cmd: char)
         coord.async_send_command = AsyncMock(return_value={"frames": []})
         coord.async_probe_commands = AsyncMock(return_value={"supported": []})
         return coord
@@ -353,6 +354,14 @@ class TestServices:
         _, handlers = _hass_with(coord)
         await handlers[SERVICE_SEND_COMMAND][0](_call({"command": "area_remind", "payload": "01", "wait": 2.0}))
         coord.async_send_command.assert_awaited_once_with(bytes.fromhex("020d01"), WRITE_CHAR_UUID, 2.0)
+
+    async def test_known_command_follows_probe(self):
+        coord = self._coordinator()
+        coord.preferred_char = MagicMock(return_value=WRITE_CHAR_UUID)
+        _, handlers = _hass_with(coord)
+        await handlers[SERVICE_SEND_COMMAND][0](_call({"command": "device_settings", "payload": "", "wait": 1.0}))
+        coord.preferred_char.assert_called_once_with(SEND_BRUSH_CMD_UUID, bytes.fromhex("030201"))
+        assert coord.async_send_command.call_args[0][1] == WRITE_CHAR_UUID
 
     async def test_send_raw_payload_default_char(self):
         coord = self._coordinator()

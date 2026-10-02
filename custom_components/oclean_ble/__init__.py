@@ -277,7 +277,8 @@ def _register_research_services(hass: HomeAssistant) -> None:
         if command:
             known = COMMANDS_BY_KEY[command]
             payloads = [known.payload + part for part in parts]
-            default_char = known.chars[0]
+            # Follow the stored probe: some models answer a query only on the other char.
+            default_char = coordinator.preferred_char(known.chars[0], known.payload)
         else:
             payloads = [part for part in parts if part]
             default_char = coordinator.default_command_char

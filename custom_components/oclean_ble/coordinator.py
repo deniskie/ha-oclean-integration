@@ -2046,6 +2046,10 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
                 wait,
             )
 
+    def preferred_char(self, default_char: str, cmd: bytes) -> str:
+        """Public form of _query_char, used by the send_command service."""
+        return self._query_char(default_char, cmd)
+
     def _query_char(self, default_char: str, cmd: bytes) -> str:
         """Characteristic to send query *cmd* on, preferring what the probe learned.
 
