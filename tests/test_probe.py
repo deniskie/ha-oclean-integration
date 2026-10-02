@@ -537,7 +537,7 @@ class TestV1aRealSession:
     def test_inline_session_reports_scheduled_length_only(self):
         from custom_components.oclean_ble.const import DATA_LAST_BRUSH_DURATION_SCHEDULED
 
-        collected = _feed(_v1a_coordinator(), bytes.fromhex("03072a42230000000000521a0a020b09320300c8"))
+        collected = _feed(_v1a_coordinator(), bytes.fromhex("03072a42230000000000521a01100800000300c8"))
         assert collected[DATA_LAST_BRUSH_DURATION_SCHEDULED] == 200
         assert "last_brush_duration" not in collected
 
@@ -553,7 +553,7 @@ class TestV1aRealSession:
         coord._last_raw.update({DATA_LAST_BRUSH_TIME: 1, "last_brush_duration": 95})
         client = (
             OcleanDeviceSimulator()
-            .on_command(bytes.fromhex("0307"), bytes.fromhex("03072a42230000000000521a0a020b09320300c8"))
+            .on_command(bytes.fromhex("0307"), bytes.fromhex("03072a42230000000000521a01100800000300c8"))
             .build_client()
         )
         result = await run_poll(coord, client)
