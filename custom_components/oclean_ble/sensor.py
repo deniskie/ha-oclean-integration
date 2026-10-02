@@ -28,6 +28,7 @@ from .const import (
     CONF_DEVICE_NAME,
     CONF_MAC_ADDRESS,
     DATA_BATTERY,
+    DATA_BATTERY_VOLTAGE,
     DATA_BRUSH_HEAD_DAYS,
     DATA_BRUSH_HEAD_USAGE,
     DATA_BRUSH_MODE,
@@ -93,6 +94,16 @@ SENSOR_DESCRIPTIONS: tuple[SensorEntityDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=PERCENTAGE,
         icon="mdi:battery",
+    ),
+    # Battery voltage from 0303 bytes 1-2. Diagnostic: shows battery health and
+    # the charge curve better than the coarse percentage.
+    SensorEntityDescription(
+        key=DATA_BATTERY_VOLTAGE,
+        translation_key=DATA_BATTERY_VOLTAGE,
+        device_class=SensorDeviceClass.VOLTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement="mV",
+        entity_category=EntityCategory.DIAGNOSTIC,
     ),
     SensorEntityDescription(
         key=DATA_LAST_BRUSH_SCORE,

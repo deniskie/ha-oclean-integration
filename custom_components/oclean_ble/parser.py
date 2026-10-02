@@ -14,6 +14,7 @@ from .const import (
     AREA_COVERAGE_NORM_THRESHOLD,
     COVERAGE_PRESSURE_THRESHOLD,
     DATA_BATTERY,
+    DATA_BATTERY_VOLTAGE,
     DATA_BRUSH_HEAD_DAYS,
     DATA_BRUSH_HEAD_USAGE,
     DATA_BRUSH_MODE,
@@ -334,8 +335,11 @@ def _parse_state_response(payload: bytes) -> dict[str, Any]:
 
     Observed byte layout on Oclean X (response to CMD_QUERY_STATUS 0303):
       byte 0: status flags (observed: always 0x02 on Oclean X)
-      byte 1: unknown (observed: 0x0e, 0x0f – varies between polls)
-      byte 2: unknown (observed: 0x4b, 0x00 – varies; earlier "cached score" hypothesis disproved)
+      bytes 1-2: battery voltage in mV, big-endian. Every real capture fits a
+                 Li-ion curve: 0x0df5 = 3573 mV at 23 %, 0x0e46 = 3654 mV at
+                 27 %, 0x0eb2 = 3762 mV at 45 %, 0x0ed5 = 3797 mV at 54 %.
+                 0x0000 = not measured (OCLEANV1a reports it only right after
+                 running).
       byte 3: battery % (confirmed: matches GATT Battery Characteristic read)
       bytes 4-5: unknown (observed: 0x00 0x00)
 
@@ -354,6 +358,9 @@ def _parse_state_response(payload: bytes) -> dict[str, Any]:
         batt = int(payload[3])
         if 0 <= batt <= 100:
             result[DATA_BATTERY] = batt
+        millivolts = (payload[1] << 8) | payload[2]
+        if 3000 <= millivolts <= 4500:
+            result[DATA_BATTERY_VOLTAGE] = millivolts
 
     _LOGGER.debug("Oclean STATE parsed: %s (raw: %s)", result, payload.hex())
 

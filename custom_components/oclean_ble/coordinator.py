@@ -59,6 +59,7 @@ from .const import (
     CMD_SET_BRUSH_SCHEME,
     CMD_SET_BRUSH_SCHEME_CONT,
     DATA_BATTERY,
+    DATA_BATTERY_VOLTAGE,
     DATA_BRUSH_HEAD_USAGE,
     DATA_HW_REVISION,
     DATA_LAST_BRUSH_AREAS,
@@ -300,6 +301,7 @@ def _in_window(start: _dtime, end: _dtime, now: _dtime) -> bool:
 # Keys that persist from previous poll when the device is unreachable
 _PERSISTENT_KEYS = (
     DATA_BATTERY,
+    DATA_BATTERY_VOLTAGE,
     DATA_BRUSH_HEAD_USAGE,
     DATA_LAST_BRUSH_SCORE,
     DATA_LAST_BRUSH_DURATION,

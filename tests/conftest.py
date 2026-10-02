@@ -310,6 +310,7 @@ def _install_ha_stubs() -> None:
 
     class SensorDeviceClass(Enum):
         BATTERY = "battery"
+        VOLTAGE = "voltage"
         DURATION = "duration"
         TIMESTAMP = "timestamp"
         SIGNAL_STRENGTH = "signal_strength"

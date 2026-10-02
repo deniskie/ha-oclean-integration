@@ -622,3 +622,28 @@ class TestBrushModeNames:
 
     def test_no_data(self):
         assert self._sensor(None).extra_state_attributes is None
+
+
+class TestBatteryVoltage:
+    """0303 bytes 1-2 = battery voltage in mV (fits every real capture)."""
+
+    @pytest.mark.parametrize(
+        ("raw", "millivolts", "battery"),
+        [
+            ("0303020df517", 3573, 23),  # OCLEANV1a right after running
+            ("0303020e461b0100", 3654, 27),
+            ("0303020eb22d0100", 3762, 45),
+            ("0303020ed5360000", 3797, 54),
+        ],
+    )
+    def test_voltage_parsed(self, raw, millivolts, battery):
+        from custom_components.oclean_ble.parser import parse_notification
+
+        result = parse_notification(bytes.fromhex(raw))
+        assert result["battery_voltage"] == millivolts
+        assert result[DATA_BATTERY] == battery
+
+    def test_zero_means_not_measured(self):
+        from custom_components.oclean_ble.parser import parse_notification
+
+        assert "battery_voltage" not in parse_notification(bytes.fromhex("030302000024"))

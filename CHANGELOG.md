@@ -10,6 +10,7 @@
 - **Polls follow the probe.** Each query is sent on the characteristic the stored probe saw it answered on. An Oclean X Ultra (`OCLEANV1a`) answers `0303`/`0202`/`030201` only on fbb85, so its battery-from-`0303` and device settings never arrived before; they do now.
 - **`send_command`** accepts several comma-separated payloads and sends them over one connection (a woken brush is only reachable for seconds), and a known command goes to the characteristic the probe found.
 - **Brush-mode names for `OCLEANV1a`.** The Brush Mode sensor keeps the number the device reports and gains a `mode_name` attribute (Sunrise Soothing = 1, Sensitive Gum Care = 3, Whitening Polishing = 4, Unlimited Clean = 5). The numbers were read by selecting each mode on the brush; they do not follow the on-device menu order, so the table is per model and other models are unchanged.
+- **Battery voltage sensor** (diagnostic, mV) from bytes 1-2 of the `0303` status answer, which were documented as unknown. Every real capture in the test suite and from an `OCLEANV1a` fits a Li-ion curve (3573 mV at 23 %, 3654 mV at 27 %, 3762 mV at 45 %, 3797 mV at 54 %). `0000` means not measured and is ignored.
 - **`tools/oclean_btsnoop.py`** decodes an Android `btsnoop_hci.log` captured while using the official app and lists the writes and notifications the integration does not know yet.
 
 ### Fixes

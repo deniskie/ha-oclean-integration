@@ -85,9 +85,11 @@ class TestReal0303StateResponse:
         ):
             assert key not in result, f"Unexpected key in STATE response: {key}"
 
-    def test_only_battery_key_present(self):
+    def test_only_battery_keys_present(self):
+        """Battery % (byte 3) and battery voltage (bytes 1-2, 0x0e4b = 3659 mV)."""
         result = parse_notification(self.RAW_BATTERY_29)
-        assert set(result.keys()) == {"battery"}
+        assert set(result.keys()) == {"battery", "battery_voltage"}
+        assert result["battery_voltage"] == 3659
 
     def test_battery_is_int(self):
         result = parse_notification(self.RAW_BATTERY_29)
