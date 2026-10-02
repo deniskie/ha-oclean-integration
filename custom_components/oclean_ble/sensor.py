@@ -24,6 +24,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .commands import ENTITY_SOURCE_COMMAND
 from .const import (
+    BRUSH_MODE_NAMES,
     CONF_DEVICE_NAME,
     CONF_MAC_ADDRESS,
     DATA_BATTERY,
@@ -226,7 +227,9 @@ async def async_setup_entry(
     device_name = entry.data.get(CONF_DEVICE_NAME, "Oclean")
 
     entities: list[Any] = [
-        OcleanSensor(coordinator, description, mac, device_name)
+        (OcleanBrushModeSensor if description.key == DATA_BRUSH_MODE else OcleanSensor)(
+            coordinator, description, mac, device_name
+        )
         for description in SENSOR_DESCRIPTIONS
         if _source_answered(coordinator, description.key)
     ]
@@ -294,6 +297,23 @@ class OcleanSensor(OcleanEntity, SensorEntity):
             and data.get(DATA_LAST_BRUSH_TIME) is not None
             and data.get(self.entity_description.key) is None
         )
+
+
+class OcleanBrushModeSensor(OcleanSensor):
+    """Brush mode number, with the mode's name as an attribute when known.
+
+    The state stays the number the device reports; ``mode_name`` is added for
+    models whose numbering was read from the brush (see BRUSH_MODE_NAMES).
+    """
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        data = self.coordinator.data
+        if data is None:
+            return None
+        mode = data.get(DATA_BRUSH_MODE)
+        name = BRUSH_MODE_NAMES.get(data.get(DATA_MODEL_ID) or "", {}).get(mode)
+        return {"mode_name": name} if name else None
 
 
 class OcleanBrushAreasSensor(OcleanEntity, SensorEntity):

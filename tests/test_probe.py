@@ -593,3 +593,32 @@ class TestProbeDrivenRouting:
         assert after[DATA_BRUSH_MODE] == 3
         assert after[DATA_BRUSH_HEAD_USAGE] == 90
         assert coord.area_remind is True
+
+
+class TestBrushModeNames:
+    """Mode numbers read by selecting each mode on a real OCLEANV1a."""
+
+    def _sensor(self, data):
+        from custom_components.oclean_ble.sensor import SENSOR_DESCRIPTIONS, OcleanBrushModeSensor
+
+        coord = MagicMock()
+        coord.data = data
+        desc = next(d for d in SENSOR_DESCRIPTIONS if d.key == DATA_BRUSH_MODE)
+        return OcleanBrushModeSensor(coord, desc, _MAC, "Oclean")
+
+    @pytest.mark.parametrize(
+        ("mode", "name"),
+        [(1, "Sunrise Soothing"), (3, "Sensitive Gum Care"), (4, "Whitening Polishing"), (5, "Unlimited Clean")],
+    )
+    def test_known_modes_named(self, mode, name):
+        sensor = self._sensor({DATA_BRUSH_MODE: mode, DATA_MODEL_ID: "OCLEANV1a"})
+        assert sensor.native_value == mode  # the state stays the number
+        assert sensor.extra_state_attributes == {"mode_name": name}
+
+    def test_unobserved_mode_and_other_models_have_no_name(self):
+        assert self._sensor({DATA_BRUSH_MODE: 2, DATA_MODEL_ID: "OCLEANV1a"}).extra_state_attributes is None
+        assert self._sensor({DATA_BRUSH_MODE: 5, DATA_MODEL_ID: "OCLEANY3M"}).extra_state_attributes is None
+        assert self._sensor({DATA_BRUSH_MODE: 5}).extra_state_attributes is None
+
+    def test_no_data(self):
+        assert self._sensor(None).extra_state_attributes is None

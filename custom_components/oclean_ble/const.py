@@ -367,6 +367,23 @@ SCHEMES_BY_MODEL: dict[str, dict[int, tuple[str, list[tuple[int, int]]]]] = {
     "OCLEANY5": OCLEANY5_SCHEMES,  # Oclean Z1 — different pnum range (91-104)
 }
 
+# Brushing-mode names by the mode number the device reports in its 0302
+# settings record (DATA_BRUSH_MODE), per DIS model ID. The number is
+# model-specific and does NOT follow the on-device menu order, so only models
+# whose numbers were read from the brush itself are listed.
+# OCLEANV1a (Oclean X Ultra), read by selecting each mode on the brush:
+#   1 Sunrise Soothing, 3 Sensitive Gum Care, 4 Whitening Polishing,
+#   5 Unlimited Clean. Number 2 was not observed; by elimination it is the
+#   remaining default mode (Sunset Clearout), so it is left out until seen.
+BRUSH_MODE_NAMES: dict[str, dict[int, str]] = {
+    "OCLEANV1a": {
+        1: "Sunrise Soothing",
+        3: "Sensitive Gum Care",
+        4: "Whitening Polishing",
+        5: "Unlimited Clean",
+    },
+}
+
 # Persistent storage for session history
 STORAGE_VERSION = 1
 
