@@ -1020,18 +1020,29 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         Frames are decoded with the regular parser for convenience; the device
         data shown by the entities is not changed.
         """
-        exchange: dict[str, Any] = {}
+        return (await self.async_send_commands([payload], char_uuid, wait))[0]
+
+    async def async_send_commands(self, payloads: list[bytes], char_uuid: str, wait: float) -> list[dict[str, Any]]:
+        """Send several raw commands over ONE connection, one exchange per command.
+
+        A sleeping brush only stays reachable for a few seconds, so research
+        sweeps cannot afford a reconnect per command.
+        """
+        exchanges: list[dict[str, Any]] = []
 
         async def _action(client: BleakClient) -> None:
             await self._listen_all(client)
-            exchange.update(await self._exchange(client, char_uuid, payload, wait))
+            # Sequential on purpose: one exchange must finish listening before the next write.
+            exchanges.extend([await self._exchange(client, char_uuid, payload, wait) for payload in payloads])
 
-        await self._run_ble_action("send_command", _action, total_timeout=BLE_ACTION_TOTAL_TIMEOUT + wait)
-        exchange["frames"] = [
-            {**frame, "decoded": parse_notification(bytes.fromhex(frame["hex"]))}
-            for frame in exchange.get("frames", [])
-        ]
-        return exchange
+        await self._run_ble_action(
+            "send_command", _action, total_timeout=BLE_ACTION_TOTAL_TIMEOUT + wait * len(payloads)
+        )
+        for exchange in exchanges:
+            exchange["frames"] = [
+                {**frame, "decoded": parse_notification(bytes.fromhex(frame["hex"]))} for frame in exchange["frames"]
+            ]
+        return exchanges
 
     # ------------------------------------------------------------------
     # Internal helpers

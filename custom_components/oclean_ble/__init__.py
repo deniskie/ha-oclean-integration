@@ -270,26 +270,30 @@ def _register_research_services(hass: HomeAssistant) -> None:
         coordinator = _coordinator_for(hass, call.data.get("entry_id"))
         command = call.data.get("command")
         try:
-            args = bytes.fromhex(call.data.get("payload", "").replace(" ", "").replace(":", ""))
+            # Several payloads separated by commas are sent over one connection.
+            parts = [bytes.fromhex(part.replace(" ", "").replace(":", "")) for part in call.data["payload"].split(",")]
         except ValueError as err:
             raise HomeAssistantError(f"payload is not valid hex: {err}") from err
         if command:
             known = COMMANDS_BY_KEY[command]
-            payload = known.payload + args
+            payloads = [known.payload + part for part in parts]
             default_char = known.chars[0]
         else:
-            payload = args
+            payloads = [part for part in parts if part]
             default_char = coordinator.default_command_char
-        if not payload:
+        if not payloads or not all(payloads):
             raise HomeAssistantError("Pass a command, a payload, or both")
         try:
             char_uuid = resolve_char(call.data.get("characteristic"), default_char)
         except ValueError as err:
             raise HomeAssistantError(str(err)) from err
         try:
-            return await coordinator.async_send_command(payload, char_uuid, call.data["wait"])
+            if len(payloads) == 1:
+                return await coordinator.async_send_command(payloads[0], char_uuid, call.data["wait"])
+            exchanges = await coordinator.async_send_commands(payloads, char_uuid, call.data["wait"])
         except Exception as err:
             raise HomeAssistantError(f"Oclean send_command failed: {err}") from err
+        return {"exchanges": exchanges}
 
     hass.services.async_register(
         DOMAIN,

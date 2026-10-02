@@ -280,6 +280,19 @@ class TestStandaloneActions:
         # The diagnostics buffer is not polluted with decoded data
         assert "decoded" not in coord.raw_frames[-1]
 
+    async def test_send_commands_single_connection(self):
+        coord = _v1a_coordinator()
+        client = _x_ultra_client()
+        bt, conn, sleep = _patched_connection(client)
+        with bt, conn as connect, sleep:
+            result = await coord.async_send_commands(
+                [bytes.fromhex("0202"), bytes.fromhex("0307")], SEND_BRUSH_CMD_UUID, 0.5
+            )
+        connect.assert_awaited_once()
+        assert [r["sent"] for r in result] == ["0202", "0307"]
+        assert result[0]["frames"][0]["hex"] == "02024f4b"
+        assert result[1]["frames"][0]["decoded"][DATA_LAST_BRUSH_TIME] > 0
+
     def test_default_command_char(self):
         assert _v1a_coordinator().default_command_char == SEND_BRUSH_CMD_UUID
 
@@ -346,6 +359,16 @@ class TestServices:
         _, handlers = _hass_with(coord)
         await handlers[SERVICE_SEND_COMMAND][0](_call({"payload": "03 07", "wait": 1.0}))
         coord.async_send_command.assert_awaited_once_with(bytes.fromhex("0307"), SEND_BRUSH_CMD_UUID, 1.0)
+
+    async def test_send_several_payloads_one_connection(self):
+        coord = self._coordinator()
+        coord.async_send_commands = AsyncMock(return_value=[{"frames": []}, {"frames": []}])
+        _, handlers = _hass_with(coord)
+        result = await handlers[SERVICE_SEND_COMMAND][0](_call({"payload": "0301, 0304", "wait": 1.0}))
+        coord.async_send_commands.assert_awaited_once_with(
+            [bytes.fromhex("0301"), bytes.fromhex("0304")], SEND_BRUSH_CMD_UUID, 1.0
+        )
+        assert len(result["exchanges"]) == 2
 
     async def test_send_raw_payload_explicit_char(self):
         coord = self._coordinator()
