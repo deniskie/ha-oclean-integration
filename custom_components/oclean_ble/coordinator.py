@@ -1256,7 +1256,10 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         new_ts = collected.get(DATA_LAST_BRUSH_TIME, 0)
         prev_ts = self._last_raw.get(DATA_LAST_BRUSH_TIME) or 0
         if new_ts and new_ts > prev_ts:
-            for key in _ENRICHMENT_KEYS:
+            # The real duration belongs to one session too: never show the
+            # previous session's value next to a new timestamp (inline records
+            # without a real duration only carry the scheduled length).
+            for key in (*_ENRICHMENT_KEYS, DATA_LAST_BRUSH_DURATION):
                 if key not in collected:
                     merged.pop(key, None)
 

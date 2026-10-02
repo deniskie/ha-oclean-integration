@@ -488,8 +488,9 @@ class TestDeviceSettingsReassembly:
         collected = _feed(_v1a_coordinator(), _V1A_0302_A, _V1A_0302_B)
         assert collected[DATA_BATTERY] == 36
         assert collected[DATA_BRUSH_MODE] == 3
-        assert collected[DATA_BRUSH_HEAD_USAGE] == 8
-        assert collected[DATA_BRUSH_HEAD_DAYS] == 0
+        # sessions on the head = bytes 27-28 (0x005a); byte 31 (8) is not the counter
+        assert collected[DATA_BRUSH_HEAD_USAGE] == 90
+        assert DATA_BRUSH_HEAD_DAYS not in collected
         assert collected["area_remind"] is True
 
     def test_first_fragment_alone_sets_nothing(self):
@@ -530,6 +531,36 @@ _V1A_PROBE = {
 }
 
 
+class TestV1aRealSession:
+    """Frames from a real OCLEANV1a poll right after a brushing session (time made up)."""
+
+    def test_inline_session_reports_scheduled_length_only(self):
+        from custom_components.oclean_ble.const import DATA_LAST_BRUSH_DURATION_SCHEDULED
+
+        collected = _feed(_v1a_coordinator(), bytes.fromhex("03072a42230000000000521a0a020b09320300c8"))
+        assert collected[DATA_LAST_BRUSH_DURATION_SCHEDULED] == 200
+        assert "last_brush_duration" not in collected
+
+    def test_head_counter_increments_per_session(self):
+        before = _feed(_v1a_coordinator(), _V1A_0302_A, _V1A_0302_B)
+        after_b = _V1A_0302_B[:13] + bytes.fromhex("005b") + _V1A_0302_B[15:]  # bytes 27-28 of the record
+        after = _feed(_v1a_coordinator(), _V1A_0302_A, after_b)
+        assert after[DATA_BRUSH_HEAD_USAGE] == before[DATA_BRUSH_HEAD_USAGE] + 1
+
+    async def test_new_inline_session_clears_previous_real_duration(self):
+        coord = _v1a_coordinator()
+        coord._dis_last_read_ts = 9e18
+        coord._last_raw.update({DATA_LAST_BRUSH_TIME: 1, "last_brush_duration": 95})
+        client = (
+            OcleanDeviceSimulator()
+            .on_command(bytes.fromhex("0307"), bytes.fromhex("03072a42230000000000521a0a020b09320300c8"))
+            .build_client()
+        )
+        result = await run_poll(coord, client)
+        assert result["last_brush_duration_scheduled"] == 200
+        assert result.get("last_brush_duration") is None
+
+
 class TestProbeDrivenRouting:
     def test_query_char_follows_probe(self):
         coord = _v1a_coordinator()
@@ -560,5 +591,5 @@ class TestProbeDrivenRouting:
         coord._probe_report = _V1A_PROBE
         after = await run_poll(coord, device())
         assert after[DATA_BRUSH_MODE] == 3
-        assert after[DATA_BRUSH_HEAD_USAGE] == 8
+        assert after[DATA_BRUSH_HEAD_USAGE] == 90
         assert coord.area_remind is True

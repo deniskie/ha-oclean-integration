@@ -955,7 +955,9 @@ class TestParseNotificationInfoT1Routing:
         assert dt.minute == 57
         assert dt.second == 38
         assert result["last_brush_pnum"] == 3
-        assert result["last_brush_duration"] == 180
+        # inline bytes are the scheduled programme length, not the real duration
+        assert result["last_brush_duration_scheduled"] == 180
+        assert "last_brush_duration" not in result
 
     def test_0307_ocleany3p_session_count_gt0_year_byte_0_still_deferred(self):
         """OCLEANY3P: session_count>0 + year_byte=0 → deferred push, return {}."""
@@ -2265,7 +2267,9 @@ class TestParseT1OcleanX20Inline:
         result = _parse_t1_ocleanx20_inline(payload)
         assert "last_brush_time" in result
         assert result["last_brush_pnum"] == 3
-        assert result.get("last_brush_duration") == 180
+        # inline bytes are the scheduled programme length, not the real duration
+        assert result.get("last_brush_duration_scheduled") == 180
+        assert "last_brush_duration" not in result
 
     def test_zero_duration_not_stored(self):
         """duration==0 must not appear in the result dict."""
@@ -2276,7 +2280,7 @@ class TestParseT1OcleanX20Inline:
         payload[11] = 1
         # bytes 16-17: duration = 0x0000
         result = _parse_t1_ocleanx20_inline(bytes(payload))
-        assert "last_brush_duration" not in result
+        assert "last_brush_duration_scheduled" not in result
 
     def test_parse_error_returns_empty(self):
         """An IndexError/OverflowError inside the try block must return {}."""
@@ -2326,7 +2330,9 @@ class TestParseNotificationInfoT1OcleanV1aRouting:
 
         assert result["last_brush_time"] == _expected_t1_ts(*expected)
         assert result["last_brush_pnum"] == 1
-        assert result["last_brush_duration"] == 120
+        # inline bytes are the scheduled programme length, not the real duration
+        assert result["last_brush_duration_scheduled"] == 120
+        assert "last_brush_duration" not in result
 
         assert "last_brush_score" not in result
         assert "last_brush_areas" not in result

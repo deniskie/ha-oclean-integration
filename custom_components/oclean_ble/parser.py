@@ -878,14 +878,18 @@ def _parse_t1_ocleanx20_inline(payload: bytes) -> dict[str, Any]:
             DATA_LAST_BRUSH_TIME: timestamp_s,
             DATA_LAST_BRUSH_PNUM: int(payload[15]),
         }
+        # Bytes 16-17 are record bytes 7-8, the SCHEDULED programme length (see
+        # _parse_m18f_record); the real-duration bytes 9-10 are cut off in this
+        # inline form. Verified on OCLEANV1a: a session saved 112 s after it
+        # started reported 200 s, the length of the selected programme.
         duration = (payload[16] << 8) | payload[17]
         if duration > 0:
-            result[DATA_LAST_BRUSH_DURATION] = duration
+            result[DATA_LAST_BRUSH_DURATION_SCHEDULED] = duration
         _LOGGER.debug(
-            "Oclean 0307 extended-offset inline: ts=%d pNum=%d duration=%s s byte8=0x%02x (raw: %s)",
+            "Oclean 0307 extended-offset inline: ts=%d pNum=%d scheduled=%s s byte8=0x%02x (raw: %s)",
             timestamp_s,
             result[DATA_LAST_BRUSH_PNUM],
-            result.get(DATA_LAST_BRUSH_DURATION, "n/a"),
+            result.get(DATA_LAST_BRUSH_DURATION_SCHEDULED, "n/a"),
             payload[8],
             payload.hex(),
         )
@@ -1257,29 +1261,33 @@ def device_settings_record_valid(record: bytes) -> bool:
 def parse_device_settings_record(record: bytes) -> dict[str, Any]:
     """Parse a reassembled 34-byte 0302 device-settings record (APK field layout).
 
-    Returns battery, brush mode, brush-head counters and the area-reminder
-    state.  headMaxTimeLong / headUsedTimeLong (bytes 25-28) and the device
-    clock are logged only: their units/meaning are not confirmed.
+    Returns battery, brush mode, sessions on the current brush head and the
+    area-reminder state.  headMaxTimeLong (bytes 25-26, 240 observed), the
+    device clock and bytes 29-31 are logged only: not confirmed.
     """
     if not device_settings_record_valid(record):
         _LOGGER.debug("Oclean 0302 record rejected (implausible): %s", record.hex())
         return {}
+    # Bytes 27-28 ("headUsedTimeLong" in the APK) count brushing sessions on the
+    # current head: observed going 90 -> 91 across one real session on an
+    # OCLEANV1a. Byte 31, which the single-packet parser reads as
+    # headUsedTimes, stayed at 8 (the APK also lists deviceLanguage there), and
+    # headUsedDays (29-30) read 0 months after a head reset, so neither is used.
     head_max = int.from_bytes(record[25:27], "big")
-    head_used = int.from_bytes(record[27:29], "big")
     result: dict[str, Any] = {
         DATA_BATTERY: int(record[0]),
         DATA_BRUSH_MODE: int(record[5]),
-        DATA_BRUSH_HEAD_DAYS: int.from_bytes(record[29:31], "big"),
-        DATA_BRUSH_HEAD_USAGE: int(record[31]),
+        DATA_BRUSH_HEAD_USAGE: int.from_bytes(record[27:29], "big"),
         "area_remind": bool(record[23]),
     }
     _LOGGER.debug(
-        "Oclean 0302 record: clock=20%02d-%02d-%02d %02d:%02d:%02d tz=%d headMaxTimeLong=%d headUsedTimeLong=%d "
+        "Oclean 0302 record: clock=20%02d-%02d-%02d %02d:%02d:%02d tz=%d headMax=%d headUsedDays=%d byte31=%d "
         "-> %s (raw: %s)",
         *record[16:22],
         record[24],
         head_max,
-        head_used,
+        int.from_bytes(record[29:31], "big"),
+        record[31],
         result,
         record.hex(),
     )
