@@ -169,6 +169,9 @@
       },
       "zone_lower_right_in": {
         "name": "Zone Unten Rechts Innen"
+      },
+      "battery_voltage": {
+        "name": "Batteriespannung"
       }
     }
   },

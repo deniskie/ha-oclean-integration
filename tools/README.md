@@ -145,6 +145,42 @@ on the next run – no HA restart needed.
 
 ---
 
+## oclean_btsnoop.py – Decode an Android Bluetooth Capture
+
+Lists every command the official Oclean app writes and every notification the
+brush sends, and flags the ones the integration does not know yet. The command
+table and the parser are loaded from `custom_components/`, so the verdicts match
+this checkout. Standard library only.
+
+```bash
+python tools/oclean_btsnoop.py btsnoop_hci.log                 # summary of unknown frames
+python tools/oclean_btsnoop.py btsnoop_hci.log --all           # every write / notification
+python tools/oclean_btsnoop.py btsnoop_hci.log --address AA:BB:CC:DD:EE:FF --json capture.json
+```
+
+**Capturing on Android:**
+
+1. Enable Developer options: Settings → About phone → tap *Build number* seven times.
+2. Developer options → turn on **Enable Bluetooth HCI snoop log** (on some phones
+   choose *Enabled*, not *Filtered*). Toggle Bluetooth off and on so logging starts.
+3. Stop Home Assistant from connecting meanwhile: disable the Oclean integration
+   (or set manual polling), otherwise the brush may be busy with the proxy.
+4. Open the Oclean app, let it sync, brush a short session, open the report and
+   any settings screen you want to decode. Note the times of each step.
+5. Get the log: `adb bugreport bugreport.zip`, then extract
+   `FS/data/misc/bluetooth/logs/btsnoop_hci.log` from the zip (path varies by
+   vendor; search the zip for `btsnoop`). On rooted phones `adb pull
+   /data/misc/bluetooth/logs/btsnoop_hci.log` works directly.
+6. Turn the snoop log off again — it records all Bluetooth traffic.
+
+If the app connected with a cached GATT table, the capture has no service
+discovery and characteristics are shown as raw handles (`h0x002a`). Clear the
+Oclean app's storage or toggle Bluetooth before connecting to force a discovery.
+A capture contains your devices' Bluetooth addresses: do not attach it to a
+public issue; paste the tool's output instead.
+
+---
+
 ## Debugging Unknown Payloads
 
 Unknown notification types are logged at DEBUG level:

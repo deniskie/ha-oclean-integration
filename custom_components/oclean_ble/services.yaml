@@ -12,3 +12,81 @@ poll:
       required: false
       selector:
         text:
+
+probe_commands:
+  name: Probe commands
+  description: >
+    Connect to the toothbrush, send every known read-only query on each
+    candidate characteristic and return which ones the device answers,
+    together with every raw frame received. The report is stored and shown
+    in the diagnostics download. The toothbrush must be awake.
+  fields:
+    entry_id:
+      name: Config Entry ID
+      description: Optional when only one Oclean device is configured.
+      required: false
+      selector:
+        text:
+
+send_command:
+  name: Send command
+  description: >
+    Research tool: write a known command or raw bytes to the toothbrush and
+    return every notification received. State-changing commands take effect
+    on the device. The toothbrush must be awake.
+  fields:
+    entry_id:
+      name: Config Entry ID
+      description: Optional when only one Oclean device is configured.
+      required: false
+      selector:
+        text:
+    command:
+      name: Command
+      description: A known command name. Its bytes are sent before the payload.
+      required: false
+      selector:
+        select:
+          options:
+            - status
+            - device_info
+            - device_settings
+            - running_data_t1
+            - running_data
+            - running_data_next
+            - extended_data_t1
+            - calibrate_time
+            - calibrate_time_t1
+            - clear_brush_head
+            - set_brush_scheme
+            - area_remind
+            - over_pressure
+            - remind_switch
+            - running_switch
+            - brush_head_max_days
+    payload:
+      name: Payload
+      description: >
+        Hex bytes. Raw command when no command is given, arguments otherwise.
+        Separate several with commas to send them over one connection (sweeps).
+      required: false
+      example: "0303"
+      selector:
+        text:
+    characteristic:
+      name: Characteristic
+      description: "'brush_cmd' (fbb89), 'write' (fbb85), a short id or a full UUID. Defaults to the command's own."
+      required: false
+      selector:
+        text:
+    wait:
+      name: Listen time
+      description: Seconds to collect notifications after writing.
+      required: false
+      default: 2
+      selector:
+        number:
+          min: 0.2
+          max: 30
+          step: 0.1
+          unit_of_measurement: s

@@ -24,6 +24,8 @@ from custom_components.oclean_ble.const import (
     CONF_MAC_ADDRESS,
     DOMAIN,
     SERVICE_POLL,
+    SERVICE_PROBE_COMMANDS,
+    SERVICE_SEND_COMMAND,
 )
 
 _TMPDIR = os.environ.get("TMPDIR", "/tmp")
@@ -277,6 +279,7 @@ class TestAsyncSetupEntry:
         entry = _make_entry()
         mock_coord = MagicMock()
         mock_coord.async_refresh = AsyncMock()
+        mock_coord.async_load_store = AsyncMock()
         mock_coord_cls.return_value = mock_coord
 
         result = _run_setup(hass, entry)
@@ -289,7 +292,7 @@ class TestAsyncSetupEntry:
     def test_forwards_platforms(self, mock_coord_cls, mock_attach):
         hass = _make_hass()
         entry = _make_entry()
-        mock_coord_cls.return_value = MagicMock(async_refresh=AsyncMock())
+        mock_coord_cls.return_value = MagicMock(async_refresh=AsyncMock(), async_load_store=AsyncMock())
 
         _run_setup(hass, entry)
 
@@ -302,6 +305,7 @@ class TestAsyncSetupEntry:
         entry = _make_entry()
         mock_coord = MagicMock()
         mock_coord.async_refresh = AsyncMock()
+        mock_coord.async_load_store = AsyncMock()
         mock_coord_cls.return_value = mock_coord
 
         _run_setup(hass, entry)
@@ -325,6 +329,7 @@ class TestAsyncSetupEntry:
 
         mock_coord = MagicMock()
         mock_coord.async_refresh = AsyncMock(side_effect=_slow_refresh)
+        mock_coord.async_load_store = AsyncMock()
         mock_coord_cls.return_value = mock_coord
 
         async def _inner():
@@ -346,7 +351,7 @@ class TestAsyncSetupEntry:
         # asyncio.create_task) so HA cancels it automatically on unload.
         hass = _make_hass()
         entry = _make_entry()
-        mock_coord_cls.return_value = MagicMock(async_refresh=AsyncMock())
+        mock_coord_cls.return_value = MagicMock(async_refresh=AsyncMock(), async_load_store=AsyncMock())
 
         _run_setup(hass, entry)
 
@@ -357,14 +362,16 @@ class TestAsyncSetupEntry:
     def test_registers_poll_service(self, mock_coord_cls, mock_attach):
         hass = _make_hass()
         entry = _make_entry()
-        mock_coord_cls.return_value = MagicMock(async_refresh=AsyncMock())
+        mock_coord_cls.return_value = MagicMock(async_refresh=AsyncMock(), async_load_store=AsyncMock())
 
         _run_setup(hass, entry)
 
-        hass.services.async_register.assert_called_once()
-        call_args = hass.services.async_register.call_args
-        assert call_args[0][0] == DOMAIN
-        assert call_args[0][1] == SERVICE_POLL
+        registered = [c[0][:2] for c in hass.services.async_register.call_args_list]
+        assert registered == [
+            (DOMAIN, SERVICE_POLL),
+            (DOMAIN, SERVICE_PROBE_COMMANDS),
+            (DOMAIN, SERVICE_SEND_COMMAND),
+        ]
 
     @patch("custom_components.oclean_ble._attach_file_handler", new_callable=AsyncMock)
     @patch("custom_components.oclean_ble.OcleanCoordinator")
@@ -372,7 +379,7 @@ class TestAsyncSetupEntry:
         hass = _make_hass()
         hass.services.has_service = MagicMock(return_value=True)
         entry = _make_entry()
-        mock_coord_cls.return_value = MagicMock(async_refresh=AsyncMock())
+        mock_coord_cls.return_value = MagicMock(async_refresh=AsyncMock(), async_load_store=AsyncMock())
 
         _run_setup(hass, entry)
 
@@ -383,7 +390,7 @@ class TestAsyncSetupEntry:
     def test_coordinator_receives_correct_args(self, mock_coord_cls, mock_attach):
         hass = _make_hass()
         entry = _make_entry()
-        mock_coord_cls.return_value = MagicMock(async_refresh=AsyncMock())
+        mock_coord_cls.return_value = MagicMock(async_refresh=AsyncMock(), async_load_store=AsyncMock())
 
         _run_setup(hass, entry)
 
@@ -407,7 +414,7 @@ class TestAsyncUnloadEntry:
     def test_removes_coordinator_from_hass_data(self, mock_coord_cls, mock_attach, mock_detach):
         hass = _make_hass()
         entry = _make_entry()
-        mock_coord_cls.return_value = MagicMock(async_refresh=AsyncMock())
+        mock_coord_cls.return_value = MagicMock(async_refresh=AsyncMock(), async_load_store=AsyncMock())
 
         _run_setup(hass, entry)
         assert entry.entry_id in hass.data[DOMAIN]
@@ -423,7 +430,7 @@ class TestAsyncUnloadEntry:
     def test_calls_detach_on_last_entry(self, mock_coord_cls, mock_attach, mock_detach):
         hass = _make_hass()
         entry = _make_entry()
-        mock_coord_cls.return_value = MagicMock(async_refresh=AsyncMock())
+        mock_coord_cls.return_value = MagicMock(async_refresh=AsyncMock(), async_load_store=AsyncMock())
 
         _run_setup(hass, entry)
         asyncio.run(async_unload_entry(hass, entry))
@@ -436,12 +443,13 @@ class TestAsyncUnloadEntry:
     def test_removes_poll_service_on_last_entry(self, mock_coord_cls, mock_attach, mock_detach):
         hass = _make_hass()
         entry = _make_entry()
-        mock_coord_cls.return_value = MagicMock(async_refresh=AsyncMock())
+        mock_coord_cls.return_value = MagicMock(async_refresh=AsyncMock(), async_load_store=AsyncMock())
 
         _run_setup(hass, entry)
         asyncio.run(async_unload_entry(hass, entry))
 
-        hass.services.async_remove.assert_called_once_with(DOMAIN, SERVICE_POLL)
+        removed = {c[0][1] for c in hass.services.async_remove.call_args_list}
+        assert removed == {SERVICE_POLL, SERVICE_PROBE_COMMANDS, SERVICE_SEND_COMMAND}
 
     @patch("custom_components.oclean_ble._detach_file_handler", new_callable=AsyncMock)
     @patch("custom_components.oclean_ble._attach_file_handler", new_callable=AsyncMock)
@@ -450,7 +458,7 @@ class TestAsyncUnloadEntry:
         hass = _make_hass()
         entry1 = _make_entry("entry1")
         entry2 = _make_entry("entry2")
-        mock_coord_cls.return_value = MagicMock(async_refresh=AsyncMock())
+        mock_coord_cls.return_value = MagicMock(async_refresh=AsyncMock(), async_load_store=AsyncMock())
 
         _run_setup(hass, entry1)
         hass.services.has_service = MagicMock(return_value=True)
@@ -469,7 +477,7 @@ class TestAsyncUnloadEntry:
         hass = _make_hass()
         hass.config_entries.async_unload_platforms = AsyncMock(return_value=False)
         entry = _make_entry()
-        mock_coord_cls.return_value = MagicMock(async_refresh=AsyncMock())
+        mock_coord_cls.return_value = MagicMock(async_refresh=AsyncMock(), async_load_store=AsyncMock())
 
         _run_setup(hass, entry)
         result = asyncio.run(async_unload_entry(hass, entry))

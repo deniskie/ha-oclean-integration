@@ -1,5 +1,24 @@
 # Changelog
 
+## [Unreleased]
+
+### New Features
+
+- **Command probe.** On the first successful poll for a model and firmware, every known read-only query is sent on both write characteristics and the answers are stored. Sensors fed only by a query the device ignores (Brush Mode, Brush Head Days from `0302`) are no longer created for that device. Probe answers are recorded only, never imported as sessions.
+- **`oclean_ble.probe_commands` and `oclean_ble.send_command` services** (with response) to re-run the probe or send a known command / raw bytes and see every frame received, decoded where the parser knows it.
+- **Diagnostics download** with the probe report, the last 200 raw notification frames (in memory only) and the unknown ones; MAC and device name redacted.
+- **Polls follow the probe.** Each query is sent on the characteristic the stored probe saw it answered on. An Oclean X Ultra (`OCLEANV1a`) answers `0303`/`0202`/`030201` only on fbb85, so its battery-from-`0303` and device settings never arrived before; they do now.
+- **`send_command`** accepts several comma-separated payloads and sends them over one connection (a woken brush is only reachable for seconds), and a known command goes to the characteristic the probe found.
+- **Brush-mode names for `OCLEANV1a`.** The Brush Mode sensor keeps the number the device reports and gains a `mode_name` attribute (Sunrise Soothing = 1, Sensitive Gum Care = 3, Whitening Polishing = 4, Unlimited Clean = 5). The numbers were read by selecting each mode on the brush; they do not follow the on-device menu order, so the table is per model and other models are unchanged.
+- **Battery voltage sensor** (diagnostic, mV) from bytes 1-2 of the `0303` status answer, which were documented as unknown. Every real capture in the test suite and from an `OCLEANV1a` fits a Li-ion curve (3573 mV at 23 %, 3654 mV at 27 %, 3762 mV at 45 %, 3797 mV at 54 %). `0000` means not measured and is ignored.
+- **`tools/oclean_btsnoop.py`** decodes an Android `btsnoop_hci.log` captured while using the official app and lists the writes and notifications the integration does not know yet.
+
+### Fixes
+
+- **Fragmented `0302` device-settings response.** With a small MTU the answer arrives as two notifications, each with its own `0302` header: a length byte, one unknown byte and the 34-byte settings record. Each packet used to be parsed on its own, yielding a wrong battery and brush mode. The fragments are now reassembled (validated by battery range and device clock; anything else falls back to the old per-packet parse), which also gives the area-reminder switch the device's real state.
+- **`OCLEANV1a` brush-head usage** comes from record bytes 27-28, which went up by one with a real session; byte 31 did not change. Brush-head days are no longer reported from this record (it read 0 months after a head reset).
+- **Extended-offset inline `0307` (`OCLEANX20`, `OCLEANV1a`) reports the scheduled programme length**, not the brushing duration: its duration bytes are record bytes 7-8, which the full-record layout documents as the scheduled length, and the real-duration bytes are cut off. Verified on an `OCLEANV1a`, where a 63-second session reported its 200-second programme. The value now appears as the duration sensor's `scheduled_duration_s` attribute, and a new session no longer keeps the previous session's real duration.
+
 ## [v1.4.0] – 2026-09-19
 
 ### New Features

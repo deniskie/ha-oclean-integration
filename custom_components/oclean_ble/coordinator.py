@@ -10,6 +10,7 @@ import logging
 import struct
 import time
 import traceback
+from collections import deque
 from collections.abc import Awaitable, Callable
 from datetime import time as _dtime
 from datetime import timedelta
@@ -25,6 +26,7 @@ from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .ble_utils import is_genuine_cancellation
+from .commands import PROBE_COMMANDS, char_short, resolve_char
 from .const import (
     AREA_COVERAGE_NORM_THRESHOLD,
     AREA_COVERAGE_Y3PD_THRESHOLD,
@@ -38,6 +40,9 @@ from .const import (
     BLE_POLL_FALLBACK_INTERVAL,
     BLE_POLL_TOTAL_TIMEOUT,
     BLE_POST_CONNECT_DELAY,
+    BLE_PROBE_POLL_BUDGET,
+    BLE_PROBE_TOTAL_TIMEOUT,
+    BLE_PROBE_WAIT,
     BLE_READ_FALLBACK_DELAY,
     BLE_SUBSCRIBE_FIRST_TIMEOUT,
     BLE_SUBSCRIBE_RETRY_TIMEOUT,
@@ -54,6 +59,7 @@ from .const import (
     CMD_SET_BRUSH_SCHEME,
     CMD_SET_BRUSH_SCHEME_CONT,
     DATA_BATTERY,
+    DATA_BATTERY_VOLTAGE,
     DATA_BRUSH_HEAD_USAGE,
     DATA_HW_REVISION,
     DATA_LAST_BRUSH_AREAS,
@@ -78,6 +84,7 @@ from .const import (
     DOMAIN,
     MAX_SESSION_PAGES,
     OCLEANY3M_SCHEMES,
+    RAW_FRAME_BUFFER_SIZE,
     READ_NOTIFY_CHAR_UUID,
     RECEIVE_BRUSH_UUID,
     SCHEMES_BY_MODEL,
@@ -86,8 +93,12 @@ from .const import (
 )
 from .models import OcleanDeviceData
 from .parser import (
+    DEVICE_SETTINGS_RECORD_SIZE,
     T1_C3352G_RECORD_SIZE,
+    device_settings_record_valid,
+    is_known_frame,
     parse_battery,
+    parse_device_settings_record,
     parse_notification,
     parse_t1_c3352g_record,
     parse_t1_c3385w0_record,
@@ -290,6 +301,7 @@ def _in_window(start: _dtime, end: _dtime, now: _dtime) -> bool:
 # Keys that persist from previous poll when the device is unreachable
 _PERSISTENT_KEYS = (
     DATA_BATTERY,
+    DATA_BATTERY_VOLTAGE,
     DATA_BRUSH_HEAD_USAGE,
     DATA_LAST_BRUSH_SCORE,
     DATA_LAST_BRUSH_DURATION,
@@ -394,6 +406,7 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         update_interval: int,
         poll_windows: str = "",
         post_brush_cooldown_h: int = 0,
+        auto_probe: bool = False,
     ) -> None:
         super().__init__(
             hass,
@@ -456,6 +469,19 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         self._post_brush_cooldown_s: int = post_brush_cooldown_h * 3600
         # Unix timestamp until which polls are suppressed after a new session.
         self._cooldown_until: float = 0.0
+
+        # Command probe: which known queries this device answers.  Persisted in
+        # the store and re-run when the model or firmware changes.
+        self._probe_report: dict[str, Any] | None = None
+        # Run the probe automatically inside a poll when it is due (set by setup).
+        self._auto_probe: bool = auto_probe
+        # While True, the poll notification handler only records frames and does
+        # not parse them, so probe answers never turn into sessions.
+        self._probing: bool = False
+        # Last raw notification frames (in memory only) for the diagnostics download.
+        self._raw_frames: deque[dict[str, Any]] = deque(maxlen=RAW_FRAME_BUFFER_SIZE)
+        # Extra per-exchange frame collectors used by the probe and send_command.
+        self._frame_sinks: list[list[dict[str, Any]]] = []
 
     # ------------------------------------------------------------------
     # DataUpdateCoordinator interface
@@ -527,6 +553,7 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         self,
         description: str,
         action: Callable[[BleakClient], Awaitable[None]],
+        total_timeout: float | None = None,
     ) -> None:
         """Run *action* against a freshly connected client, fully protected.
 
@@ -546,10 +573,12 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         Raises BleakError if the device cannot be reached, matching the
         documented behaviour of all public write methods.
         """
+        if total_timeout is None:
+            total_timeout = BLE_ACTION_TOTAL_TIMEOUT
         try:
             await asyncio.wait_for(
                 self._connect_and_run(action),
-                timeout=BLE_ACTION_TOTAL_TIMEOUT,
+                timeout=total_timeout,
             )
         except asyncio.CancelledError as err:
             task = asyncio.current_task()
@@ -562,7 +591,7 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
             )
             raise BleakError(f"device not reachable (proxy cancelled during {description})") from err
         except TimeoutError as err:
-            raise BleakError(f"{description} timed out after {BLE_ACTION_TOTAL_TIMEOUT}s") from err
+            raise BleakError(f"{description} timed out after {total_timeout}s") from err
 
     async def _connect_and_run(self, action: Callable[[BleakClient], Awaitable[None]]) -> None:
         """Connect, wait for the GATT table, run *action*, always disconnect."""
@@ -832,6 +861,192 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
                 await client.stop_notify(char_uuid)
 
     # ------------------------------------------------------------------
+    # Command probe, raw commands and diagnostics
+    # ------------------------------------------------------------------
+
+    @property
+    def probe_report(self) -> dict[str, Any] | None:
+        """Last stored command-probe report, or None if the probe never ran."""
+        return self._probe_report
+
+    @property
+    def raw_frames(self) -> list[dict[str, Any]]:
+        """Most recent raw notification frames (oldest first)."""
+        return list(self._raw_frames)
+
+    @property
+    def default_command_char(self) -> str:
+        """Characteristic the model's query commands are written to (fbb89 on Type-1)."""
+        return protocol_for_model(self._last_raw.get(DATA_MODEL_ID)).query_commands[0][0]
+
+    @property
+    def protocol_name(self) -> str:
+        """Name of the active device protocol profile."""
+        return self._protocol.name
+
+    def command_supported(self, key: str) -> bool | None:
+        """Whether the device answered command *key* in the last probe.
+
+        None means unknown: no probe has run yet, or the command was not probed.
+        """
+        if not self._probe_report:
+            return None
+        result = self._probe_report.get("results", {}).get(key)
+        if result is None or result.get("answered") is None:
+            return None
+        return bool(result["answered"])
+
+    def _record_frame(self, sender: Any, raw: bytearray | bytes) -> None:
+        """Keep a raw notification frame for diagnostics and active collectors."""
+        data = bytes(raw)
+        uuid = getattr(sender, "uuid", None)
+        frame = {
+            "t": round(time.time(), 3),
+            "char": char_short(uuid) if isinstance(uuid, str) else str(sender),
+            "hex": data.hex(),
+            "known": is_known_frame(data),
+        }
+        self._raw_frames.append(frame)
+        for sink in self._frame_sinks:
+            sink.append(frame)
+
+    async def _listen_all(self, client: BleakClient) -> list[str]:
+        """Subscribe every candidate notify characteristic with the frame recorder."""
+        subscribed: list[str] = []
+        # Only the model's own notify characteristics: subscribing to one the
+        # device does not offer (e.g. fbb89, write-only) can drop the connection
+        # through an ESPHome proxy.
+        for char_uuid in self._protocol.notify_chars:
+            try:
+                await asyncio.wait_for(
+                    client.start_notify(char_uuid, self._record_frame),
+                    timeout=BLE_SUBSCRIBE_FIRST_TIMEOUT,
+                )
+                subscribed.append(char_uuid)
+            except Exception as err:  # noqa: BLE001
+                self._log.debug("listen %s: not subscribed (%s)", char_short(char_uuid), err)
+        return subscribed
+
+    async def _exchange(self, client: BleakClient, char_uuid: str, payload: bytes, wait: float) -> dict[str, Any]:
+        """Write *payload* to *char_uuid* and collect every frame for *wait* seconds."""
+        sink: list[dict[str, Any]] = []
+        self._frame_sinks.append(sink)
+        error: str | None = None
+        try:
+            await asyncio.wait_for(
+                client.write_gatt_char(char_uuid, payload, response=True),
+                timeout=BLE_WRITE_TIMEOUT,
+            )
+            await asyncio.sleep(wait)
+        except Exception as err:  # noqa: BLE001
+            error = f"{type(err).__name__}: {err}"
+        finally:
+            self._frame_sinks.remove(sink)
+        return {"char": char_short(char_uuid), "sent": payload.hex(), "error": error, "frames": sink}
+
+    async def _run_probe(self, client: BleakClient) -> dict[str, Any]:
+        """Send every read-only known command on each candidate characteristic.
+
+        A command counts as answered when a frame starting with its expected
+        response prefix arrives inside its listening window.  Every frame is kept
+        so unsolicited or unknown frames can be studied afterwards.
+        """
+        results: dict[str, Any] = {}
+        unknown: list[str] = []
+        self._probing = True
+        try:
+            for cmd in PROBE_COMMANDS:
+                attempts = []
+                answered_on: list[str] = []
+                for char_uuid in cmd.chars:
+                    attempt = await self._exchange(client, char_uuid, cmd.payload, BLE_PROBE_WAIT)
+                    attempts.append(attempt)
+                    prefix = cmd.response.hex() if cmd.response else None
+                    if any(prefix and f["hex"].startswith(prefix) for f in attempt["frames"]):
+                        answered_on.append(attempt["char"])
+                    unknown.extend(f["hex"] for f in attempt["frames"] if not f["known"])
+                tested = any(a["error"] is None for a in attempts)
+                results[cmd.key] = {
+                    "payload": cmd.payload.hex(),
+                    # None = every write failed, so the device was not actually tested
+                    "answered": bool(answered_on) if tested else None,
+                    "answered_on": answered_on,
+                    "attempts": attempts,
+                }
+                self._log.debug("probe %s (%s): answered_on=%s", cmd.key, cmd.payload.hex(), answered_on or "none")
+        finally:
+            self._probing = False
+        return {
+            "time": int(time.time()),
+            "model_id": self._last_raw.get(DATA_MODEL_ID),
+            "sw_version": self._last_raw.get(DATA_SW_VERSION),
+            "protocol": self._protocol.name,
+            "supported": [key for key, res in results.items() if res["answered"]],
+            "tested": any(res["answered"] is not None for res in results.values()),
+            "unknown_frames": sorted(set(unknown)),
+            "results": results,
+        }
+
+    def _probe_due(self, model: str | None = None, sw_version: str | None = None) -> bool:
+        """True when the probe has not run for the current model and firmware.
+
+        *model* / *sw_version* are this poll's fresh DIS values; the stored ones
+        are used when they are not given.  Without a known model the probe waits.
+        """
+        model = model or self._last_raw.get(DATA_MODEL_ID)
+        sw_version = sw_version or self._last_raw.get(DATA_SW_VERSION)
+        if not model:
+            return self._probe_report is None
+        report = self._probe_report
+        return report is None or (report.get("model_id"), report.get("sw_version")) != (model, sw_version)
+
+    async def async_probe_commands(self) -> dict[str, Any]:
+        """Connect, probe every read-only command and store the report."""
+        report: dict[str, Any] = {}
+
+        async def _action(client: BleakClient) -> None:
+            self._protocol = protocol_for_model(self._last_raw.get(DATA_MODEL_ID))
+            await self._listen_all(client)
+            report.update(await self._run_probe(client))
+
+        await self._run_ble_action("command probe", _action, total_timeout=BLE_PROBE_TOTAL_TIMEOUT)
+        if not report.get("tested"):
+            raise BleakError("probe could not write to the device (connection dropped?); nothing stored")
+        self._probe_report = report
+        await self._save_store()
+        return report
+
+    async def async_send_command(self, payload: bytes, char_uuid: str, wait: float) -> dict[str, Any]:
+        """Write raw *payload* to *char_uuid* and return every frame received.
+
+        Frames are decoded with the regular parser for convenience; the device
+        data shown by the entities is not changed.
+        """
+        return (await self.async_send_commands([payload], char_uuid, wait))[0]
+
+    async def async_send_commands(self, payloads: list[bytes], char_uuid: str, wait: float) -> list[dict[str, Any]]:
+        """Send several raw commands over ONE connection, one exchange per command.
+
+        A sleeping brush only stays reachable for a few seconds, so research
+        sweeps cannot afford a reconnect per command.
+        """
+        exchanges: list[dict[str, Any]] = []
+
+        async def _action(client: BleakClient) -> None:
+            await self._listen_all(client)
+            # Sequential on purpose: one exchange must finish listening before the next write.
+            exchanges.extend([await self._exchange(client, char_uuid, payload, wait) for payload in payloads])
+
+        await self._run_ble_action(
+            "send_command", _action, total_timeout=BLE_ACTION_TOTAL_TIMEOUT + wait * len(payloads)
+        )
+        for exchange in exchanges:
+            exchange["frames"] = [
+                {**frame, "decoded": parse_notification(bytes.fromhex(frame["hex"]))} for frame in exchange["frames"]
+            ]
+        return exchanges
+
+    # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
 
@@ -881,6 +1096,11 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
             )
         return device
 
+    async def async_load_store(self) -> None:
+        """Load persisted state once (setup uses it to decide which entities exist)."""
+        if not self._store_loaded:
+            await self._load_store()
+
     async def _load_store(self) -> None:
         """Load persisted data from HA storage."""
         stored = await self._store.async_load()
@@ -893,6 +1113,10 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
             self._brush_head_max_days = stored.get("brush_head_max_days")
             self._brush_head_sw_count = stored.get("brush_head_sw_count", 0)
             self._active_scheme_pnum = stored.get("active_scheme_pnum")
+            # Reports without "tested" come from an early build that stored a failed
+            # probe as "device answers nothing"; discard them so the probe re-runs.
+            report = stored.get("probe_report")
+            self._probe_report = report if report and report.get("tested") else None
             last_session = stored.get("last_session", {})
             if last_session:
                 self._last_raw.update(last_session)
@@ -918,6 +1142,7 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
                 "brush_head_sw_count": self._brush_head_sw_count,
                 "active_scheme_pnum": self._active_scheme_pnum,
                 "last_session": last_session,
+                "probe_report": self._probe_report,
             }
         )
 
@@ -928,6 +1153,8 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         # Resolve a BLEDevice through HA's bluetooth layer (covers local adapters
         # AND active ESPHome proxies).
         ble_device = self._resolve_ble_device()
+        # The command probe may run inside this poll (first poll per firmware).
+        poll_timeout = BLE_POLL_TOTAL_TIMEOUT + (BLE_PROBE_POLL_BUDGET if self._auto_probe and self._probe_due() else 0)
 
         client = await establish_connection(
             BleakClient,
@@ -940,7 +1167,7 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         try:
             all_sessions = await asyncio.wait_for(
                 self._setup_and_read(client, collected),
-                timeout=BLE_POLL_TOTAL_TIMEOUT,
+                timeout=poll_timeout,
             )
         except asyncio.TimeoutError:
             self._log.warning(
@@ -969,7 +1196,7 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
             try:
                 all_sessions = await asyncio.wait_for(
                     self._setup_and_read(client, collected),
-                    timeout=BLE_POLL_TOTAL_TIMEOUT,
+                    timeout=poll_timeout,
                 )
             except asyncio.TimeoutError:
                 self._log.warning("reconnect retry also timed out")
@@ -1006,6 +1233,11 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         # Software brush-head counter: fallback when device does not report headUsedTimes
         # via 0302. Incremented per new session; hardware value from 0302 takes priority
         # and keeps the SW counter in sync so switching between HW/SW is seamless.
+        # Area reminder read back from the 0302 record keeps the switch in sync
+        # with the device (it was write-only state before).
+        if "area_remind" in collected:
+            self._area_remind = collected.pop("area_remind")
+
         if DATA_BRUSH_HEAD_USAGE in collected:
             self._brush_head_sw_count = collected[DATA_BRUSH_HEAD_USAGE]
         else:
@@ -1026,7 +1258,10 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         new_ts = collected.get(DATA_LAST_BRUSH_TIME, 0)
         prev_ts = self._last_raw.get(DATA_LAST_BRUSH_TIME) or 0
         if new_ts and new_ts > prev_ts:
-            for key in _ENRICHMENT_KEYS:
+            # The real duration belongs to one session too: never show the
+            # previous session's value next to a new timestamp (inline records
+            # without a real duration only carry the scheduled length).
+            for key in (*_ENRICHMENT_KEYS, DATA_LAST_BRUSH_DURATION):
                 if key not in collected:
                     merged.pop(key, None)
 
@@ -1118,6 +1353,10 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
             "parse_fn": parse_t1_c3385w0_record,
         }
 
+        # Length-prefixed 0302 device-settings response split over several
+        # notifications, each with its own 0302 header (see parser.py).
+        _s302: dict[str, Any] = {"buf": bytearray(), "expected": 0, "first": b""}
+
         # Magic header bytes for the *B# multi-packet format (after 0307 prefix).
         _T1_MAGIC = b"\x2a\x42\x23"  # '*B#'
 
@@ -1159,9 +1398,45 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
                 chunk = buf[i * T1_C3352G_RECORD_SIZE : (i + 1) * T1_C3352G_RECORD_SIZE]
                 _accept(parse_fn(chunk, coverage_norm_threshold=norm_thr))
 
+        def _handle_0302_fragment(data: bytes) -> bool:
+            """Reassemble a length-prefixed 0302 response; True if *data* was consumed.
+
+            A fragment that does not fit the length-prefixed layout falls back
+            to the regular single-packet parser, so other models are unaffected.
+            """
+            payload = data[2:]
+            if not _s302["expected"]:
+                length = payload[0] if payload else 0
+                # LEN + unknown byte + 34-byte record, and more than this packet holds
+                if length != DEVICE_SETTINGS_RECORD_SIZE + 1 or len(payload) - 1 >= length:
+                    return False
+                _s302["buf"] = bytearray(payload[1:])
+                _s302["expected"] = length
+                _s302["first"] = data
+                return True
+            _s302["buf"].extend(payload)
+            if len(_s302["buf"]) < _s302["expected"]:
+                return True
+            record = bytes(_s302["buf"][1 : 1 + DEVICE_SETTINGS_RECORD_SIZE])
+            first = _s302["first"]
+            _s302.update(buf=bytearray(), expected=0, first=b"")
+            if device_settings_record_valid(record):
+                parsed = parse_device_settings_record(record)
+                _log.debug("0302 reassembled device-settings record: %s", parsed)
+                _accept(parsed)
+            else:
+                _log.debug("0302 fragments did not form a valid record; parsing them separately")
+                _accept(parse_notification(first))
+                _accept(parse_notification(data))
+            return True
+
         def handler(_sender: Any, raw: bytearray) -> None:
             data = bytes(raw)
             _log.debug("notification raw: %s", data.hex())
+            self._record_frame(_sender, data)
+            if self._probing:
+                # Probe answers are only recorded, never merged into session data.
+                return
 
             # --- Continuation packet for active *B# reassembly ---
             # While reassembly is active, every incoming packet is treated as
@@ -1178,6 +1453,10 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
                 )
                 if len(_t1["buf"]) >= _t1["expected"]:
                     _flush_t1_buffer()
+                return
+
+            # --- Fragmented, length-prefixed 0302 device-settings response ---
+            if data[:2] == b"" and _handle_0302_fragment(data):
                 return
 
             # --- Normal notification dispatch ---
@@ -1333,6 +1612,15 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
                     "OCLEANV1a enrichment retry complete; enrichment keys present: %s",
                     seen or ["none"],
                 )
+
+        # Command probe: once per model/firmware, reusing this connection after
+        # the sessions have been read so probed queries cannot swallow them.
+        if self._auto_probe and self._probe_due(collected.get(DATA_MODEL_ID), collected.get(DATA_SW_VERSION)):
+            with contextlib.suppress(Exception):
+                report = await self._run_probe(client)
+                # A probe whose writes all failed says nothing about the device.
+                if report["tested"]:
+                    self._probe_report = report
 
         await self._read_battery_and_unsubscribe(client, collected)
 
@@ -1737,7 +2025,8 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
         *notify_wait* overrides the default notification timeout (used when
         subscriptions failed and a polling fallback will follow).
         """
-        for char_uuid, cmd in self._protocol.query_commands:
+        for default_char, cmd in self._protocol.query_commands:
+            char_uuid = self._query_char(default_char, cmd)
             try:
                 await asyncio.wait_for(
                     client.write_gatt_char(char_uuid, cmd, response=True),
@@ -1761,6 +2050,27 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
                 "no session notification within %.1f s (device may have no records)",
                 wait,
             )
+
+    def preferred_char(self, default_char: str, cmd: bytes) -> str:
+        """Public form of _query_char, used by the send_command service."""
+        return self._query_char(default_char, cmd)
+
+    def _query_char(self, default_char: str, cmd: bytes) -> str:
+        """Characteristic to send query *cmd* on, preferring what the probe learned.
+
+        Some models answer a query only on the other write characteristic (an
+        OCLEANV1a answers 0303/0202/0302 on fbb85 although Type-1 sends them on
+        fbb89).  When the stored probe saw *cmd* answered, but not on
+        *default_char*, use the characteristic it was answered on.
+        """
+        for result in (self._probe_report or {}).get("results", {}).values():
+            if result.get("payload") != cmd.hex() or not result.get("answered"):
+                continue
+            answered_on = result.get("answered_on") or []
+            if answered_on and char_short(default_char) not in answered_on:
+                with contextlib.suppress(ValueError):
+                    return resolve_char(answered_on[0], default_char)
+        return default_char
 
     async def _paginate_sessions(
         self,

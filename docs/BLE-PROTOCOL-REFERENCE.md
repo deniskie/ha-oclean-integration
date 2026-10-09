@@ -728,6 +728,38 @@ Area-remind command: 0209 + 1 byte (same as all C3350f modes). Brush-head-max-da
 11. stop_notify (all); Disconnect
 ```
 
+### 9.2b OCLEANV1a (Oclean X Ultra) – observed with the command probe
+
+Firmware 1.1.3.8, ESPHome proxy, 23-byte ATT MTU. Every write was tried on both
+characteristics; answers arrive on fbb86 unless noted.
+
+| Query | fbb89 (SEND_BRUSH_CMD) | fbb85 (WRITE) |
+|-------|------------------------|---------------|
+| `0303` | – | `0303 02 00 00 <battery>` |
+| `0202` | – | `0202 4F4B` ("OK") |
+| `030201` | – | two-packet length-prefixed `0302` record (below) |
+| `0307` | fbb90: `*B#` inline, extended offset | `0307` + firmware string, e.g. `"1.1.3.8OK"` |
+| `0308` | – | `0308 00 00 0a 02 1d 19 00 00 00 00 4F4B` (meaning unknown, no session) |
+| `0309` | – | `03` |
+| `0314` | – | `0314 01 4F4B` |
+| `0311`, `0312`, `0313`, `0315`, `0317` | not tried | `<cmd> 4F4B` (ACK only) |
+| `0316` | not tried | `0316 01 4F4B` |
+| `0301`, `0304`–`0306`, `030a`–`0310`, `0318`–`0320` | not tried | `03` (rejected) |
+
+None of the ACK-only commands changed any field of the `0302` record.
+
+**`0302` record:** two notifications, each with its own `0302` header. Joined
+without headers: `LEN(0x23)` + one unknown byte + the 34-byte record in the
+§6.3 / `C3385w0` layout as used by `_parse_device_settings_response`
+(battery 0, modeNum 5, clock 16-21, areaRemind 23, timezone 24, head counters
+25-31). Battery, clock, areaRemind and headUsedTimes matched independent
+sources. Bytes 25-28 read `00 f0` / `00 5a` (240 / 90) and headUsedDays 0 on a
+head reset months earlier: units unconfirmed.
+
+**Sessions:** letting the brush run its full programme in the hand (not in the
+mouth) does not create a session record — `0307` keeps returning the previous
+one with count 0, and headUsedTimes does not change.
+
 ### 9.3 `*B#` Multi-Packet Reassembly (Type-1, C5733b.java)
 
 When the device has stored sessions, the 0307 response on fbb90 uses a **multi-packet reassembly protocol**:

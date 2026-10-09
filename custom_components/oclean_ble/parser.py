@@ -14,6 +14,7 @@ from .const import (
     AREA_COVERAGE_NORM_THRESHOLD,
     COVERAGE_PRESSURE_THRESHOLD,
     DATA_BATTERY,
+    DATA_BATTERY_VOLTAGE,
     DATA_BRUSH_HEAD_DAYS,
     DATA_BRUSH_HEAD_USAGE,
     DATA_BRUSH_MODE,
@@ -334,8 +335,11 @@ def _parse_state_response(payload: bytes) -> dict[str, Any]:
 
     Observed byte layout on Oclean X (response to CMD_QUERY_STATUS 0303):
       byte 0: status flags (observed: always 0x02 on Oclean X)
-      byte 1: unknown (observed: 0x0e, 0x0f – varies between polls)
-      byte 2: unknown (observed: 0x4b, 0x00 – varies; earlier "cached score" hypothesis disproved)
+      bytes 1-2: battery voltage in mV, big-endian. Every real capture fits a
+                 Li-ion curve: 0x0df5 = 3573 mV at 23 %, 0x0e46 = 3654 mV at
+                 27 %, 0x0eb2 = 3762 mV at 45 %, 0x0ed5 = 3797 mV at 54 %.
+                 0x0000 = not measured (OCLEANV1a reports it only right after
+                 running).
       byte 3: battery % (confirmed: matches GATT Battery Characteristic read)
       bytes 4-5: unknown (observed: 0x00 0x00)
 
@@ -354,6 +358,9 @@ def _parse_state_response(payload: bytes) -> dict[str, Any]:
         batt = int(payload[3])
         if 0 <= batt <= 100:
             result[DATA_BATTERY] = batt
+        millivolts = (payload[1] << 8) | payload[2]
+        if 3000 <= millivolts <= 4500:
+            result[DATA_BATTERY_VOLTAGE] = millivolts
 
     _LOGGER.debug("Oclean STATE parsed: %s (raw: %s)", result, payload.hex())
 
@@ -878,14 +885,18 @@ def _parse_t1_ocleanx20_inline(payload: bytes) -> dict[str, Any]:
             DATA_LAST_BRUSH_TIME: timestamp_s,
             DATA_LAST_BRUSH_PNUM: int(payload[15]),
         }
+        # Bytes 16-17 are record bytes 7-8, the SCHEDULED programme length (see
+        # _parse_m18f_record); the real-duration bytes 9-10 are cut off in this
+        # inline form. Verified on OCLEANV1a: a session saved 112 s after it
+        # started reported 200 s, the length of the selected programme.
         duration = (payload[16] << 8) | payload[17]
         if duration > 0:
-            result[DATA_LAST_BRUSH_DURATION] = duration
+            result[DATA_LAST_BRUSH_DURATION_SCHEDULED] = duration
         _LOGGER.debug(
-            "Oclean 0307 extended-offset inline: ts=%d pNum=%d duration=%s s byte8=0x%02x (raw: %s)",
+            "Oclean 0307 extended-offset inline: ts=%d pNum=%d scheduled=%s s byte8=0x%02x (raw: %s)",
             timestamp_s,
             result[DATA_LAST_BRUSH_PNUM],
-            result.get(DATA_LAST_BRUSH_DURATION, "n/a"),
+            result.get(DATA_LAST_BRUSH_DURATION_SCHEDULED, "n/a"),
             payload[8],
             payload.hex(),
         )
@@ -1230,6 +1241,66 @@ def _parse_device_settings_response(payload: bytes) -> dict[str, Any]:
     return result
 
 
+# 0302 device-settings record carried in a length-prefixed, fragmented response.
+# Observed on OCLEANV1a (fw 1.1.3.8) with a 23-byte ATT MTU: two notifications,
+# each starting with its own "0302" header:
+#   0302 | 23 | 24 | 24 00 01 01 00 03 00 01 01 01 01 03 00 02 00 00
+#   0302 | 1a 0a 02 09 1d 13 01 01 10 00 f0 00 5a 00 00 08 02 00
+# Header stripped and joined, byte 0 is the length of what follows (0x23 = 35),
+# byte 1 is unknown, and the remaining 34 bytes are the APK device-settings
+# record (see _parse_device_settings_response for the field list). Six fields
+# agreed with independent sources in that capture: battery = 0303 battery,
+# device clock = time of the query, areaRemind = the switch state set from HA,
+# headUsedTimes = sessions since the last brush-head reset.
+DEVICE_SETTINGS_RECORD_SIZE = 34
+
+
+def device_settings_record_valid(record: bytes) -> bool:
+    """True if *record* looks like a 34-byte device-settings record (sane battery and clock)."""
+    if len(record) < DEVICE_SETTINGS_RECORD_SIZE:
+        return False
+    year, month, day, hour, minute, second = record[16:22]
+    return (
+        record[0] <= 100 and 20 <= year <= 60 and 1 <= month <= 12 and 1 <= day <= 31 and hour < 24 and minute < 60
+    ) and second < 60
+
+
+def parse_device_settings_record(record: bytes) -> dict[str, Any]:
+    """Parse a reassembled 34-byte 0302 device-settings record (APK field layout).
+
+    Returns battery, brush mode, sessions on the current brush head and the
+    area-reminder state.  headMaxTimeLong (bytes 25-26, 240 observed), the
+    device clock and bytes 29-31 are logged only: not confirmed.
+    """
+    if not device_settings_record_valid(record):
+        _LOGGER.debug("Oclean 0302 record rejected (implausible): %s", record.hex())
+        return {}
+    # Bytes 27-28 ("headUsedTimeLong" in the APK) count brushing sessions on the
+    # current head: observed going 90 -> 91 across one real session on an
+    # OCLEANV1a. Byte 31, which the single-packet parser reads as
+    # headUsedTimes, stayed at 8 (the APK also lists deviceLanguage there), and
+    # headUsedDays (29-30) read 0 months after a head reset, so neither is used.
+    head_max = int.from_bytes(record[25:27], "big")
+    result: dict[str, Any] = {
+        DATA_BATTERY: int(record[0]),
+        DATA_BRUSH_MODE: int(record[5]),
+        DATA_BRUSH_HEAD_USAGE: int.from_bytes(record[27:29], "big"),
+        "area_remind": bool(record[23]),
+    }
+    _LOGGER.debug(
+        "Oclean 0302 record: clock=20%02d-%02d-%02d %02d:%02d:%02d tz=%d headMax=%d headUsedDays=%d byte31=%d "
+        "-> %s (raw: %s)",
+        *record[16:22],
+        record[24],
+        head_max,
+        int.from_bytes(record[29:31], "big"),
+        record[31],
+        result,
+        record.hex(),
+    )
+    return result
+
+
 def _parse_score_t1_response(payload: bytes) -> dict[str, Any]:
     """Parse 0000 score-push notification (Type-1 devices: Oclean X series).
 
@@ -1564,6 +1635,20 @@ _PARSERS: dict[bytes, Callable[[bytes], dict[str, Any]]] = {
     RESP_BRUSH_AREAS_Y3P: _parse_brush_areas_y3p_response,
     RESP_SESSION_META_Y3P: _parse_session_meta_y3p_response,
 }
+
+
+def is_known_frame(data: bytes) -> bool:
+    """True if *data* is a notification the parser recognises by its structure.
+
+    Used by the command probe and diagnostics to separate known frames from new
+    ones worth reporting. *B# continuation packets are not recognisable on their
+    own and count as unknown here.
+    """
+    if len(data) < 2:
+        return False
+    if data[:2] in _PARSERS:
+        return True
+    return len(data) >= 20 and data[1] == 0x03 and data[2] == 0x03 and data[4:9] == b"\xff\xff\xff\xff\xff"
 
 
 # Public set of all 2-byte prefixes recognised by parse_notification().

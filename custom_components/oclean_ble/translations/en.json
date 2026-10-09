@@ -169,6 +169,9 @@
       },
       "zone_lower_right_in": {
         "name": "Zone Lower Right In"
+      },
+      "battery_voltage": {
+        "name": "Battery voltage"
       }
     }
   },
