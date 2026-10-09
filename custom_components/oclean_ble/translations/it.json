@@ -1,0 +1,420 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Spazzolino Oclean (non ufficiale)",
+        "description": "Configura il tuo spazzolino smart Oclean. I dispositivi nelle vicinanze verranno elencati automaticamente se il Bluetooth è attivo."
+      },
+      "pick_device": {
+        "title": "Seleziona dispositivo Oclean",
+        "description": "Seleziona il dispositivo Oclean da integrare.",
+        "data": {
+          "mac_address": "Dispositivo",
+          "poll_interval": "Intervallo di aggiornamento (secondi)"
+        }
+      },
+      "manual": {
+        "title": "Configurazione manuale",
+        "description": "Nessun dispositivo Oclean trovato nelle vicinanze. Inserisci manualmente l'indirizzo MAC del tuo spazzolino Oclean. Puoi trovarlo nell'app ufficiale Oclean nelle impostazioni del dispositivo.",
+        "data": {
+          "mac_address": "Indirizzo MAC (es. AA:BB:CC:DD:EE:FF)",
+          "device_name": "Nome del dispositivo",
+          "poll_interval": "Intervallo di aggiornamento (secondi)"
+        },
+        "data_description": {
+          "mac_address": "L'indirizzo MAC Bluetooth del tuo spazzolino Oclean.",
+          "poll_interval": "Frequenza (in secondi) con cui interrogare il dispositivo. Minimo 60 s, oppure 0 per disattivare l'aggiornamento automatico. Predefinito: 300 s (5 min)."
+        }
+      },
+      "confirm": {
+        "title": "Conferma dispositivo Oclean",
+        "description": "Trovato dispositivo Oclean **{name}** ({mac}). Conferma per aggiungerlo.",
+        "data": {
+          "poll_interval": "Intervallo di aggiornamento (secondi)"
+        }
+      }
+    },
+    "error": {
+      "invalid_mac": "Formato indirizzo MAC non valido. Usa il formato AA:BB:CC:DD:EE:FF.",
+      "cannot_connect": "Impossibile connettersi al dispositivo. Assicurati che sia carico e nelle vicinanze."
+    },
+    "abort": {
+      "already_configured": "Questo dispositivo Oclean è già configurato.",
+      "no_devices_found": "Nessun dispositivo Oclean trovato."
+    }
+  },
+  "entity": {
+    "button": {
+      "reset_brush_head": {
+        "name": "Azzera testina spazzolino"
+      },
+      "sync_time": {
+        "name": "Sincronizza ora"
+      },
+      "poll_now": {
+        "name": "Aggiorna ora"
+      }
+    },
+    "select": {
+      "brush_scheme": {
+        "name": "Schema di spazzolamento",
+        "state": {
+          "Standard Clean": "Pulizia standard",
+          "standard_clean": "Pulizia standard",
+          "Medium-Strong Clean": "Pulizia medio-forte",
+          "medium_strong_clean": "Pulizia medio-forte",
+          "Strong Clean": "Pulizia forte",
+          "strong_clean": "Pulizia forte",
+          "Post-Wash Sensitive": "Sensibile post-lavaggio",
+          "post_wash_sensitive": "Sensibile post-lavaggio",
+          "Daily Whitening": "Sbiancamento quotidiano",
+          "daily_whitening": "Sbiancamento quotidiano",
+          "Medium Whitening": "Sbiancamento medio",
+          "medium_whitening": "Sbiancamento medio",
+          "Super Whitening": "Super sbiancamento",
+          "super_whitening": "Super sbiancamento",
+          "Sensitive Clean": "Pulizia delicata",
+          "sensitive_clean": "Pulizia delicata",
+          "Gentle SPA": "SPA delicata",
+          "gentle_spa": "SPA delicata",
+          "Standard SPA": "SPA standard",
+          "standard_spa": "SPA standard",
+          "Deep SPA": "SPA profonda",
+          "deep_spa": "SPA profonda",
+          "After Sweets": "Dopo dolci",
+          "after_sweets": "Dopo dolci",
+          "Post-Meal Fresh": "Freschezza dopo i pasti",
+          "post_meal_fresh": "Freschezza dopo i pasti",
+          "Gum Massage": "Massaggio gengivale",
+          "gum_massage": "Massaggio gengivale",
+          "Gum Care Clean": "Cura delle gengive",
+          "gum_care_clean": "Cura delle gengive",
+          "Beginner Whitening": "Sbiancamento principianti",
+          "beginner_whitening": "Sbiancamento principianti",
+          "Braces Clean": "Pulizia per apparecchio",
+          "braces_clean": "Pulizia per apparecchio",
+          "Quick Clean": "Pulizia rapida",
+          "quick_clean": "Pulizia rapida",
+          "Travel": "Viaggio",
+          "travel": "Viaggio",
+          "Gestation Care": "Cura in gravidanza",
+          "gestation_care": "Cura in gravidanza",
+          "Gentle Teeth Spa": "SPA dentale delicata",
+          "gentle_teeth_spa": "SPA dentale delicata",
+          "Standard Teeth Spa": "SPA dentale standard",
+          "standard_teeth_spa": "SPA dentale standard",
+          "Deep Cleaning Spa": "SPA pulizia profonda",
+          "deep_cleaning_spa": "SPA pulizia profonda",
+          "Newbie Whitening": "Sbiancamento principianti",
+          "newbie_whitening": "Sbiancamento principianti",
+          "Strong Whitening": "Sbiancamento forte",
+          "strong_whitening": "Sbiancamento forte",
+          "Sensitive Cleaning": "Pulizia delicata",
+          "sensitive_cleaning": "Pulizia delicata",
+          "Braces Cleaning": "Pulizia per apparecchio",
+          "braces_cleaning": "Pulizia per apparecchio",
+          "Strong Cleaning": "Pulizia forte",
+          "strong_cleaning": "Pulizia forte",
+          "Super Cleaning": "Super pulizia",
+          "super_cleaning": "Super pulizia",
+          "Gum Care Cleaning": "Cura delle gengive",
+          "gum_care_cleaning": "Cura delle gengive",
+          "Robust Cleaning": "Pulizia vigorosa",
+          "robust_cleaning": "Pulizia vigorosa",
+          "Beginner": "Principiante",
+          "beginner": "Principiante",
+          "Sugary Diet Cleaning": "Pulizia dieta zuccherina",
+          "sugary_diet_cleaning": "Pulizia dieta zuccherina",
+          "Gestation Period Cleaning": "Pulizia periodo gestazionale",
+          "gestation_period_cleaning": "Pulizia periodo gestazionale",
+          "Gum Care": "Cura delle gengive",
+          "gum_care": "Cura delle gengive",
+          "Standard Quick Cleaning": "Pulizia rapida standard",
+          "standard_quick_cleaning": "Pulizia rapida standard",
+          "Deep Cleaning": "Pulizia profonda",
+          "deep_cleaning": "Pulizia profonda",
+          "Robust Whitening": "Sbiancamento vigoroso",
+          "robust_whitening": "Sbiancamento vigoroso",
+          "Teeth Spa": "SPA dentale",
+          "teeth_spa": "SPA dentale",
+          "Strong Teeth Spa": "SPA dentale forte",
+          "strong_teeth_spa": "SPA dentale forte",
+          "Gentle Quick Cleaning": "Pulizia rapida delicata",
+          "gentle_quick_cleaning": "Pulizia rapida delicata",
+          "Whitening": "Sbiancamento",
+          "whitening": "Sbiancamento",
+          "18 Days Whitening": "Sbiancamento 18 giorni",
+          "18_days_whitening": "Sbiancamento 18 giorni",
+          "24 Days Whitening": "Sbiancamento 24 giorni",
+          "24_days_whitening": "Sbiancamento 24 giorni",
+          "Teeth Strengthening": "Rinforzo dentale",
+          "teeth_strengthening": "Rinforzo dentale",
+          "Standard Brushing Regimen": "Regime spazzolamento standard",
+          "standard_brushing_regimen": "Regime spazzolamento standard",
+          "Post-Wash Sensitivity": "Sensibilità post-lavaggio",
+          "post_wash_sensitivity": "Sensibilità post-lavaggio",
+          "Clear Your Mouth After Meals": "Pulizia bocca dopo i pasti",
+          "clear_your_mouth_after_meals": "Pulizia bocca dopo i pasti",
+          "Quick Cleaning": "Pulizia rapida",
+          "quick_cleaning": "Pulizia rapida"
+        }
+      }
+    },
+    "switch": {
+      "area_remind": {
+        "name": "Promemoria cambio zona"
+      },
+      "over_pressure": {
+        "name": "Avviso pressione eccessiva"
+      },
+      "remind_switch": {
+        "name": "Promemoria spazzolamento"
+      },
+      "running_switch": {
+        "name": "Timer spegnimento automatico"
+      }
+    },
+    "number": {
+      "brush_head_max_days": {
+        "name": "Durata massima testina"
+      }
+    },
+    "sensor": {
+      "battery": {
+        "name": "Batteria"
+      },
+      "last_brush_score": {
+        "name": "Punteggio"
+      },
+      "last_brush_coverage": {
+        "name": "Copertura"
+      },
+      "last_brush_duration": {
+        "name": "Durata"
+      },
+      "last_brush_pressure": {
+        "name": "Pressione"
+      },
+      "last_brush_time": {
+        "name": "Ultima sessione"
+      },
+      "brush_head_usage": {
+        "name": "Sessioni testina"
+      },
+      "brush_head_days": {
+        "name": "Età testina"
+      },
+      "brush_mode": {
+        "name": "Modalità"
+      },
+      "model_id": {
+        "name": "Modello"
+      },
+      "hw_revision": {
+        "name": "Revisione hardware"
+      },
+      "sw_version": {
+        "name": "Firmware"
+      },
+      "last_poll": {
+        "name": "Ultimo aggiornamento"
+      },
+      "cleaned_zones": {
+        "name": "Zone pulite"
+      },
+      "last_scheme": {
+        "name": "Ultimo schema",
+        "state": {
+          "Standard Clean": "Pulizia standard",
+          "standard_clean": "Pulizia standard",
+          "Medium-Strong Clean": "Pulizia medio-forte",
+          "medium_strong_clean": "Pulizia medio-forte",
+          "Strong Clean": "Pulizia forte",
+          "strong_clean": "Pulizia forte",
+          "Post-Wash Sensitive": "Sensibile post-lavaggio",
+          "post_wash_sensitive": "Sensibile post-lavaggio",
+          "Daily Whitening": "Sbiancamento quotidiano",
+          "daily_whitening": "Sbiancamento quotidiano",
+          "Medium Whitening": "Sbiancamento medio",
+          "medium_whitening": "Sbiancamento medio",
+          "Super Whitening": "Super sbiancamento",
+          "super_whitening": "Super sbiancamento",
+          "Sensitive Clean": "Pulizia delicata",
+          "sensitive_clean": "Pulizia delicata",
+          "Gentle SPA": "SPA delicata",
+          "gentle_spa": "SPA delicata",
+          "Standard SPA": "SPA standard",
+          "standard_spa": "SPA standard",
+          "Deep SPA": "SPA profonda",
+          "deep_spa": "SPA profonda",
+          "After Sweets": "Dopo dolci",
+          "after_sweets": "Dopo dolci",
+          "Post-Meal Fresh": "Freschezza dopo i pasti",
+          "post_meal_fresh": "Freschezza dopo i pasti",
+          "Gum Massage": "Massaggio gengivale",
+          "gum_massage": "Massaggio gengivale",
+          "Gum Care Clean": "Cura delle gengive",
+          "gum_care_clean": "Cura delle gengive",
+          "Beginner Whitening": "Sbiancamento principianti",
+          "beginner_whitening": "Sbiancamento principianti",
+          "Braces Clean": "Pulizia per apparecchio",
+          "braces_clean": "Pulizia per apparecchio",
+          "Quick Clean": "Pulizia rapida",
+          "quick_clean": "Pulizia rapida",
+          "Travel": "Viaggio",
+          "travel": "Viaggio",
+          "Gestation Care": "Cura in gravidanza",
+          "gestation_care": "Cura in gravidanza",
+          "Gentle Teeth Spa": "SPA dentale delicata",
+          "gentle_teeth_spa": "SPA dentale delicata",
+          "Standard Teeth Spa": "SPA dentale standard",
+          "standard_teeth_spa": "SPA dentale standard",
+          "Deep Cleaning Spa": "SPA pulizia profonda",
+          "deep_cleaning_spa": "SPA pulizia profonda",
+          "Newbie Whitening": "Sbiancamento principianti",
+          "newbie_whitening": "Sbiancamento principianti",
+          "Strong Whitening": "Sbiancamento forte",
+          "strong_whitening": "Sbiancamento forte",
+          "Sensitive Cleaning": "Pulizia delicata",
+          "sensitive_cleaning": "Pulizia delicata",
+          "Braces Cleaning": "Pulizia per apparecchio",
+          "braces_cleaning": "Pulizia per apparecchio",
+          "Strong Cleaning": "Pulizia forte",
+          "strong_cleaning": "Pulizia forte",
+          "Super Cleaning": "Super pulizia",
+          "super_cleaning": "Super pulizia",
+          "Gum Care Cleaning": "Cura delle gengive",
+          "gum_care_cleaning": "Cura delle gengive",
+          "Robust Cleaning": "Pulizia vigorosa",
+          "robust_cleaning": "Pulizia vigorosa",
+          "Beginner": "Principiante",
+          "beginner": "Principiante",
+          "Sugary Diet Cleaning": "Pulizia dieta zuccherina",
+          "sugary_diet_cleaning": "Pulizia dieta zuccherina",
+          "Gestation Period Cleaning": "Pulizia periodo gestazionale",
+          "gestation_period_cleaning": "Pulizia periodo gestazionale",
+          "Gum Care": "Cura delle gengive",
+          "gum_care": "Cura delle gengive",
+          "Standard Quick Cleaning": "Pulizia rapida standard",
+          "standard_quick_cleaning": "Pulizia rapida standard",
+          "Deep Cleaning": "Pulizia profonda",
+          "deep_cleaning": "Pulizia profonda",
+          "Robust Whitening": "Sbiancamento vigoroso",
+          "robust_whitening": "Sbiancamento vigoroso",
+          "Teeth Spa": "SPA dentale",
+          "teeth_spa": "SPA dentale",
+          "Strong Teeth Spa": "SPA dentale forte",
+          "strong_teeth_spa": "SPA dentale forte",
+          "Gentle Quick Cleaning": "Pulizia rapida delicata",
+          "gentle_quick_cleaning": "Pulizia rapida delicata",
+          "Whitening": "Sbiancamento",
+          "whitening": "Sbiancamento",
+          "18 Days Whitening": "Sbiancamento 18 giorni",
+          "18_days_whitening": "Sbiancamento 18 giorni",
+          "24 Days Whitening": "Sbiancamento 24 giorni",
+          "24_days_whitening": "Sbiancamento 24 giorni",
+          "Teeth Strengthening": "Rinforzo dentale",
+          "teeth_strengthening": "Rinforzo dentale",
+          "Standard Brushing Regimen": "Regime spazzolamento standard",
+          "standard_brushing_regimen": "Regime spazzolamento standard",
+          "Post-Wash Sensitivity": "Sensibilità post-lavaggio",
+          "post_wash_sensitivity": "Sensibilità post-lavaggio",
+          "Clear Your Mouth After Meals": "Pulizia bocca dopo i pasti",
+          "clear_your_mouth_after_meals": "Pulizia bocca dopo i pasti",
+          "Quick Cleaning": "Pulizia rapida",
+          "quick_cleaning": "Pulizia rapida"
+        }
+      },
+      "mac_address": {
+        "name": "Indirizzo MAC"
+      },
+      "rssi": {
+        "name": "Potenza segnale"
+      },
+      "duration_ratio": {
+        "name": "Valutazione durata"
+      },
+      "last_brush_gesture_code": {
+        "name": "Gesto"
+      },
+      "last_brush_pressure_ratio": {
+        "name": "Dettaglio pressione"
+      },
+      "last_brush_pressure_code": {
+        "name": "Livello di pressione"
+      },
+      "last_brush_power_array": {
+        "name": "Distribuzione potenza"
+      },
+      "zone_upper_left_out": {
+        "name": "Zona superiore sinistra esterna"
+      },
+      "zone_upper_left_in": {
+        "name": "Zona superiore sinistra interna"
+      },
+      "zone_lower_left_out": {
+        "name": "Zona inferiore sinistra esterna"
+      },
+      "zone_lower_left_in": {
+        "name": "Zona inferiore sinistra interna"
+      },
+      "zone_upper_right_out": {
+        "name": "Zona superiore destra esterna"
+      },
+      "zone_upper_right_in": {
+        "name": "Zona superiore destra interna"
+      },
+      "zone_lower_right_out": {
+        "name": "Zona inferiore destra esterna"
+      },
+      "zone_lower_right_in": {
+        "name": "Zona inferiore destra interna"
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Opzioni Oclean",
+        "data": {
+          "poll_interval": "Intervallo di aggiornamento (secondi)",
+          "post_brush_cooldown": "Pausa post-spazzolamento (ore)",
+          "window_count": "Numero di fasce orarie di spazzolamento"
+        },
+        "data_description": {
+          "poll_interval": "Frequenza con cui interrogare lo spazzolino via Bluetooth. Minimo 60 s. Imposta a 0 per disattivare l'aggiornamento automatico (solo manuale).",
+          "post_brush_cooldown": "Sospende l'aggiornamento per questo numero di ore dopo che viene rilevata una nuova sessione di spazzolamento. Imposta a 0 per disattivare.",
+          "window_count": "Limita l'aggiornamento a specifiche fasce orarie (es. mattina e sera). Imposta a 0 per aggiornare sempre."
+        }
+      },
+      "window_1": {
+        "title": "Fascia oraria 1",
+        "description": "Definisci la prima fascia oraria durante la quale interrogare lo spazzolino.",
+        "data": {
+          "window_start": "Dalle",
+          "window_end": "Alle"
+        }
+      },
+      "window_2": {
+        "title": "Fascia oraria 2",
+        "description": "Definisci la seconda fascia oraria durante la quale interrogare lo spazzolino.",
+        "data": {
+          "window_start": "Dalle",
+          "window_end": "Alle"
+        }
+      },
+      "window_3": {
+        "title": "Fascia oraria 3",
+        "description": "Definisci la terza fascia oraria durante la quale interrogare lo spazzolino.",
+        "data": {
+          "window_start": "Dalle",
+          "window_end": "Alle"
+        }
+      }
+    },
+    "error": {
+      "window_incomplete": "È necessario impostare sia l'ora di inizio che quella di fine.",
+      "invalid_poll_interval": "L'intervallo di aggiornamento deve essere 0 (manuale) o almeno 60 secondi."
+    }
+  }
+}
