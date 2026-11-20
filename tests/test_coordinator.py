@@ -3172,3 +3172,87 @@ class TestMeanMetadataKwargs:
 
         kwargs = _mean_metadata_kwargs()
         assert ("mean_type" in kwargs) != ("has_mean" in kwargs)
+
+
+# ---------------------------------------------------------------------------
+# No-CCCD subscribe via ESPHome Bluetooth proxy (issue #167)
+# ---------------------------------------------------------------------------
+
+
+class ESPHomeClient:
+    """Minimal stand-in for bleak_esphome's ESPHomeClient backend (matched by class name)."""
+
+    def __init__(self) -> None:
+        self._address_as_int = 0x70284568E3D0
+        self._notify_cancels: dict[int, object] = {}
+        self._client = MagicMock()
+        self._client.bluetooth_gatt_start_notify = AsyncMock(return_value=("stop", "remove"))
+
+
+def _no_cccd_client(backend: object) -> MagicMock:
+    char = MagicMock()
+    char.handle = 31
+    char.get_descriptor.return_value = None
+    client = MagicMock()
+    client._backend = backend
+    client.services.get_characteristic.return_value = char
+    client.start_notify = AsyncMock()
+    return client
+
+
+class TestSubscribeNoCccdEsphome:
+    """_try_subscribe_no_cccd must not write a synthetic CCCD through an ESPHome proxy."""
+
+    _UUID = "5f78df94-798c-46f5-990a-855b673fbb90"
+
+    async def test_esphome_subscribes_directly_and_registers_cancel(self):
+        from custom_components.oclean_ble.coordinator import _try_subscribe_no_cccd
+
+        backend = ESPHomeClient()
+        client = _no_cccd_client(backend)
+        handler = MagicMock()
+
+        assert await _try_subscribe_no_cccd(client, self._UUID, handler, MagicMock()) is True
+
+        start = backend._client.bluetooth_gatt_start_notify
+        start.assert_awaited_once()
+        address, handle, callback, _timeout = start.await_args.args
+        assert (address, handle) == (0x70284568E3D0, 31)
+        assert backend._notify_cancels[31] == ("stop", "remove")
+        client.start_notify.assert_not_called()
+        client.services.get_characteristic.return_value.add_descriptor.assert_not_called()
+
+        # Proxy callback (handle, data) is forwarded as Bleak-style (char, bytearray).
+        callback(31, b"\x03\x07")
+        handler.assert_called_once_with(client.services.get_characteristic.return_value, bytearray(b"\x03\x07"))
+
+    async def test_esphome_failure_does_not_fall_back_to_fake_cccd(self):
+        from custom_components.oclean_ble.coordinator import _try_subscribe_no_cccd
+
+        backend = ESPHomeClient()
+        backend._client.bluetooth_gatt_start_notify.side_effect = RuntimeError("proxy gone")
+        client = _no_cccd_client(backend)
+
+        assert await _try_subscribe_no_cccd(client, self._UUID, MagicMock(), MagicMock()) is False
+        assert backend._notify_cancels == {}
+        client.start_notify.assert_not_called()
+        client.services.get_characteristic.return_value.add_descriptor.assert_not_called()
+
+    async def test_esphome_skips_when_already_registered(self):
+        from custom_components.oclean_ble.coordinator import _try_subscribe_no_cccd
+
+        backend = ESPHomeClient()
+        backend._notify_cancels[31] = ("old", "old")
+        client = _no_cccd_client(backend)
+
+        assert await _try_subscribe_no_cccd(client, self._UUID, MagicMock(), MagicMock()) is False
+        backend._client.bluetooth_gatt_start_notify.assert_not_awaited()
+        assert backend._notify_cancels[31] == ("old", "old")
+
+    async def test_non_esphome_backend_keeps_fake_cccd_path(self):
+        from custom_components.oclean_ble.coordinator import _try_subscribe_no_cccd
+
+        client = _no_cccd_client(MagicMock())
+
+        assert await _try_subscribe_no_cccd(client, self._UUID, MagicMock(), MagicMock()) is True
+        client.start_notify.assert_awaited_once()

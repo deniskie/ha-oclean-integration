@@ -124,6 +124,56 @@ async def _clear_cccd(client: BleakClient, char_uuid: str) -> None:
         pass
 
 
+def _esphome_backend(client: BleakClient) -> Any | None:
+    """Return the bleak-esphome ``ESPHomeClient`` backend of *client*, or None.
+
+    Matched by class name so bleak-esphome stays an optional dependency.
+    """
+    backend = getattr(client, "_backend", None)
+    if type(backend).__name__ != "ESPHomeClient":
+        return None
+    if not all(hasattr(backend, attr) for attr in ("_client", "_notify_cancels", "_address_as_int")):
+        return None
+    return backend
+
+
+async def _try_subscribe_no_cccd_esphome(
+    client: BleakClient,
+    backend: Any,
+    char_uuid: str,
+    handler: Callable[[Any, bytearray], None],
+    log: logging.Logger | logging.LoggerAdapter[Any],
+) -> bool:
+    """Enable notifications on a no-CCCD characteristic via an ESPHome proxy.
+
+    Calls ``bluetooth_gatt_start_notify`` directly, which makes the proxy
+    register for notifications without writing any descriptor.  The returned
+    cancel callbacks are stored in ``_notify_cancels`` exactly like
+    bleak-esphome's own ``start_notify`` does, so ``client.stop_notify()``
+    tears the subscription down normally.
+    """
+    char = client.services.get_characteristic(char_uuid)
+    if char is None or char.handle in backend._notify_cancels:
+        return False
+    try:
+        backend._notify_cancels[char.handle] = await backend._client.bluetooth_gatt_start_notify(
+            backend._address_as_int,
+            char.handle,
+            lambda _handle, data: handler(char, bytearray(data)),
+            BLE_SUBSCRIBE_FIRST_TIMEOUT,
+        )
+    except Exception as err:  # noqa: BLE001
+        log.debug(
+            "ESPHome direct notify failed for %s: %s (%s)",
+            char_uuid,
+            err,
+            type(err).__name__,
+        )
+        return False
+    log.debug("subscribed to %s via ESPHome proxy without CCCD write (handle=%s)", char_uuid, char.handle)
+    return True
+
+
 async def _try_subscribe_no_cccd(
     client: BleakClient,
     char_uuid: str,
@@ -140,7 +190,16 @@ async def _try_subscribe_no_cccd(
 
     Workaround: inject a synthetic CCCD descriptor into the Bleak char object
     so the pre-flight check passes, call start_notify, then remove it.
+
+    ESPHome Bluetooth proxies need a different path: on REMOTE_CACHING (v3)
+    connections bleak-esphome writes the CCCD itself, so the synthetic
+    descriptor would be written over the air and the proxy rejects it with
+    "Invalid handle" (65534).  See _try_subscribe_no_cccd_esphome().
     """
+    esphome_backend = _esphome_backend(client)
+    if esphome_backend is not None:
+        return await _try_subscribe_no_cccd_esphome(client, esphome_backend, char_uuid, handler, log)
+
     injected_handle: int | None = None
     char = None
     try:
