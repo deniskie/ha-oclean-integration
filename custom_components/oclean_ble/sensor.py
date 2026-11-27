@@ -22,10 +22,13 @@ from homeassistant.const import (
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
+from .commands import ENTITY_SOURCE_COMMAND
 from .const import (
+    BRUSH_MODE_NAMES,
     CONF_DEVICE_NAME,
     CONF_MAC_ADDRESS,
     DATA_BATTERY,
+    DATA_BATTERY_VOLTAGE,
     DATA_BRUSH_HEAD_DAYS,
     DATA_BRUSH_HEAD_USAGE,
     DATA_BRUSH_MODE,
@@ -91,6 +94,16 @@ SENSOR_DESCRIPTIONS: tuple[SensorEntityDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=PERCENTAGE,
         icon="mdi:battery",
+    ),
+    # Battery voltage from 0303 bytes 1-2. Diagnostic: shows battery health and
+    # the charge curve better than the coarse percentage.
+    SensorEntityDescription(
+        key=DATA_BATTERY_VOLTAGE,
+        translation_key=DATA_BATTERY_VOLTAGE,
+        device_class=SensorDeviceClass.VOLTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement="mV",
+        entity_category=EntityCategory.DIAGNOSTIC,
     ),
     SensorEntityDescription(
         key=DATA_LAST_BRUSH_SCORE,
@@ -225,7 +238,11 @@ async def async_setup_entry(
     device_name = entry.data.get(CONF_DEVICE_NAME, "Oclean")
 
     entities: list[Any] = [
-        OcleanSensor(coordinator, description, mac, device_name) for description in SENSOR_DESCRIPTIONS
+        (OcleanBrushModeSensor if description.key == DATA_BRUSH_MODE else OcleanSensor)(
+            coordinator, description, mac, device_name
+        )
+        for description in SENSOR_DESCRIPTIONS
+        if _source_answered(coordinator, description.key)
     ]
     entities.append(OcleanBrushAreasSensor(coordinator, mac, device_name))
     entities.append(OcleanSchemeSensor(coordinator, mac, device_name))
@@ -237,6 +254,12 @@ async def async_setup_entry(
     entities.append(OcleanPressureDetailSensor(coordinator, mac, device_name))
     entities.append(OcleanPowerDistributionSensor(coordinator, mac, device_name))
     async_add_entities(entities)
+
+
+def _source_answered(coordinator: OcleanCoordinator, key: str) -> bool:
+    """False only when the command probe showed the entity's source query unanswered."""
+    command = ENTITY_SOURCE_COMMAND.get(key)
+    return command is None or coordinator.command_supported(command) is not False
 
 
 class OcleanSensor(OcleanEntity, SensorEntity):
@@ -285,6 +308,23 @@ class OcleanSensor(OcleanEntity, SensorEntity):
             and data.get(DATA_LAST_BRUSH_TIME) is not None
             and data.get(self.entity_description.key) is None
         )
+
+
+class OcleanBrushModeSensor(OcleanSensor):
+    """Brush mode number, with the mode's name as an attribute when known.
+
+    The state stays the number the device reports; ``mode_name`` is added for
+    models whose numbering was read from the brush (see BRUSH_MODE_NAMES).
+    """
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        data = self.coordinator.data
+        if data is None:
+            return None
+        mode = data.get(DATA_BRUSH_MODE)
+        name = BRUSH_MODE_NAMES.get(data.get(DATA_MODEL_ID) or "", {}).get(mode)
+        return {"mode_name": name} if name else None
 
 
 class OcleanBrushAreasSensor(OcleanEntity, SensorEntity):

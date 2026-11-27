@@ -36,6 +36,7 @@ class OcleanDeviceData:
     last_brush_gesture_array: list[int] | None = None
     last_brush_power_array: list[int] | None = None
     last_poll: int | None = None
+    battery_voltage: int | None = None
 
     # ------------------------------------------------------------------
     # Convenience helpers
@@ -76,4 +77,5 @@ class OcleanDeviceData:
             last_brush_gesture_array=data.get("last_brush_gesture_array"),
             last_brush_power_array=data.get("last_brush_power_array"),
             last_poll=data.get("last_poll"),
+            battery_voltage=data.get("battery_voltage"),
         )

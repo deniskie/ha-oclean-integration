@@ -106,6 +106,9 @@
       },
       "last_poll": {
         "name": "Last Poll"
+      },
+      "battery_voltage": {
+        "name": "Battery voltage"
       }
     }
   },

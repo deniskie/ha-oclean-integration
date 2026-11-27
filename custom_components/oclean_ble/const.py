@@ -10,6 +10,8 @@ POLL_INTERVAL_MANUAL = 0  # sentinel: disable automatic polling; only poll on-de
 
 # Service names
 SERVICE_POLL = "poll"
+SERVICE_PROBE_COMMANDS = "probe_commands"
+SERVICE_SEND_COMMAND = "send_command"
 
 # BLE UUIDs
 OCLEAN_SERVICE_UUID = "8082caa8-41a6-4021-91c6-56f9b954cc18"
@@ -131,6 +133,14 @@ BLE_ACTION_TOTAL_TIMEOUT = 45
 # Timeout for a single write_gatt_char() call in the polling path.
 # Guards against BlueZ or ESPHome proxy hangs on individual write operations.
 BLE_WRITE_TIMEOUT = 5.0
+# Command probe: how long to listen after each probed command, and the total
+# ceiling for a standalone probe (7 queries x 2 characteristics + connect).
+BLE_PROBE_WAIT = 1.2
+BLE_PROBE_TOTAL_TIMEOUT = 90
+# Extra poll budget when the probe runs inside a regular poll connection.
+BLE_PROBE_POLL_BUDGET = 30
+# Raw notification frames kept in memory for the diagnostics download.
+RAW_FRAME_BUFFER_SIZE = 200
 # Polling fallback: when notification subscriptions fail persistently (e.g. BlueZ
 # "Notify acquired"), read the response characteristic in a loop instead.
 BLE_POLL_FALLBACK_ATTEMPTS = 6
@@ -171,6 +181,7 @@ DATA_LAST_BRUSH_PRESSURE_CODE = "last_brush_pressure_code"  # int 0/50/60/70/80/
 DATA_LAST_BRUSH_GESTURE_ARRAY = "last_brush_gesture_array"  # list[int] len=13 (bytes 18-30)
 DATA_LAST_BRUSH_POWER_ARRAY = "last_brush_power_array"  # list[int] len=12, each 0-3 (nibbles from bytes 30-32)
 DATA_BRUSH_MODE = "brush_mode"  # int: active brushing mode number from 0302 device-settings response (byte 5)
+DATA_BATTERY_VOLTAGE = "battery_voltage"  # int mV from 0303 bytes 1-2 (0 = not measured)
 DATA_LAST_POLL = "last_poll"  # Unix timestamp (seconds) of the last successful BLE poll
 DATA_DURATION_RATIO = "duration_ratio"  # int 0-100+: duration/240*100 (APK: MineReportModel.timeLongRatio)
 
@@ -355,6 +366,23 @@ SCHEMES_BY_MODEL: dict[str, dict[int, tuple[str, list[tuple[int, int]]]]] = {
     "OCLEANY3S": OCLEANY3_SCHEMES,
     "OCLEANY3T": OCLEANY3_SCHEMES,
     "OCLEANY5": OCLEANY5_SCHEMES,  # Oclean Z1 — different pnum range (91-104)
+}
+
+# Brushing-mode names by the mode number the device reports in its 0302
+# settings record (DATA_BRUSH_MODE), per DIS model ID. The number is
+# model-specific and does NOT follow the on-device menu order, so only models
+# whose numbers were read from the brush itself are listed.
+# OCLEANV1a (Oclean X Ultra), read by selecting each mode on the brush:
+#   1 Sunrise Soothing, 3 Sensitive Gum Care, 4 Whitening Polishing,
+#   5 Unlimited Clean. Number 2 was not observed; by elimination it is the
+#   remaining default mode (Sunset Clearout), so it is left out until seen.
+BRUSH_MODE_NAMES: dict[str, dict[int, str]] = {
+    "OCLEANV1a": {
+        1: "Sunrise Soothing",
+        3: "Sensitive Gum Care",
+        4: "Whitening Polishing",
+        5: "Unlimited Clean",
+    },
 }
 
 # Persistent storage for session history

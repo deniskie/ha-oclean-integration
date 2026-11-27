@@ -243,6 +243,43 @@ To stop writing the file again, turn debug logging back off and reload the integ
 After brushing, filter the log for `Oclean` to see raw Bluetooth payloads.
 Unknown notification types are logged as hex – this helps extend the parser.
 
+### Command Probe, Raw Commands and Diagnostics
+
+Models differ in which queries they answer. On the first successful poll for a
+given model and firmware, the integration sends every known **read-only** query
+(`0303`, `0202`, `030201`, `0307`, `0308`, `0309`, `0314`) on both write
+characteristics and stores which ones the device answers. The probe reuses the
+poll's connection after the sessions have been read, and its answers are only
+recorded — never imported as sessions. Sensors whose only source is a query the
+device ignores (Brush Mode and Brush Head Days, both from `0302`) are not
+created after the next restart. Before the first probe every entity is created,
+as before.
+
+Two services help when a model behaves differently. Both need the toothbrush to
+be awake (pick it up, or press the button) and return their result in the
+Developer Tools → Actions response pane:
+
+```yaml
+action: oclean_ble.probe_commands   # re-run the probe now
+```
+
+```yaml
+action: oclean_ble.send_command     # one command, every frame received
+data:
+  command: running_data_t1          # a known name, or omit it and pass raw bytes:
+  # payload: "0307"
+  # characteristic: write           # brush_cmd (fbb89, default for Type-1) / write (fbb85)
+  wait: 3
+```
+
+`send_command` writes whatever you give it, including state-changing commands
+(`clear_brush_head`, `set_brush_scheme`, …). Use it for research only.
+
+**Download diagnostics** (Settings → Devices & Services → Oclean → ⋮) contains
+the stored probe report, the last 200 raw notification frames (kept in memory
+only) and the ones the parser does not recognise. The MAC address and device
+name are redacted. Attach this file when you open an issue for a new model.
+
 ---
 
 ## Compatibility

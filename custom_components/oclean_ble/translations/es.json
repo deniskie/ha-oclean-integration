@@ -166,6 +166,9 @@
       },
       "zone_lower_right_in": {
         "name": "Zona Inferior Derecha Interior"
+      },
+      "battery_voltage": {
+        "name": "Voltaje de la batería"
       }
     }
   },
