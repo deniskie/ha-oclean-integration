@@ -594,6 +594,24 @@ class TestProbeDrivenRouting:
         assert after[DATA_BRUSH_HEAD_USAGE] == 90
         assert coord.area_remind is True
 
+    async def test_first_probe_poll_already_reads_settings(self):
+        # No stored report: the probe learns the routing mid-poll and the
+        # queries are repeated, so the very first poll is not left empty.
+        coord = _v1a_coordinator()
+        coord._auto_probe = True
+        coord._dis_last_read_ts = 9e18
+        client = (
+            OcleanDeviceSimulator()
+            .on_command(bytes.fromhex("0303"), _V1A_0303, char=WRITE_CHAR_UUID)
+            .on_command(bytes.fromhex("030201"), _V1A_0302_A, _V1A_0302_B, char=WRITE_CHAR_UUID)
+            .on_command(bytes.fromhex("0307"), _V1A_0307, char=SEND_BRUSH_CMD_UUID)
+            .build_client()
+        )
+        result = await run_poll(coord, client)
+        assert coord.probe_report is not None
+        assert result[DATA_BRUSH_MODE] == 3
+        assert result[DATA_BRUSH_HEAD_USAGE] == 90
+
 
 class TestBrushModeNames:
     """Mode numbers read by selecting each mode on a real OCLEANV1a."""

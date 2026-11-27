@@ -1621,6 +1621,9 @@ class OcleanCoordinator(DataUpdateCoordinator[OcleanDeviceData]):
                 # A probe whose writes all failed says nothing about the device.
                 if report["tested"]:
                     self._probe_report = report
+                    # The queries above went out before the probe knew the
+                    # routing (OCLEANV1a ignores 0303/0302 on fbb89): ask again.
+                    await self._send_query_commands(client, session_received)
 
         await self._read_battery_and_unsubscribe(client, collected)
 
